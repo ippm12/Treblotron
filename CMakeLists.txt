@@ -6,7 +6,7 @@ set(PRJ_NAME Dart_Lens)
 
 project(${PRJ_NAME})
 
-set(MODULES_LIST "debug")
+set(MODULES_LIST "debug" "frame")
 
 add_executable(${PRJ_NAME} startup.cpp)
 
@@ -15,10 +15,6 @@ target_compile_options(${PRJ_NAME} PRIVATE
     $<$<CXX_COMPILER_ID:GNU,Clang>:-Wall -Wextra -Werror>
     $<$<CXX_COMPILER_ID:MSVC>:/W4 /WX>
 )
-
-set(Boost_USE_STATIC_LIBS OFF) 
-set(Boost_USE_MULTITHREADED ON)  
-set(Boost_USE_STATIC_RUNTIME OFF)
 
 # Common include should be available to everyone
 target_include_directories(${PRJ_NAME} PUBLIC ${PROJECT_SOURCE_DIR}/inc_common)
