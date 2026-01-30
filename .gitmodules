@@ -1,3 +1,6 @@
 [submodule "external_libs/spdlog"]
 	path = external_libs/spdlog
 	url = https://github.com/gabime/spdlog.git
+[submodule "external_libs/SDL"]
+	path = external_libs/SDL
+	url = https://github.com/libsdl-org/SDL.git
