@@ -36,3 +36,12 @@ endforeach()
 set(EXTERNAL_LIBS ${PROJECT_SOURCE_DIR}/external_libs)
 include_directories(${EXTERNAL_LIBS})
 add_subdirectory(${EXTERNAL_LIBS})
+
+# Copy SDL3 DLL to output directory (for Windows)
+if(WIN32)
+    add_custom_command(TARGET ${PRJ_NAME} POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+        $<TARGET_FILE:SDL3::SDL3>
+        $<TARGET_FILE_DIR:${PRJ_NAME}>
+    )
+endif()

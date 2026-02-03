@@ -32,6 +32,6 @@ typedef int32_t Status;
 #define STATUS_ERROR_NULL_PARAM         (-3)
 #define STATUS_ERROR_INVALID_PARAM      (-4)
 #define STATUS_ERROR_INVALID_STATE      (-5)
-
+#define STATUS_ERROR_NOT_INIT           (-6)
 
 #endif // COMMON_TYPES_HPP

@@ -28,8 +28,9 @@ typedef ssize_t LogID;
 #define LOG_SINK_CONSOLE_INDEX      1
 
 // Log IDs should all be specified here
-#define MAX_ASYNC_LOGS  1
+#define MAX_ASYNC_LOGS  2
 #define MAIN_LOG_ID     0 // The default log
+#define FRAME_LOG_ID    1 // The log for frame events
 
 // LogLevel definitions
 typedef ssize_t LogLevel;

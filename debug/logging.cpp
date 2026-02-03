@@ -22,7 +22,7 @@ static bool f_loggingInitialized = false;
 
 // A list of logs to write to.  Indexed by a LogLevel
 static LoggerPtr f_loggers[MAX_ASYNC_LOGS];
-static std::string f_loggerNames[MAX_ASYNC_LOGS] = {"Main"};
+static std::string f_loggerNames[MAX_ASYNC_LOGS] = {"Main", "Frame"};
 
 // The current console log, this defaults to the main log
 static LogID f_consoleLogID = LOG_ID_INVALID;
@@ -88,6 +88,7 @@ static Status createAsyncLog(LogID logID, LogLevel logLevel, std::string& name)
         // Set the log level
         SpdLogLevel spdLevel = convertLogLevel(logLevel);
         logger->set_level(spdLevel);
+        console_sink->set_level(spdlog::level::off);
 
         // Set pattern for log messages
         logger->set_pattern("[%Y-%m-%d %H:%M:%S.%e] [%^%l%$] %v");
