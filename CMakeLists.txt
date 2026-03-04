@@ -6,7 +6,7 @@ set(PRJ_NAME Dart_Lens)
 
 project(${PRJ_NAME})
 
-set(MODULES_LIST "debug" "frame")
+set(MODULES_LIST "debug" "frame" "game_lib"  "games")
 
 add_executable(${PRJ_NAME} startup.cpp)
 

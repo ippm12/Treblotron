@@ -8,4 +8,8 @@ target_link_libraries(${PRJ_NAME} PRIVATE spdlog::spdlog)
 add_subdirectory(SDL)
 target_link_libraries(${PRJ_NAME} PRIVATE SDL3::SDL3)
 
+# Flecs
+add_subdirectory(flecs)
+target_link_libraries(${PRJ_NAME} PRIVATE flecs::flecs_static)
+
 # Add more libraries here
