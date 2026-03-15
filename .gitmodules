@@ -1,3 +1,16 @@
 [submodule "external_libs/spdlog"]
 	path = external_libs/spdlog
 	url = https://github.com/gabime/spdlog.git
+[submodule "external_libs/SDL"]
+	path = external_libs/SDL
+	url = https://github.com/libsdl-org/SDL.git
+[submodule "external_libs/flecs"]
+	path = external_libs/flecs
+	url = https://github.com/SanderMertens/flecs.git
+[submodule "external_libs/SDL_ttf"]
+	path = external_libs/SDL_ttf
+	url = https://github.com/libsdl-org/SDL_ttf.git
+[submodule "external_libs/SDL_image"]
+	path = external_libs/SDL_image
+	url = https://github.com/libsdl-org/SDL_image.git
+	branch = release-3.4.x
