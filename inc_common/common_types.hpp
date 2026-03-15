@@ -33,5 +33,7 @@ typedef int32_t Status;
 #define STATUS_ERROR_INVALID_PARAM      (-4)
 #define STATUS_ERROR_INVALID_STATE      (-5)
 #define STATUS_ERROR_NOT_INIT           (-6)
+#define STATUS_ERROR_LIB_CALL           (-7)
+#define STATUS_ERROR_TOO_MANY_PLAYERS   (-8)
 
 #endif // COMMON_TYPES_HPP

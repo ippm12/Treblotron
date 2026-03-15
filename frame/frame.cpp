@@ -8,6 +8,10 @@
 #include <SDL3/SDL.h>
 #include "common_inc.hpp"
 #include "frame/frame.hpp"
+#include "frame/image.hpp"
+#include "frame_internal.hpp"
+#include "font_internal.hpp"
+
 
 typedef struct
 {
@@ -23,6 +27,32 @@ typedef struct
 // A pointer to each frame
 static FrameInfo f_frames[MAX_NUM_FRAMES];
 
+// Per-frame click handlers
+static FrameClickCallback f_clickHandlers[MAX_NUM_FRAMES];
+
+// Per-frame key handlers
+static FrameKeyCallback f_keyHandlers[MAX_NUM_FRAMES];
+
+// Per-frame text input handlers
+static FrameTextCallback f_textHandlers[MAX_NUM_FRAMES];
+
+// Per-frame gamepad button handlers
+static FrameGamepadButtonCallback f_gamepadButtonHandlers[MAX_NUM_FRAMES];
+
+// Open gamepad handles
+#define MAX_GAMEPADS 4
+static SDL_Gamepad* f_gamepads[MAX_GAMEPADS] = {};
+
+// Last input device used
+static InputDevice f_lastInputDevice = InputDevice::Keyboard;
+
+// Stick-to-digital conversion state
+static constexpr int16_t STICK_DEADZONE = 16000;
+static bool f_stickLeft  = false;
+static bool f_stickRight = false;
+static bool f_stickUp    = false;
+static bool f_stickDown  = false;
+
 // Whether the frame module ahs been initialized
 static bool f_frameModuleInitialized = false;
 
@@ -36,7 +66,7 @@ Status initializeFrameModule()
         return STATUS_ERROR_INVALID_STATE;
     }
 
-    // Null out local windows
+    // Null out local windows and click handlers
     for(int i = 0; i < MAX_NUM_FRAMES; i++)
     {
         f_frames[i].active = false;
@@ -45,13 +75,36 @@ Status initializeFrameModule()
         f_frames[i].id = 0;
         f_frames[i].width = 0;
         f_frames[i].height = 0;
+        f_clickHandlers[i] = nullptr;
+        f_keyHandlers[i] = nullptr;
+        f_textHandlers[i] = nullptr;
+        f_gamepadButtonHandlers[i] = nullptr;
     }
 
-    if(!SDL_Init(SDL_INIT_VIDEO))
+    for(int i = 0; i < MAX_GAMEPADS; i++)
+    {
+        f_gamepads[i] = nullptr;
+    }
+
+    if(!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_GAMEPAD))
     {
         // SDL failed intiialization
         LOG_ERROR(FRAME_LOG_ID, "SDL failed to init video");
         return STATUS_ERROR_GENERIC;
+    }
+
+    Status fontStatus = initializeFontSystem();
+    if(IS_STATUS_NOT_OK(fontStatus))
+    {
+        LOG_ERROR(FRAME_LOG_ID, "Failed to initialize font system");
+        return fontStatus;
+    }
+
+    Status imgStatus = initializeImageSystem();
+    if(IS_STATUS_NOT_OK(imgStatus))
+    {
+        LOG_ERROR(FRAME_LOG_ID, "Failed to initialize image system");
+        return imgStatus;
     }
 
     f_frameModuleInitialized = true;
@@ -72,6 +125,20 @@ void shutdownFrameModule()
             deleteFrame(i);
         }
     }
+
+    // Close any open gamepads
+    for(int i = 0; i < MAX_GAMEPADS; i++)
+    {
+        if(f_gamepads[i])
+        {
+            SDL_CloseGamepad(f_gamepads[i]);
+            f_gamepads[i] = nullptr;
+        }
+    }
+
+    // Shutdown image and font systems before SDL
+    shutdownImageSystem();
+    shutdownFontSystem();
 
     // Shutdown SDL library
     SDL_Quit();
@@ -177,6 +244,9 @@ void deleteFrame(FrameID frameId)
         return;
     }
 
+    // Clear text cache before destroying the renderer
+    clearTextCache(frameId);
+
     SDL_Window* win = nullptr;
     SDL_Renderer* rend = nullptr;
 
@@ -189,6 +259,10 @@ void deleteFrame(FrameID frameId)
         rend = f_frames[frameId].rend;
         f_frames[frameId].rend = nullptr;
         f_frames[frameId].id = 0;
+        f_clickHandlers[frameId] = nullptr;
+        f_keyHandlers[frameId] = nullptr;
+        f_textHandlers[frameId] = nullptr;
+        f_gamepadButtonHandlers[frameId] = nullptr;
     }
 
     // Destroy the frame
@@ -274,6 +348,24 @@ Status getFrameSize(FrameID id, size_t& width, size_t& height)
 }
 
 
+Status presentFrame(FrameID id)
+{
+    if(id >= MAX_NUM_FRAMES || !f_frames[id].active)
+    {
+        LOG_ERROR(FRAME_LOG_ID, "Invalid frame ID for present: {}", id);
+        return STATUS_ERROR_INVALID_PARAM;
+    }
+
+    if(!SDL_RenderPresent(f_frames[id].rend))
+    {
+        LOG_ERROR(FRAME_LOG_ID, "SDL failed to present frame: {}", SDL_GetError());
+        return STATUS_ERROR_LIB_CALL;
+    }
+
+    return STATUS_OK;
+}
+
+
 static FrameID convertSDLWindowIdToInternal(SDL_WindowID sdlId)
 {
     for(FrameID i = 0; i < MAX_NUM_FRAMES; i++)
@@ -297,17 +389,260 @@ bool pollFrames()
 
     while(SDL_PollEvent(&evt))
     {
-        LOG_INFO(FRAME_LOG_ID, "Received event: {}", evt.type);
         switch(evt.type)
         {
             case SDL_EVENT_QUIT:
                 continueRunning = false;
                 break;
             case SDL_EVENT_WINDOW_CLOSE_REQUESTED:
-                deleteFrame(convertSDLWindowIdToInternal(evt.window.windowID));
+            {
+                FrameID closedId = convertSDLWindowIdToInternal(evt.window.windowID);
+                if(closedId == 0)
+                {
+                    // Main frame closed — signal program exit
+                    continueRunning = false;
+                }
+                else
+                {
+                    deleteFrame(closedId);
+                }
                 break;
+            }
+            case SDL_EVENT_MOUSE_BUTTON_DOWN:
+            {
+                FrameID fid = convertSDLWindowIdToInternal(evt.button.windowID);
+                if(fid != INVALID_FRAME_ID && f_clickHandlers[fid])
+                {
+                    f_clickHandlers[fid](fid, evt.button.x, evt.button.y, evt.button.button);
+                }
+                break;
+            }
+            case SDL_EVENT_KEY_DOWN:
+            case SDL_EVENT_KEY_UP:
+            {
+                if(evt.type == SDL_EVENT_KEY_DOWN)
+                {
+                    f_lastInputDevice = InputDevice::Keyboard;
+                }
+                FrameID fid = convertSDLWindowIdToInternal(evt.key.windowID);
+                if(fid != INVALID_FRAME_ID && f_keyHandlers[fid])
+                {
+                    f_keyHandlers[fid](fid, evt.key.key, evt.type == SDL_EVENT_KEY_DOWN);
+                }
+                break;
+            }
+            case SDL_EVENT_TEXT_INPUT:
+            {
+                FrameID fid = convertSDLWindowIdToInternal(evt.text.windowID);
+                if(fid != INVALID_FRAME_ID && f_textHandlers[fid])
+                {
+                    f_textHandlers[fid](fid, evt.text.text);
+                }
+                break;
+            }
+            case SDL_EVENT_GAMEPAD_ADDED:
+            {
+                SDL_JoystickID jid = evt.gdevice.which;
+                if(SDL_IsGamepad(jid))
+                {
+                    // Find an empty slot
+                    for(int i = 0; i < MAX_GAMEPADS; i++)
+                    {
+                        if(f_gamepads[i] == nullptr)
+                        {
+                            f_gamepads[i] = SDL_OpenGamepad(jid);
+                            if(f_gamepads[i])
+                            {
+                                LOG_INFO(FRAME_LOG_ID, "Gamepad connected: {}",
+                                    SDL_GetGamepadName(f_gamepads[i]));
+                            }
+                            break;
+                        }
+                    }
+                }
+                break;
+            }
+            case SDL_EVENT_GAMEPAD_REMOVED:
+            {
+                SDL_JoystickID jid = evt.gdevice.which;
+                for(int i = 0; i < MAX_GAMEPADS; i++)
+                {
+                    if(f_gamepads[i] && SDL_GetGamepadID(f_gamepads[i]) == jid)
+                    {
+                        LOG_INFO(FRAME_LOG_ID, "Gamepad disconnected");
+                        SDL_CloseGamepad(f_gamepads[i]);
+                        f_gamepads[i] = nullptr;
+                        break;
+                    }
+                }
+                break;
+            }
+            case SDL_EVENT_GAMEPAD_BUTTON_DOWN:
+            case SDL_EVENT_GAMEPAD_BUTTON_UP:
+            {
+                if(evt.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN)
+                {
+                    f_lastInputDevice = InputDevice::Gamepad;
+                }
+                // Gamepad events are not window-specific; dispatch to frame 0
+                FrameID fid = 0;
+                if(f_frames[fid].active && f_gamepadButtonHandlers[fid])
+                {
+                    f_gamepadButtonHandlers[fid](fid, evt.gbutton.button,
+                        evt.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN);
+                }
+                break;
+            }
+            case SDL_EVENT_GAMEPAD_AXIS_MOTION:
+            {
+                f_lastInputDevice = InputDevice::Gamepad;
+                FrameID fid = 0;
+                if(!f_frames[fid].active || !f_gamepadButtonHandlers[fid])
+                {
+                    break;
+                }
+
+                uint8_t axis  = evt.gaxis.axis;
+                int16_t value = evt.gaxis.value;
+
+                if(axis == SDL_GAMEPAD_AXIS_LEFTX)
+                {
+                    bool nowLeft  = (value < -STICK_DEADZONE);
+                    bool nowRight = (value >  STICK_DEADZONE);
+                    if(nowLeft && !f_stickLeft)
+                        f_gamepadButtonHandlers[fid](fid, SDL_GAMEPAD_BUTTON_DPAD_LEFT, true);
+                    if(!nowLeft && f_stickLeft)
+                        f_gamepadButtonHandlers[fid](fid, SDL_GAMEPAD_BUTTON_DPAD_LEFT, false);
+                    if(nowRight && !f_stickRight)
+                        f_gamepadButtonHandlers[fid](fid, SDL_GAMEPAD_BUTTON_DPAD_RIGHT, true);
+                    if(!nowRight && f_stickRight)
+                        f_gamepadButtonHandlers[fid](fid, SDL_GAMEPAD_BUTTON_DPAD_RIGHT, false);
+                    f_stickLeft  = nowLeft;
+                    f_stickRight = nowRight;
+                }
+                else if(axis == SDL_GAMEPAD_AXIS_LEFTY)
+                {
+                    bool nowUp   = (value < -STICK_DEADZONE);
+                    bool nowDown = (value >  STICK_DEADZONE);
+                    if(nowUp && !f_stickUp)
+                        f_gamepadButtonHandlers[fid](fid, SDL_GAMEPAD_BUTTON_DPAD_UP, true);
+                    if(!nowUp && f_stickUp)
+                        f_gamepadButtonHandlers[fid](fid, SDL_GAMEPAD_BUTTON_DPAD_UP, false);
+                    if(nowDown && !f_stickDown)
+                        f_gamepadButtonHandlers[fid](fid, SDL_GAMEPAD_BUTTON_DPAD_DOWN, true);
+                    if(!nowDown && f_stickDown)
+                        f_gamepadButtonHandlers[fid](fid, SDL_GAMEPAD_BUTTON_DPAD_DOWN, false);
+                    f_stickDown = nowDown;
+                    f_stickUp   = nowUp;
+                }
+                break;
+            }
         }
     }
 
     return continueRunning;
+}
+
+
+SDL_Renderer* getFrameRenderer(FrameID id)
+{
+    if(id >= MAX_NUM_FRAMES || !f_frames[id].active)
+    {
+        return nullptr;
+    }
+    return f_frames[id].rend;
+}
+
+
+Status registerFrameClickHandler(FrameID frameId, FrameClickCallback callback)
+{
+    if(frameId >= MAX_NUM_FRAMES || !f_frames[frameId].active)
+    {
+        LOG_ERROR(FRAME_LOG_ID, "Cannot register click handler for invalid frame: {}", frameId);
+        return STATUS_ERROR_INVALID_PARAM;
+    }
+
+    f_clickHandlers[frameId] = callback;
+    return STATUS_OK;
+}
+
+
+void unregisterFrameClickHandler(FrameID frameId)
+{
+    if(frameId < MAX_NUM_FRAMES)
+    {
+        f_clickHandlers[frameId] = nullptr;
+    }
+}
+
+
+Status registerFrameKeyHandler(FrameID frameId, FrameKeyCallback callback)
+{
+    if(frameId >= MAX_NUM_FRAMES || !f_frames[frameId].active)
+    {
+        LOG_ERROR(FRAME_LOG_ID, "Cannot register key handler for invalid frame: {}", frameId);
+        return STATUS_ERROR_INVALID_PARAM;
+    }
+
+    f_keyHandlers[frameId] = callback;
+    return STATUS_OK;
+}
+
+
+void unregisterFrameKeyHandler(FrameID frameId)
+{
+    if(frameId < MAX_NUM_FRAMES)
+    {
+        f_keyHandlers[frameId] = nullptr;
+    }
+}
+
+
+Status registerFrameTextHandler(FrameID frameId, FrameTextCallback callback)
+{
+    if(frameId >= MAX_NUM_FRAMES || !f_frames[frameId].active)
+    {
+        LOG_ERROR(FRAME_LOG_ID, "Cannot register text handler for invalid frame: {}", frameId);
+        return STATUS_ERROR_INVALID_PARAM;
+    }
+
+    f_textHandlers[frameId] = callback;
+    return STATUS_OK;
+}
+
+
+void unregisterFrameTextHandler(FrameID frameId)
+{
+    if(frameId < MAX_NUM_FRAMES)
+    {
+        f_textHandlers[frameId] = nullptr;
+    }
+}
+
+
+Status registerFrameGamepadButtonHandler(FrameID frameId, FrameGamepadButtonCallback callback)
+{
+    if(frameId >= MAX_NUM_FRAMES || !f_frames[frameId].active)
+    {
+        LOG_ERROR(FRAME_LOG_ID, "Cannot register gamepad handler for invalid frame: {}", frameId);
+        return STATUS_ERROR_INVALID_PARAM;
+    }
+
+    f_gamepadButtonHandlers[frameId] = callback;
+    return STATUS_OK;
+}
+
+
+void unregisterFrameGamepadButtonHandler(FrameID frameId)
+{
+    if(frameId < MAX_NUM_FRAMES)
+    {
+        f_gamepadButtonHandlers[frameId] = nullptr;
+    }
+}
+
+
+InputDevice getLastInputDevice()
+{
+    return f_lastInputDevice;
 }
