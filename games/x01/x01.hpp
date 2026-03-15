@@ -23,10 +23,20 @@ enum class X01Variant : uint16_t
     V1001 = 1001
 };
 
+/** In/Out rule variants. */
+enum class X01InOutRule : uint8_t
+{
+    Any,     // No restriction
+    Double,  // Must hit a double (or inner bull)
+    Master   // Must hit a double, triple, or inner bull
+};
+
 class X01Game : public Game
 {
     public:
-        explicit X01Game(X01Variant variant = X01Variant::V501);
+        explicit X01Game(X01Variant variant = X01Variant::V501,
+                        X01InOutRule outRule = X01InOutRule::Double,
+                        X01InOutRule inRule  = X01InOutRule::Any);
         ~X01Game() override = default;
 
         Status init(FrameID frameId) override;
@@ -45,13 +55,18 @@ class X01Game : public Game
         void renderLeftPlayerDetail();
         void renderGameOver();
 
-        X01Variant  m_variant;
-        FontID      m_fontId;
-        FontID      m_largeFontId;
-        DartBoard   m_board;
+        X01Variant   m_variant;
+        X01InOutRule m_outRule;
+        X01InOutRule m_inRule;
+        FontID       m_fontId;
+        FontID       m_largeFontId;
+        DartBoard    m_board;
 
         // Per-player scores indexed by player index
         std::vector<uint16_t> m_playerScores;
+
+        // Per-player in-rule tracking (true = player has satisfied the in rule)
+        std::vector<bool> m_playerStarted;
 
         // Turn progression tracking
         uint16_t              m_turnStartScore = 0;
@@ -66,6 +81,10 @@ class X01Game : public Game
         std::vector<DartSegment> m_hitSegments;
         float       m_blinkTimer   = 0.0f;
         bool        m_blinkOn      = true;
+
+        // Bust display
+        bool        m_showBust  = false;
+        float       m_bustTimer = 0.0f;
 
         // Game over state
         bool        m_gameOver       = false;

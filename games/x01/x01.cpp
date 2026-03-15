@@ -43,10 +43,24 @@ static constexpr float LEFT_PROGRESS_Y   = 280.0f;
 static constexpr float LEFT_DARTS_Y      = 320.0f;
 static constexpr float LEFT_DART_ROW_H   = 28.0f;
 
+static constexpr float BUST_DISPLAY_TIME = 2.0f; // seconds to show BUST indicator
 
-X01Game::X01Game(X01Variant variant)
+/** Check whether a dart segment satisfies an in/out rule. */
+static bool satisfiesRule(X01InOutRule rule, DartSegment segment)
+{
+    if(rule == X01InOutRule::Any) return true;
+    DartRing ring = getSegmentRing(segment);
+    if(ring == DartRing::Double || ring == DartRing::InnerBull) return true;
+    if(rule == X01InOutRule::Master && ring == DartRing::Triple) return true;
+    return false;
+}
+
+
+X01Game::X01Game(X01Variant variant, X01InOutRule outRule, X01InOutRule inRule)
     : Game("X01")
     , m_variant(variant)
+    , m_outRule(outRule)
+    , m_inRule(inRule)
     , m_fontId(INVALID_FONT_ID)
     , m_largeFontId(INVALID_FONT_ID)
     , m_board()
@@ -80,6 +94,10 @@ Status X01Game::init(FrameID frameId)
     m_turnStartScore = startScore;
     m_turnScoreProgression.clear();
 
+    // Initialize in-rule tracking
+    bool startedByDefault = (m_inRule == X01InOutRule::Any);
+    m_playerStarted.assign(getPlayerCount(), startedByDefault);
+
     return STATUS_OK;
 }
 
@@ -90,6 +108,16 @@ void X01Game::update(float deltaTime)
     if(m_gameOver)
     {
         return;
+    }
+
+    // Bust display timer
+    if(m_showBust)
+    {
+        m_bustTimer -= deltaTime;
+        if(m_bustTimer <= 0.0f)
+        {
+            m_showBust = false;
+        }
     }
 
     uint16_t& score = m_playerScores[m_currentPlayerIndex];
@@ -152,15 +180,73 @@ void X01Game::update(float deltaTime)
         LOG_INFO(GAME_MANAGER_LOG_ID, "X01: Hit segment {} for {} points",
                  static_cast<int>(segment.value()), points);
 
-        // Subtract from score
-        if(points <= score)
-        {
-            score -= points;
-        }
-        // else: bust (to be implemented with proper bust rules)
-
         m_throwsRemaining--;
         m_statusText = "Waiting for Throw";
+
+        // In Rule: if the player hasn't started yet, only a qualifying dart counts
+        if(!m_playerStarted[m_currentPlayerIndex])
+        {
+            if(satisfiesRule(m_inRule, segment.value()))
+            {
+                m_playerStarted[m_currentPlayerIndex] = true;
+                LOG_INFO(GAME_MANAGER_LOG_ID, "X01: Player {} satisfied in rule", m_currentPlayerIndex);
+            }
+            else
+            {
+                // Dart doesn't count — still track segment for visual feedback
+                m_hitSegments.push_back(segment.value());
+                m_board.highlightSegment(segment.value());
+                m_turnScoreProgression.push_back(score); // score unchanged
+                if(m_throwsRemaining == 0) m_waitingForCollect = true;
+                hasPosition = popDartPosition(pos);
+                continue;
+            }
+        }
+
+        // Check for bust conditions
+        bool bust = false;
+        uint16_t newScore = 0;
+
+        if(points > score)
+        {
+            bust = true; // Would go negative
+        }
+        else
+        {
+            newScore = score - points;
+        }
+
+        if(!bust && newScore == 0)
+        {
+            // Reached zero — check out rule
+            if(!satisfiesRule(m_outRule, segment.value()))
+            {
+                bust = true; // Didn't finish on required double/master
+            }
+        }
+
+        if(!bust && newScore == 1 && m_outRule == X01InOutRule::Double)
+        {
+            bust = true; // Can't finish on a double from 1
+        }
+
+        if(bust)
+        {
+            LOG_INFO(GAME_MANAGER_LOG_ID, "X01: Player {} busts!", m_currentPlayerIndex);
+            score = m_turnStartScore;
+            m_throwsRemaining = 0;
+            m_showBust = true;
+            m_bustTimer = BUST_DISPLAY_TIME;
+            m_waitingForCollect = true;
+
+            // Still highlight the segment that caused the bust
+            m_hitSegments.push_back(segment.value());
+            m_board.highlightSegment(segment.value());
+            break;
+        }
+
+        // Apply score
+        score = newScore;
 
         // Check for win
         if(score == 0)
@@ -352,6 +438,40 @@ void X01Game::renderLeftPlayerDetail()
     scoreText->m_y        = LEFT_SCORE_Y;
     scoreText->m_z        = SIDEBAR_Z;
     renderQueueAdd(fid, scoreText);
+
+    // BUST indicator (large red text overlaying the score area)
+    if(m_showBust)
+    {
+        auto bustText = std::make_shared<RenderText>();
+        bustText->m_text     = "BUST";
+        bustText->m_color    = {220, 40, 40};
+        bustText->m_fontId   = m_largeFontId;
+        bustText->m_rotation = 0.0f;
+        bustText->m_scaleX   = 1.0f;
+        bustText->m_scaleY   = 1.0f;
+        bustText->m_x        = LEFT_PANEL_X + 120.0f;
+        bustText->m_y        = LEFT_SCORE_Y;
+        bustText->m_z        = SIDEBAR_Z + 1;
+        renderQueueAdd(fid, bustText);
+    }
+
+    // In-rule indicator: show what the player needs before darts count
+    if(m_inRule != X01InOutRule::Any && !m_playerStarted[m_currentPlayerIndex])
+    {
+        std::string needsText = (m_inRule == X01InOutRule::Double)
+            ? "Needs Double" : "Needs Double/Triple";
+        auto inText = std::make_shared<RenderText>();
+        inText->m_text     = needsText;
+        inText->m_color    = {255, 180, 60};
+        inText->m_fontId   = m_fontId;
+        inText->m_rotation = 0.0f;
+        inText->m_scaleX   = 1.0f;
+        inText->m_scaleY   = 1.0f;
+        inText->m_x        = LEFT_PANEL_X;
+        inText->m_y        = LEFT_SCORE_Y + 70.0f;
+        inText->m_z        = SIDEBAR_Z;
+        renderQueueAdd(fid, inText);
+    }
 
     // Turn progression: "501 > 481 > 461"
     std::string progression = std::to_string(m_turnStartScore);
