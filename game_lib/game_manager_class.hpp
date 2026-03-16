@@ -13,6 +13,7 @@
 #include "common_inc.hpp"
 #include "frame/frame.hpp"
 #include "game_lib/game.hpp"
+#include "game_lib/input_hints.hpp"
 #include "vision/vision_source.hpp"
 
 class GameManager
@@ -88,6 +89,9 @@ class GameManager
 
         // Factory to recreate current game for restart (nullopt = no restart)
         std::function<GamePtr()> m_gameFactory;
+
+        // Input hints for pause instruction in the status bar
+        InputHints m_inputHints;
 
 #ifdef DARTLENS_SHOW_FPS
         void enqueueFps(float deltaTime);

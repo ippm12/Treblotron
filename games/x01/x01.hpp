@@ -79,6 +79,7 @@ class X01Game : public Game
 
         // Blink state for highlighted segments
         std::vector<DartSegment> m_hitSegments;
+        std::vector<DartPosition> m_hitPositions; // exact hit locations for markers
         float       m_blinkTimer   = 0.0f;
         bool        m_blinkOn      = true;
 

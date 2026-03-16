@@ -41,6 +41,18 @@ static constexpr Color DEFAULT_HIGHLIGHT_PALETTE[] =
     { 120, 120, 120 },  // Background    - Gray
 };
 
+// ── Default dim palette (desaturated grays, alternating for boundary visibility) ──
+static constexpr Color DEFAULT_DIM_PALETTE[] =
+{
+    {  55,  55,  55 },  // DoubleTripleA - Dark gray  (was Red)
+    {  42,  42,  42 },  // DoubleTripleB - Darker gray (was Green)
+    {  75,  75,  75 },  // SingleA       - Medium gray (was Cream)
+    {  28,  28,  28 },  // SingleB       - Very dark gray (was Black)
+    {  42,  42,  42 },  // OuterBull     - Darker gray (was Green)
+    {  55,  55,  55 },  // InnerBull     - Dark gray  (was Red)
+    {  20,  20,  20 },  // Background    - Dim Black
+};
+
 // ── Z-order offsets from configurable base (inner layers render on top) ──
 static constexpr uint32_t Z_OFF_BACKGROUND   = 0;
 static constexpr uint32_t Z_OFF_DOUBLE       = 1;
@@ -126,7 +138,10 @@ DartBoard::DartBoard()
     : m_labelColor(DEFAULT_LABEL_COLOR)
 {
     for(size_t i = 0; i < NUM_SEGMENTS; i++)
+    {
         m_highlighted[i] = false;
+        m_dimmed[i] = false;
+    }
 }
 
 DartBoard::~DartBoard()
@@ -159,11 +174,13 @@ DartBoard::DartBoard(DartBoard&& other) noexcept
     {
         m_boardPalette[i]     = other.m_boardPalette[i];
         m_highlightPalette[i] = other.m_highlightPalette[i];
+        m_dimPalette[i]       = other.m_dimPalette[i];
     }
     for(size_t i = 0; i < NUM_SEGMENTS; i++)
     {
         m_segments[i]    = other.m_segments[i];
         m_highlighted[i] = other.m_highlighted[i];
+        m_dimmed[i]      = other.m_dimmed[i];
     }
     for(size_t i = 0; i < NUM_LABELS; i++)
         m_labels[i] = other.m_labels[i];
@@ -198,11 +215,13 @@ DartBoard& DartBoard::operator=(DartBoard&& other) noexcept
         {
             m_boardPalette[i]     = other.m_boardPalette[i];
             m_highlightPalette[i] = other.m_highlightPalette[i];
+            m_dimPalette[i]       = other.m_dimPalette[i];
         }
         for(size_t i = 0; i < NUM_SEGMENTS; i++)
         {
             m_segments[i]    = other.m_segments[i];
             m_highlighted[i] = other.m_highlighted[i];
+            m_dimmed[i]      = other.m_dimmed[i];
         }
         for(size_t i = 0; i < NUM_LABELS; i++)
             m_labels[i] = other.m_labels[i];
@@ -405,12 +424,14 @@ DartBoard DartBoard::create(flecs::world& world, float centerX, float centerY, f
     {
         board.m_boardPalette[i]     = DEFAULT_BOARD_PALETTE[i];
         board.m_highlightPalette[i] = DEFAULT_HIGHLIGHT_PALETTE[i];
+        board.m_dimPalette[i]       = DEFAULT_DIM_PALETTE[i];
     }
 
-    // All segments start unhighlighted
+    // All segments start unhighlighted and undimmed
     for(size_t i = 0; i < NUM_SEGMENTS; i++)
     {
         board.m_highlighted[i] = false;
+        board.m_dimmed[i]      = false;
     }
 
     board.m_root = world.entity("DartBoard");
@@ -610,7 +631,8 @@ void DartBoard::unhighlightSegment(DartSegment segment)
 
     m_highlighted[idx] = false;
     BoardColor role = getSegmentRole(segment);
-    setSegmentColor(segment, m_boardPalette[static_cast<size_t>(role)]);
+    size_t roleIdx = static_cast<size_t>(role);
+    setSegmentColor(segment, m_dimmed[idx] ? m_dimPalette[roleIdx] : m_boardPalette[roleIdx]);
 }
 
 
@@ -620,7 +642,78 @@ void DartBoard::unhighlightAll()
     {
         m_highlighted[i] = false;
         BoardColor role = getSegmentRole(static_cast<DartSegment>(i));
-        setSegmentColor(static_cast<DartSegment>(i), m_boardPalette[static_cast<size_t>(role)]);
+        size_t roleIdx = static_cast<size_t>(role);
+        setSegmentColor(static_cast<DartSegment>(i),
+                        m_dimmed[i] ? m_dimPalette[roleIdx] : m_boardPalette[roleIdx]);
+    }
+}
+
+
+void DartBoard::setDimColor(BoardColor role, Color color)
+{
+    size_t roleIdx = static_cast<size_t>(role);
+    if(roleIdx >= PALETTE_SIZE)
+    {
+        return;
+    }
+
+    m_dimPalette[roleIdx] = color;
+
+    // Update all dimmed, unhighlighted segments with this role
+    for(size_t i = 0; i < NUM_SEGMENTS; i++)
+    {
+        if(m_dimmed[i] && !m_highlighted[i] && getSegmentRole(static_cast<DartSegment>(i)) == role)
+        {
+            setSegmentColor(static_cast<DartSegment>(i), color);
+        }
+    }
+}
+
+
+void DartBoard::dimSegment(DartSegment segment)
+{
+    size_t idx = static_cast<size_t>(segment);
+    if(idx >= NUM_SEGMENTS)
+    {
+        return;
+    }
+
+    m_dimmed[idx] = true;
+    if(!m_highlighted[idx])
+    {
+        BoardColor role = getSegmentRole(segment);
+        setSegmentColor(segment, m_dimPalette[static_cast<size_t>(role)]);
+    }
+}
+
+
+void DartBoard::undimSegment(DartSegment segment)
+{
+    size_t idx = static_cast<size_t>(segment);
+    if(idx >= NUM_SEGMENTS)
+    {
+        return;
+    }
+
+    m_dimmed[idx] = false;
+    if(!m_highlighted[idx])
+    {
+        BoardColor role = getSegmentRole(segment);
+        setSegmentColor(segment, m_boardPalette[static_cast<size_t>(role)]);
+    }
+}
+
+
+void DartBoard::undimAll()
+{
+    for(size_t i = 0; i < NUM_SEGMENTS; i++)
+    {
+        m_dimmed[i] = false;
+        if(!m_highlighted[i])
+        {
+            BoardColor role = getSegmentRole(static_cast<DartSegment>(i));
+            setSegmentColor(static_cast<DartSegment>(i), m_boardPalette[static_cast<size_t>(role)]);
+        }
     }
 }
 
