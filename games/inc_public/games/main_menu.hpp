@@ -69,9 +69,15 @@ class MainMenu : public Game
         int                 m_settingsCursor;  // 0..N-1 = settings, N = Start button
 
         // Player settings sub-screen
-        int         m_playerCursor;
+        int         m_playerCursor;         // unified cursor across players + teams sections
+        int         m_playerSettingsScroll;  // first visible row for scrolling
         bool        m_renaming;
         std::string m_renameBuffer;
+        bool        m_renamingTeam;
+        std::string m_teamRenameBuffer;
+        bool        m_showEmptyTeamWarning;
+        bool        m_showDuplicateNameWarning;
+        bool        m_showNoTeamsWarning;
 
         // Fonts
         FontID m_titleFontId;

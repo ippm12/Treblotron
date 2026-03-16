@@ -10,7 +10,7 @@
 
 #include "frame/frame.hpp"
 
-#define MAX_NUM_IMAGES      64
+#define MAX_NUM_IMAGES      256
 #define INVALID_IMAGE_ID    SIZE_MAX
 typedef size_t ImageID;
 

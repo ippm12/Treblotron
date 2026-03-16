@@ -188,6 +188,9 @@ Status GameManager::initialize()
         m_currentGame->onTextInput(text);
     });
 
+    // Load input hint icons for the pause instruction
+    m_inputHints.init();
+
     m_currentGame = nullptr;
     m_lastTickNs = SDL_GetTicksNS();
 
@@ -231,6 +234,9 @@ void GameManager::shutdown()
         m_currentGame->shutdown();
         m_currentGame = nullptr;
     }
+
+    // Unload input hint icons
+    m_inputHints.shutdown();
 
     // Unload pause menu font
     if(m_pauseFontId != INVALID_FONT_ID)
@@ -772,6 +778,15 @@ void GameManager::enqueueBar(const GameBarInfo& info)
         }
     }
     // Blank: background only
+
+    // Pause hint (shown for all pauseable games, regardless of state)
+    if(m_currentGame && m_currentGame->isPauseable() && m_pauseFontId != INVALID_FONT_ID)
+    {
+        m_inputHints.render(m_frameId, m_pauseFontId, BAR_WIDTH - 150.0f,
+                            BAR_Y - 40.0f, BAR_Z, {
+            {SDLK_ESCAPE, SDL_GAMEPAD_BUTTON_START, "pause"}
+        });
+    }
 }
 
 

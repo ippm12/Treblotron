@@ -66,7 +66,12 @@ MainMenu::MainMenu()
     , m_selectedGameIndex(0)
     , m_settingsCursor(0)
     , m_playerCursor(0)
+    , m_playerSettingsScroll(0)
     , m_renaming(false)
+    , m_renamingTeam(false)
+    , m_showEmptyTeamWarning(false)
+    , m_showDuplicateNameWarning(false)
+    , m_showNoTeamsWarning(false)
     , m_titleFontId(INVALID_FONT_ID)
     , m_cardFontId(INVALID_FONT_ID)
     , m_smallFontId(INVALID_FONT_ID)
@@ -192,7 +197,12 @@ void MainMenu::onKeyDown(uint32_t keycode)
 
 void MainMenu::onTextInput(const char* text)
 {
-    if(m_state != MenuState::PlayerSettings || !m_renaming || text == nullptr)
+    if(m_state != MenuState::PlayerSettings || text == nullptr)
+    {
+        return;
+    }
+
+    if(!m_renaming && !m_renamingTeam)
     {
         return;
     }
@@ -204,11 +214,21 @@ void MainMenu::onTextInput(const char* text)
         return;
     }
 
-    // Append text to rename buffer (may be multi-byte UTF-8)
+    // Append text to the active rename buffer (may be multi-byte UTF-8)
     std::string input(text);
-    if(m_renameBuffer.length() + input.length() <= MAX_NAME_LEN)
+    if(m_renaming)
     {
-        m_renameBuffer += input;
+        if(m_renameBuffer.length() + input.length() <= MAX_NAME_LEN)
+        {
+            m_renameBuffer += input;
+        }
+    }
+    else if(m_renamingTeam)
+    {
+        if(m_teamRenameBuffer.length() + input.length() <= MAX_NAME_LEN)
+        {
+            m_teamRenameBuffer += input;
+        }
     }
 }
 
@@ -314,7 +334,11 @@ void MainMenu::openCard()
     {
         m_state = MenuState::PlayerSettings;
         m_playerCursor = 0;
+        m_playerSettingsScroll = 0;
         m_renaming = false;
+        m_renamingTeam = false;
+        m_showEmptyTeamWarning = false;
+        m_showDuplicateNameWarning = false;
     }
     else
     {
@@ -462,13 +486,26 @@ void MainMenu::renderCardGrid()
             titleText->m_z        = CARD_Z + 2;
             renderQueueAdd(fid, titleText);
 
-            // Card description
+            // Card description — scale down if it overflows the card
+            float descScaleX = 1.0f;
+            float maxDescW = CARD_W - 40.0f;
+            TTF_Font* descFont = getFont(m_smallFontId);
+            if(descFont)
+            {
+                int descW = 0, descH = 0;
+                TTF_GetStringSize(descFont, cardDesc.c_str(), 0, &descW, &descH);
+                if(static_cast<float>(descW) > maxDescW)
+                {
+                    descScaleX = maxDescW / static_cast<float>(descW);
+                }
+            }
+
             auto descText = std::make_shared<RenderText>();
             descText->m_text     = cardDesc;
             descText->m_color    = {160, 160, 170};
             descText->m_fontId   = m_smallFontId;
             descText->m_rotation = 0.0f;
-            descText->m_scaleX   = 1.0f;
+            descText->m_scaleX   = descScaleX;
             descText->m_scaleY   = 1.0f;
             descText->m_x        = cardX + 20.0f;
             descText->m_y        = cardY + 70.0f;
@@ -545,6 +582,13 @@ void MainMenu::renderCardGrid()
 
 void MainMenu::handleGameSettingsKey(uint32_t keycode)
 {
+    // Dismiss warning on any key
+    if(m_showNoTeamsWarning)
+    {
+        m_showNoTeamsWarning = false;
+        return;
+    }
+
     const auto& desc = getRegisteredGames()[m_selectedGameIndex];
     int settingCount = static_cast<int>(desc.settings.size());
     int totalRows = settingCount + 1;  // settings + Start button
@@ -587,6 +631,17 @@ void MainMenu::handleGameSettingsKey(uint32_t keycode)
         case SDLK_KP_ENTER:
             if(m_settingsCursor == settingCount)
             {
+                // Check if any "Teams" setting is enabled but no teams exist
+                for(int s = 0; s < settingCount; s++)
+                {
+                    if(desc.settings[s].name == "Teams" && m_settingChoices[s] > 0
+                       && getTeamCount() == 0)
+                    {
+                        m_showNoTeamsWarning = true;
+                        return;
+                    }
+                }
+
                 // Start game with restart factory
                 auto choices = m_settingChoices;
                 auto factory = [desc, choices]() -> GamePtr {
@@ -732,6 +787,88 @@ void MainMenu::renderGameSettings()
         {SDLK_RETURN, SDL_GAMEPAD_BUTTON_SOUTH,      "confirm"},
         {SDLK_ESCAPE, SDL_GAMEPAD_BUTTON_EAST,       "back"}
     });
+
+    // ---- No-teams warning popup ----
+    if(m_showNoTeamsWarning)
+    {
+        // Dark overlay
+        auto overlay = std::make_shared<RenderShape>();
+        overlay->m_type   = ShapeType::Box;
+        overlay->m_color  = {20, 20, 20};
+        overlay->m_x      = 0.0f;
+        overlay->m_y      = 0.0f;
+        overlay->m_z      = SETTINGS_Z + 80;
+        overlay->m_width  = WINDOW_W;
+        overlay->m_height = WINDOW_H;
+        renderQueueAdd(fid, overlay);
+
+        // Panel
+        float panelW = 500.0f;
+        float panelH = 140.0f;
+        float panelX = (WINDOW_W - panelW) * 0.5f;
+        float panelY = (WINDOW_H - panelH) * 0.5f - 30.0f;
+
+        auto panel = std::make_shared<RenderShape>();
+        panel->m_type   = ShapeType::Box;
+        panel->m_color  = {50, 50, 55};
+        panel->m_x      = panelX;
+        panel->m_y      = panelY;
+        panel->m_z      = SETTINGS_Z + 81;
+        panel->m_width  = panelW;
+        panel->m_height = panelH;
+        renderQueueAdd(fid, panel);
+
+        // Warning text
+        std::string msg1 = "Teams mode requires at least";
+        std::string msg2 = "one team. Create teams in Player Settings.";
+
+        TTF_Font* cardFont = getFont(m_cardFontId);
+
+        auto line1 = std::make_shared<RenderText>();
+        line1->m_text     = msg1;
+        line1->m_color    = {255, 200, 80};
+        line1->m_fontId   = m_cardFontId;
+        line1->m_rotation = 0.0f;
+        line1->m_scaleX   = 1.0f;
+        line1->m_scaleY   = 1.0f;
+        line1->m_z        = SETTINGS_Z + 82;
+        line1->m_y        = panelY + 25.0f;
+        int w1 = 0, h1 = 0;
+        if(cardFont) TTF_GetStringSize(cardFont, msg1.c_str(), 0, &w1, &h1);
+        line1->m_x = panelX + (panelW - w1) * 0.5f;
+        renderQueueAdd(fid, line1);
+
+        auto line2 = std::make_shared<RenderText>();
+        line2->m_text     = msg2;
+        line2->m_color    = {255, 200, 80};
+        line2->m_fontId   = m_cardFontId;
+        line2->m_rotation = 0.0f;
+        line2->m_scaleX   = 1.0f;
+        line2->m_scaleY   = 1.0f;
+        line2->m_z        = SETTINGS_Z + 82;
+        line2->m_y        = panelY + 60.0f;
+        int w2 = 0, h2 = 0;
+        if(cardFont) TTF_GetStringSize(cardFont, msg2.c_str(), 0, &w2, &h2);
+        line2->m_x = panelX + (panelW - w2) * 0.5f;
+        renderQueueAdd(fid, line2);
+
+        // Dismiss hint
+        std::string dismiss = "Press any key to dismiss";
+        auto dismissText = std::make_shared<RenderText>();
+        dismissText->m_text     = dismiss;
+        dismissText->m_color    = {140, 140, 150};
+        dismissText->m_fontId   = m_smallFontId;
+        dismissText->m_rotation = 0.0f;
+        dismissText->m_scaleX   = 1.0f;
+        dismissText->m_scaleY   = 1.0f;
+        dismissText->m_z        = SETTINGS_Z + 82;
+        dismissText->m_y        = panelY + 100.0f;
+        TTF_Font* smallFont = getFont(m_smallFontId);
+        int w3 = 0, h3 = 0;
+        if(smallFont) TTF_GetStringSize(smallFont, dismiss.c_str(), 0, &w3, &h3);
+        dismissText->m_x = panelX + (panelW - w3) * 0.5f;
+        renderQueueAdd(fid, dismissText);
+    }
 }
 
 
@@ -739,10 +876,123 @@ void MainMenu::renderGameSettings()
 // Player Settings sub-screen
 // ============================================================================
 
+/** Helper: compute the total number of selectable rows in the player settings screen. */
+static int playerSettingsRowCount()
+{
+    // players + "Add Player" + teams + "Add Team"
+    return getPlayerCount() + 1 + getTeamCount() + 1;
+}
+
+/** Helper: clamp the player settings scroll so cursor is visible. */
+static constexpr int VISIBLE_SETTINGS_ROWS = 8;
+
+static void clampPlayerSettingsScroll(int cursor, int& scroll)
+{
+    // Account for the visual divider taking a row of space.
+    // The divider appears after the "Add Player" row (logical row = playerCount).
+    // Visual row = logical row + (1 if past Add Player, to account for divider).
+    int playerCount = getPlayerCount();
+    int visualRow = cursor;
+    if(cursor > playerCount)
+    {
+        visualRow = cursor + 1; // +1 for the divider
+    }
+
+    if(visualRow < scroll)
+    {
+        scroll = visualRow;
+    }
+    if(visualRow >= scroll + VISIBLE_SETTINGS_ROWS)
+    {
+        scroll = visualRow - VISIBLE_SETTINGS_ROWS + 1;
+    }
+    if(scroll < 0) scroll = 0;
+}
+
+
+/** Check if a player name is already used by another player (excluding excludeId). */
+static bool isPlayerNameTaken(const std::string& name, PlayerID excludeId)
+{
+    uint8_t count = getPlayerCount();
+    for(uint8_t i = 0; i < count; i++)
+    {
+        PlayerID pid = getPlayerByIndex(i);
+        if(pid != excludeId && getPlayerName(pid) == name)
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+/** Check if a team name is already used by another team (excluding excludeId). */
+static bool isTeamNameTaken(const std::string& name, TeamID excludeId)
+{
+    uint8_t count = getTeamCount();
+    for(uint8_t i = 0; i < count; i++)
+    {
+        TeamID tid = getTeamByIndex(i);
+        if(tid != excludeId && getTeamName(tid) == name)
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+/** Generate a unique player name like "Player 3" that doesn't collide. */
+static std::string generateUniquePlayerName()
+{
+    for(int n = getPlayerCount() + 1; ; n++)
+    {
+        std::string candidate = "Player " + std::to_string(n);
+        if(!isPlayerNameTaken(candidate, INVALID_PLAYER_ID))
+        {
+            return candidate;
+        }
+    }
+}
+
+/** Generate a unique team name like "Team 2" that doesn't collide. */
+static std::string generateUniqueTeamName()
+{
+    for(int n = getTeamCount() + 1; ; n++)
+    {
+        std::string candidate = "Team " + std::to_string(n);
+        if(!isTeamNameTaken(candidate, INVALID_TEAM_ID))
+        {
+            return candidate;
+        }
+    }
+}
+
+
 void MainMenu::handlePlayerSettingsKey(uint32_t keycode)
 {
     uint8_t playerCount = getPlayerCount();
-    int totalRows = playerCount + 1;  // players + "Add Player" row
+    uint8_t teamCount = getTeamCount();
+    int totalRows = playerSettingsRowCount();
+
+    // Row ranges:
+    // 0..playerCount-1              = player rows
+    // playerCount                   = "Add Player"
+    // playerCount+1..playerCount+teamCount = team rows
+    // playerCount+teamCount+1       = "Add Team"
+
+    // Dismiss warnings on any key
+    if(m_showEmptyTeamWarning || m_showDuplicateNameWarning)
+    {
+        m_showEmptyTeamWarning = false;
+        m_showDuplicateNameWarning = false;
+        return;
+    }
+
+    bool onPlayerRow    = (m_playerCursor < playerCount);
+    bool onAddPlayer    = (m_playerCursor == playerCount);
+    bool onTeamRow      = (m_playerCursor > playerCount && m_playerCursor <= playerCount + teamCount);
+    bool onAddTeam      = (m_playerCursor == playerCount + teamCount + 1);
+    (void)onAddPlayer; // used implicitly below
+    (void)onAddTeam;
 
     // If virtual keyboard is open, route input there
     if(m_virtualKeyboard.isOpen())
@@ -750,37 +1000,72 @@ void MainMenu::handlePlayerSettingsKey(uint32_t keycode)
         VirtualKeyboardResult result = m_virtualKeyboard.handleKey(keycode);
         if(result == VirtualKeyboardResult::Confirmed)
         {
-            PlayerID pid = getPlayerByIndex(static_cast<uint8_t>(m_playerCursor));
-            if(pid != INVALID_PLAYER_ID)
+            std::string newName = m_virtualKeyboard.getText();
+            if(m_renaming)
             {
-                setPlayerName(pid, m_virtualKeyboard.getText());
+                PlayerID pid = getPlayerByIndex(static_cast<uint8_t>(m_playerCursor));
+                if(pid != INVALID_PLAYER_ID)
+                {
+                    if(!newName.empty() && isPlayerNameTaken(newName, pid))
+                    {
+                        m_showDuplicateNameWarning = true;
+                    }
+                    else if(!newName.empty())
+                    {
+                        setPlayerName(pid, newName);
+                    }
+                }
+                m_renaming = false;
             }
-            m_renaming = false;
+            else if(m_renamingTeam)
+            {
+                int teamIdx = m_playerCursor - playerCount - 1;
+                TeamID tid = getTeamByIndex(static_cast<uint8_t>(teamIdx));
+                if(tid != INVALID_TEAM_ID)
+                {
+                    if(!newName.empty() && isTeamNameTaken(newName, tid))
+                    {
+                        m_showDuplicateNameWarning = true;
+                    }
+                    else if(!newName.empty())
+                    {
+                        setTeamName(tid, newName);
+                    }
+                }
+                m_renamingTeam = false;
+            }
             m_virtualKeyboard.close();
         }
         else if(result == VirtualKeyboardResult::Cancelled)
         {
             m_renaming = false;
+            m_renamingTeam = false;
             m_virtualKeyboard.close();
         }
         return;
     }
 
+    // Physical keyboard rename mode (player)
     if(m_renaming)
     {
-        // In rename mode: handle text editing keys (physical keyboard)
         switch(keycode)
         {
             case SDLK_RETURN:
             case SDLK_KP_ENTER:
             {
-                // Confirm rename
                 if(!m_renameBuffer.empty())
                 {
                     PlayerID pid = getPlayerByIndex(static_cast<uint8_t>(m_playerCursor));
                     if(pid != INVALID_PLAYER_ID)
                     {
-                        setPlayerName(pid, m_renameBuffer);
+                        if(isPlayerNameTaken(m_renameBuffer, pid))
+                        {
+                            m_showDuplicateNameWarning = true;
+                        }
+                        else
+                        {
+                            setPlayerName(pid, m_renameBuffer);
+                        }
                     }
                 }
                 m_renaming = false;
@@ -788,7 +1073,6 @@ void MainMenu::handlePlayerSettingsKey(uint32_t keycode)
                 break;
             }
             case SDLK_ESCAPE:
-                // Cancel rename
                 m_renaming = false;
                 SDL_StopTextInput(SDL_GetKeyboardFocus());
                 break;
@@ -804,19 +1088,107 @@ void MainMenu::handlePlayerSettingsKey(uint32_t keycode)
         return;
     }
 
+    // Physical keyboard rename mode (team)
+    if(m_renamingTeam)
+    {
+        switch(keycode)
+        {
+            case SDLK_RETURN:
+            case SDLK_KP_ENTER:
+            {
+                if(!m_teamRenameBuffer.empty())
+                {
+                    int teamIdx = m_playerCursor - playerCount - 1;
+                    TeamID tid = getTeamByIndex(static_cast<uint8_t>(teamIdx));
+                    if(tid != INVALID_TEAM_ID)
+                    {
+                        if(isTeamNameTaken(m_teamRenameBuffer, tid))
+                        {
+                            m_showDuplicateNameWarning = true;
+                        }
+                        else
+                        {
+                            setTeamName(tid, m_teamRenameBuffer);
+                        }
+                    }
+                }
+                m_renamingTeam = false;
+                SDL_StopTextInput(SDL_GetKeyboardFocus());
+                break;
+            }
+            case SDLK_ESCAPE:
+                m_renamingTeam = false;
+                SDL_StopTextInput(SDL_GetKeyboardFocus());
+                break;
+            case SDLK_BACKSPACE:
+                if(!m_teamRenameBuffer.empty())
+                {
+                    m_teamRenameBuffer.pop_back();
+                }
+                break;
+            default:
+                break;
+        }
+        return;
+    }
+
+    // Normal navigation
     switch(keycode)
     {
         case SDLK_UP:
             m_playerCursor--;
             if(m_playerCursor < 0) m_playerCursor = totalRows - 1;
+            clampPlayerSettingsScroll(m_playerCursor, m_playerSettingsScroll);
             break;
         case SDLK_DOWN:
             m_playerCursor++;
             if(m_playerCursor >= totalRows) m_playerCursor = 0;
+            clampPlayerSettingsScroll(m_playerCursor, m_playerSettingsScroll);
+            break;
+        case SDLK_LEFT:
+            // Cycle team assignment backward on player rows
+            if(onPlayerRow && teamCount > 0)
+            {
+                PlayerID pid = getPlayerByIndex(static_cast<uint8_t>(m_playerCursor));
+                if(pid != INVALID_PLAYER_ID)
+                {
+                    TeamID currentTeam = getPlayerTeam(pid);
+                    // Find index of current team, then cycle backward
+                    for(uint8_t t = 0; t < teamCount; t++)
+                    {
+                        if(getTeamByIndex(t) == currentTeam)
+                        {
+                            uint8_t prevIdx = (t == 0) ? teamCount - 1 : t - 1;
+                            setPlayerTeam(pid, getTeamByIndex(prevIdx));
+                            break;
+                        }
+                    }
+                }
+            }
+            break;
+        case SDLK_RIGHT:
+            // Cycle team assignment forward on player rows
+            if(onPlayerRow && teamCount > 0)
+            {
+                PlayerID pid = getPlayerByIndex(static_cast<uint8_t>(m_playerCursor));
+                if(pid != INVALID_PLAYER_ID)
+                {
+                    TeamID currentTeam = getPlayerTeam(pid);
+                    for(uint8_t t = 0; t < teamCount; t++)
+                    {
+                        if(getTeamByIndex(t) == currentTeam)
+                        {
+                            uint8_t nextIdx = (t + 1) % teamCount;
+                            setPlayerTeam(pid, getTeamByIndex(nextIdx));
+                            break;
+                        }
+                    }
+                }
+            }
             break;
         case SDLK_RETURN:
         case SDLK_KP_ENTER:
-            if(m_playerCursor < playerCount)
+            if(onPlayerRow)
             {
                 // Start renaming this player
                 PlayerID pid = getPlayerByIndex(static_cast<uint8_t>(m_playerCursor));
@@ -834,34 +1206,84 @@ void MainMenu::handlePlayerSettingsKey(uint32_t keycode)
                     }
                 }
             }
-            else
+            else if(onAddPlayer)
             {
-                // Add Player
-                std::string newName = "Player " + std::to_string(playerCount + 1);
-                createPlayer(newName);
+                createPlayer(generateUniquePlayerName());
+            }
+            else if(onTeamRow)
+            {
+                // Start renaming this team
+                int teamIdx = m_playerCursor - playerCount - 1;
+                TeamID tid = getTeamByIndex(static_cast<uint8_t>(teamIdx));
+                if(tid != INVALID_TEAM_ID)
+                {
+                    m_renamingTeam = true;
+                    m_teamRenameBuffer = getTeamName(tid);
+                    if(getLastInputDevice() == InputDevice::Gamepad)
+                    {
+                        m_virtualKeyboard.open(m_teamRenameBuffer, MAX_NAME_LEN);
+                    }
+                    else
+                    {
+                        SDL_StartTextInput(SDL_GetKeyboardFocus());
+                    }
+                }
+            }
+            else if(onAddTeam)
+            {
+                createTeam(generateUniqueTeamName());
             }
             break;
         case SDLK_DELETE:
         case SDLK_BACKSPACE:
-            if(m_playerCursor < playerCount)
+            if(onPlayerRow)
             {
                 PlayerID pid = getPlayerByIndex(static_cast<uint8_t>(m_playerCursor));
                 if(pid != INVALID_PLAYER_ID)
                 {
                     removePlayer(pid);
-                    // Adjust cursor if needed
-                    uint8_t newCount = getPlayerCount();
-                    int newTotal = newCount + 1;
+                    int newTotal = playerSettingsRowCount();
                     if(m_playerCursor >= newTotal)
                     {
                         m_playerCursor = newTotal - 1;
                     }
+                    clampPlayerSettingsScroll(m_playerCursor, m_playerSettingsScroll);
+                }
+            }
+            else if(onTeamRow)
+            {
+                int teamIdx = m_playerCursor - playerCount - 1;
+                TeamID tid = getTeamByIndex(static_cast<uint8_t>(teamIdx));
+                if(tid != INVALID_TEAM_ID)
+                {
+                    removeTeam(tid);
+                    int newTotal = playerSettingsRowCount();
+                    if(m_playerCursor >= newTotal)
+                    {
+                        m_playerCursor = newTotal - 1;
+                    }
+                    clampPlayerSettingsScroll(m_playerCursor, m_playerSettingsScroll);
                 }
             }
             break;
         case SDLK_ESCAPE:
+        {
+            // Validate: if teams exist, every team must have at least 1 player
+            if(teamCount > 0)
+            {
+                for(uint8_t t = 0; t < teamCount; t++)
+                {
+                    TeamID tid = getTeamByIndex(t);
+                    if(getPlayerIndicesForTeam(tid).empty())
+                    {
+                        m_showEmptyTeamWarning = true;
+                        return;
+                    }
+                }
+            }
             m_state = MenuState::CardGrid;
             break;
+        }
         default:
             break;
     }
@@ -872,6 +1294,8 @@ void MainMenu::renderPlayerSettings()
 {
     FrameID fid = getFrameId();
     uint8_t playerCount = getPlayerCount();
+    uint8_t teamCount = getTeamCount();
+    TTF_Font* cardFont = getFont(m_cardFontId);
 
     // Title
     {
@@ -888,10 +1312,37 @@ void MainMenu::renderPlayerSettings()
         renderQueueAdd(fid, text);
     }
 
-    // Player rows
+    // Visual rows are laid out as:
+    //   0..playerCount-1              = player rows
+    //   playerCount                   = "Add Player"
+    //   playerCount+1                 = divider / "Teams" header (visual only)
+    //   playerCount+2..+1+teamCount   = team rows
+    //   playerCount+2+teamCount       = "Add Team"
+    // But logical (selectable) cursor rows skip the divider:
+    //   0..playerCount-1              = player rows
+    //   playerCount                   = "Add Player"
+    //   playerCount+1..+teamCount     = team rows
+    //   playerCount+teamCount+1       = "Add Team"
+
+    // Helper: convert logical cursor row to visual row (accounting for divider)
+    auto logicalToVisualRow = [&](int logical) -> int {
+        if(logical > playerCount)
+        {
+            return logical + 1; // +1 for divider
+        }
+        return logical;
+    };
+
+    float contentStartY = SETTINGS_TOP + 10.0f;
+
+    // ---- Player rows ----
     for(uint8_t i = 0; i < playerCount; i++)
     {
-        float rowY = SETTINGS_TOP + 10.0f + i * ROW_HEIGHT;
+        int visualRow = logicalToVisualRow(i);
+        int screenRow = visualRow - m_playerSettingsScroll;
+        if(screenRow < 0 || screenRow >= VISIBLE_SETTINGS_ROWS) continue;
+
+        float rowY = contentStartY + screenRow * ROW_HEIGHT;
         bool isSelected = (static_cast<int>(i) == m_playerCursor);
 
         // Row highlight
@@ -914,12 +1365,10 @@ void MainMenu::renderPlayerSettings()
         {
             if(m_virtualKeyboard.isOpen())
             {
-                // Virtual keyboard manages its own text display
                 name = m_virtualKeyboard.getText() + "_";
             }
             else
             {
-                // Show the rename buffer with a cursor
                 name = m_renameBuffer + "_";
             }
         }
@@ -928,14 +1377,12 @@ void MainMenu::renderPlayerSettings()
             name = (pid != INVALID_PLAYER_ID) ? getPlayerName(pid) : "???";
         }
 
-        // Center text vertically within the highlight box
-        float boxY      = rowY - 5.0f;
-        float boxH      = ROW_HEIGHT - 4.0f;
+        float boxY = rowY - 5.0f;
+        float boxH = ROW_HEIGHT - 4.0f;
         int textW = 0, textH = 0;
-        TTF_Font* font = getFont(m_cardFontId);
-        if(font)
+        if(cardFont)
         {
-            TTF_GetStringSize(font, name.c_str(), 0, &textW, &textH);
+            TTF_GetStringSize(cardFont, name.c_str(), 0, &textW, &textH);
         }
 
         auto nameText = std::make_shared<RenderText>();
@@ -950,10 +1397,190 @@ void MainMenu::renderPlayerSettings()
         nameText->m_z        = SETTINGS_Z + 1;
         renderQueueAdd(fid, nameText);
 
-        // Action hints for selected row (not in rename mode)
+        // Team assignment label (right side)
+        if(teamCount > 0 && pid != INVALID_PLAYER_ID && !m_renaming)
+        {
+            TeamID tid = getPlayerTeam(pid);
+            std::string teamLabel;
+            if(isSelected)
+            {
+                teamLabel = "<  " + getTeamName(tid) + "  >";
+            }
+            else
+            {
+                teamLabel = getTeamName(tid);
+            }
+
+            auto teamText = std::make_shared<RenderText>();
+            teamText->m_text     = teamLabel;
+            teamText->m_color    = isSelected ? Color{100, 200, 255} : Color{120, 120, 140};
+            teamText->m_fontId   = m_cardFontId;
+            teamText->m_rotation = 0.0f;
+            teamText->m_scaleX   = 1.0f;
+            teamText->m_scaleY   = 1.0f;
+            teamText->m_x        = OPTION_X;
+            teamText->m_y        = boxY + (boxH - textH) * 0.5f;
+            teamText->m_z        = SETTINGS_Z + 1;
+            renderQueueAdd(fid, teamText);
+        }
+
+        // Action hints for selected player row (not renaming)
         if(isSelected && !m_renaming)
         {
-            float hintsY = boxY + (boxH - 36.0f) * 0.5f;  // center 36px icons in box
+            float hintsX = (teamCount > 0) ? OPTION_X + 280.0f : OPTION_X;
+            float hintsY = boxY + (boxH - 36.0f) * 0.5f;
+            m_inputHints.render(fid, m_smallFontId, hintsX, hintsY, SETTINGS_Z, {
+                {SDLK_RETURN, SDL_GAMEPAD_BUTTON_SOUTH, "rename"},
+                {SDLK_DELETE, SDL_GAMEPAD_BUTTON_WEST,  "remove"}
+            });
+        }
+    }
+
+    // ---- "Add Player" row ----
+    {
+        int visualRow = logicalToVisualRow(playerCount);
+        int screenRow = visualRow - m_playerSettingsScroll;
+        if(screenRow >= 0 && screenRow < VISIBLE_SETTINGS_ROWS)
+        {
+            float rowY = contentStartY + screenRow * ROW_HEIGHT;
+            bool isSelected = (m_playerCursor == playerCount);
+            float addBoxY = rowY - 5.0f;
+            float addBoxH = ROW_HEIGHT - 4.0f;
+
+            if(isSelected)
+            {
+                auto bg = std::make_shared<RenderShape>();
+                bg->m_type   = ShapeType::Box;
+                bg->m_color  = {40, 80, 60};
+                bg->m_x      = SETTINGS_LEFT - 10.0f;
+                bg->m_y      = addBoxY;
+                bg->m_z      = SETTINGS_Z;
+                bg->m_width  = 300.0f;
+                bg->m_height = addBoxH;
+                renderQueueAdd(fid, bg);
+            }
+
+            std::string addLabel = "+ Add Player";
+            int addTextW = 0, addTextH = 0;
+            if(cardFont)
+            {
+                TTF_GetStringSize(cardFont, addLabel.c_str(), 0, &addTextW, &addTextH);
+            }
+
+            auto addText = std::make_shared<RenderText>();
+            addText->m_text     = addLabel;
+            addText->m_color    = isSelected ? Color{100, 255, 130} : Color{100, 170, 120};
+            addText->m_fontId   = m_cardFontId;
+            addText->m_rotation = 0.0f;
+            addText->m_scaleX   = 1.0f;
+            addText->m_scaleY   = 1.0f;
+            addText->m_x        = SETTINGS_LEFT;
+            addText->m_y        = addBoxY + (addBoxH - addTextH) * 0.5f;
+            addText->m_z        = SETTINGS_Z + 1;
+            renderQueueAdd(fid, addText);
+        }
+    }
+
+    // ---- Divider / "Teams" header (visual row = playerCount + 1) ----
+    {
+        int dividerVisualRow = playerCount + 1;
+        int screenRow = dividerVisualRow - m_playerSettingsScroll;
+        if(screenRow >= 0 && screenRow < VISIBLE_SETTINGS_ROWS)
+        {
+            float divY = contentStartY + screenRow * ROW_HEIGHT;
+
+            // Divider line
+            auto line = std::make_shared<RenderShape>();
+            line->m_type   = ShapeType::Box;
+            line->m_color  = {80, 80, 90};
+            line->m_x      = SETTINGS_LEFT - 10.0f;
+            line->m_y      = divY + 5.0f;
+            line->m_z      = SETTINGS_Z;
+            line->m_width  = WINDOW_W - 2 * SETTINGS_LEFT + 20.0f;
+            line->m_height = 2.0f;
+            renderQueueAdd(fid, line);
+
+            // "Teams" header text
+            auto header = std::make_shared<RenderText>();
+            header->m_text     = "Teams";
+            header->m_color    = {160, 160, 170};
+            header->m_fontId   = m_smallFontId;
+            header->m_rotation = 0.0f;
+            header->m_scaleX   = 1.0f;
+            header->m_scaleY   = 1.0f;
+            header->m_x        = SETTINGS_LEFT;
+            header->m_y        = divY + 18.0f;
+            header->m_z        = SETTINGS_Z + 1;
+            renderQueueAdd(fid, header);
+        }
+    }
+
+    // ---- Team rows ----
+    for(uint8_t t = 0; t < teamCount; t++)
+    {
+        int logicalRow = playerCount + 1 + t;
+        int visualRow = logicalToVisualRow(logicalRow);
+        int screenRow = visualRow - m_playerSettingsScroll;
+        if(screenRow < 0 || screenRow >= VISIBLE_SETTINGS_ROWS) continue;
+
+        float rowY = contentStartY + screenRow * ROW_HEIGHT;
+        bool isSelected = (logicalRow == m_playerCursor);
+
+        if(isSelected)
+        {
+            auto bg = std::make_shared<RenderShape>();
+            bg->m_type   = ShapeType::Box;
+            bg->m_color  = {60, 60, 100};
+            bg->m_x      = SETTINGS_LEFT - 10.0f;
+            bg->m_y      = rowY - 5.0f;
+            bg->m_z      = SETTINGS_Z;
+            bg->m_width  = WINDOW_W - 2 * SETTINGS_LEFT + 20.0f;
+            bg->m_height = ROW_HEIGHT - 4.0f;
+            renderQueueAdd(fid, bg);
+        }
+
+        TeamID tid = getTeamByIndex(t);
+        std::string teamName;
+        if(m_renamingTeam && isSelected)
+        {
+            if(m_virtualKeyboard.isOpen())
+            {
+                teamName = m_virtualKeyboard.getText() + "_";
+            }
+            else
+            {
+                teamName = m_teamRenameBuffer + "_";
+            }
+        }
+        else
+        {
+            teamName = (tid != INVALID_TEAM_ID) ? getTeamName(tid) : "???";
+        }
+
+        float boxY = rowY - 5.0f;
+        float boxH = ROW_HEIGHT - 4.0f;
+        int textW = 0, textH = 0;
+        if(cardFont)
+        {
+            TTF_GetStringSize(cardFont, teamName.c_str(), 0, &textW, &textH);
+        }
+
+        auto nameText = std::make_shared<RenderText>();
+        nameText->m_text     = teamName;
+        nameText->m_color    = isSelected ? Color{255, 255, 255} : Color{180, 180, 190};
+        nameText->m_fontId   = m_cardFontId;
+        nameText->m_rotation = 0.0f;
+        nameText->m_scaleX   = 1.0f;
+        nameText->m_scaleY   = 1.0f;
+        nameText->m_x        = SETTINGS_LEFT;
+        nameText->m_y        = boxY + (boxH - textH) * 0.5f;
+        nameText->m_z        = SETTINGS_Z + 1;
+        renderQueueAdd(fid, nameText);
+
+        // Action hints for selected team row (not renaming)
+        if(isSelected && !m_renamingTeam)
+        {
+            float hintsY = boxY + (boxH - 36.0f) * 0.5f;
             m_inputHints.render(fid, m_smallFontId, OPTION_X, hintsY, SETTINGS_Z, {
                 {SDLK_RETURN, SDL_GAMEPAD_BUTTON_SOUTH, "rename"},
                 {SDLK_DELETE, SDL_GAMEPAD_BUTTON_WEST,  "remove"}
@@ -961,55 +1588,59 @@ void MainMenu::renderPlayerSettings()
         }
     }
 
-    // "Add Player" row
+    // ---- "Add Team" row ----
     {
-        float rowY = SETTINGS_TOP + 10.0f + playerCount * ROW_HEIGHT;
-        bool isSelected = (m_playerCursor == playerCount);
-        float addBoxY = rowY - 5.0f;
-        float addBoxH = ROW_HEIGHT - 4.0f;
-
-        if(isSelected)
+        int logicalRow = playerCount + teamCount + 1;
+        int visualRow = logicalToVisualRow(logicalRow);
+        int screenRow = visualRow - m_playerSettingsScroll;
+        if(screenRow >= 0 && screenRow < VISIBLE_SETTINGS_ROWS)
         {
-            auto bg = std::make_shared<RenderShape>();
-            bg->m_type   = ShapeType::Box;
-            bg->m_color  = {40, 80, 60};
-            bg->m_x      = SETTINGS_LEFT - 10.0f;
-            bg->m_y      = addBoxY;
-            bg->m_z      = SETTINGS_Z;
-            bg->m_width  = 300.0f;
-            bg->m_height = addBoxH;
-            renderQueueAdd(fid, bg);
-        }
+            float rowY = contentStartY + screenRow * ROW_HEIGHT;
+            bool isSelected = (m_playerCursor == logicalRow);
+            float addBoxY = rowY - 5.0f;
+            float addBoxH = ROW_HEIGHT - 4.0f;
 
-        std::string addLabel = "+ Add Player";
-        int addTextW = 0, addTextH = 0;
-        TTF_Font* addFont = getFont(m_cardFontId);
-        if(addFont)
-        {
-            TTF_GetStringSize(addFont, addLabel.c_str(), 0, &addTextW, &addTextH);
-        }
+            if(isSelected)
+            {
+                auto bg = std::make_shared<RenderShape>();
+                bg->m_type   = ShapeType::Box;
+                bg->m_color  = {40, 80, 60};
+                bg->m_x      = SETTINGS_LEFT - 10.0f;
+                bg->m_y      = addBoxY;
+                bg->m_z      = SETTINGS_Z;
+                bg->m_width  = 300.0f;
+                bg->m_height = addBoxH;
+                renderQueueAdd(fid, bg);
+            }
 
-        auto addText = std::make_shared<RenderText>();
-        addText->m_text     = addLabel;
-        addText->m_color    = isSelected ? Color{100, 255, 130} : Color{100, 170, 120};
-        addText->m_fontId   = m_cardFontId;
-        addText->m_rotation = 0.0f;
-        addText->m_scaleX   = 1.0f;
-        addText->m_scaleY   = 1.0f;
-        addText->m_x        = SETTINGS_LEFT;
-        addText->m_y        = addBoxY + (addBoxH - addTextH) * 0.5f;
-        addText->m_z        = SETTINGS_Z + 1;
-        renderQueueAdd(fid, addText);
+            std::string addLabel = "+ Add Team";
+            int addTextW = 0, addTextH = 0;
+            if(cardFont)
+            {
+                TTF_GetStringSize(cardFont, addLabel.c_str(), 0, &addTextW, &addTextH);
+            }
+
+            auto addText = std::make_shared<RenderText>();
+            addText->m_text     = addLabel;
+            addText->m_color    = isSelected ? Color{100, 255, 130} : Color{100, 170, 120};
+            addText->m_fontId   = m_cardFontId;
+            addText->m_rotation = 0.0f;
+            addText->m_scaleX   = 1.0f;
+            addText->m_scaleY   = 1.0f;
+            addText->m_x        = SETTINGS_LEFT;
+            addText->m_y        = addBoxY + (addBoxH - addTextH) * 0.5f;
+            addText->m_z        = SETTINGS_Z + 1;
+            renderQueueAdd(fid, addText);
+        }
     }
 
-    // Virtual keyboard overlay (renders on top of everything)
+    // ---- Bottom hints and overlays ----
     if(m_virtualKeyboard.isOpen())
     {
         m_virtualKeyboard.render(fid, SETTINGS_Z + 90);
     }
-    else if(m_renaming)
+    else if(m_renaming || m_renamingTeam)
     {
-        // Bottom hints for physical keyboard rename mode
         m_inputHints.render(fid, m_smallFontId, SETTINGS_LEFT, 575.0f, SETTINGS_Z, {
             {SDLK_RETURN, SDL_GAMEPAD_BUTTON_SOUTH, "confirm"},
             {SDLK_ESCAPE, SDL_GAMEPAD_BUTTON_EAST,  "cancel"}
@@ -1017,10 +1648,111 @@ void MainMenu::renderPlayerSettings()
     }
     else
     {
-        m_inputHints.render(fid, m_smallFontId, SETTINGS_LEFT, 575.0f, SETTINGS_Z, {
+        bool onPlayerRow = (m_playerCursor < playerCount);
+        std::vector<InputHint> hints = {
             {SDLK_UP,     GAMEPAD_ICON_LEFT_STICK,    "navigate"},
             {SDLK_RETURN, SDL_GAMEPAD_BUTTON_SOUTH,   "select"},
             {SDLK_ESCAPE, SDL_GAMEPAD_BUTTON_EAST,    "back"}
-        });
+        };
+        if(onPlayerRow && teamCount > 0)
+        {
+            hints.insert(hints.begin() + 1, {SDLK_LEFT, GAMEPAD_ICON_LEFT_STICK, "team"});
+        }
+        m_inputHints.render(fid, m_smallFontId, SETTINGS_LEFT, 575.0f, SETTINGS_Z, hints);
+    }
+
+    // ---- Warning popups ----
+    bool showWarning = m_showEmptyTeamWarning || m_showDuplicateNameWarning;
+    std::string warningLine1;
+    std::string warningLine2;
+    if(m_showEmptyTeamWarning)
+    {
+        warningLine1 = "Every team must have at least";
+        warningLine2 = "one player assigned to it.";
+    }
+    else if(m_showDuplicateNameWarning)
+    {
+        warningLine1 = "That name is already taken.";
+        warningLine2 = "Names must be unique.";
+    }
+
+    if(showWarning)
+    {
+        // Dark overlay
+        auto overlay = std::make_shared<RenderShape>();
+        overlay->m_type   = ShapeType::Box;
+        overlay->m_color  = {20, 20, 20};
+        overlay->m_x      = 0.0f;
+        overlay->m_y      = 0.0f;
+        overlay->m_z      = SETTINGS_Z + 80;
+        overlay->m_width  = WINDOW_W;
+        overlay->m_height = WINDOW_H;
+        renderQueueAdd(fid, overlay);
+
+        // Panel
+        float panelW = 500.0f;
+        float panelH = 140.0f;
+        float panelX = (WINDOW_W - panelW) * 0.5f;
+        float panelY = (WINDOW_H - panelH) * 0.5f - 30.0f;
+
+        auto panel = std::make_shared<RenderShape>();
+        panel->m_type   = ShapeType::Box;
+        panel->m_color  = {50, 50, 55};
+        panel->m_x      = panelX;
+        panel->m_y      = panelY;
+        panel->m_z      = SETTINGS_Z + 81;
+        panel->m_width  = panelW;
+        panel->m_height = panelH;
+        renderQueueAdd(fid, panel);
+
+        // Warning text
+        std::string msg1 = warningLine1;
+        std::string msg2 = warningLine2;
+
+        auto line1 = std::make_shared<RenderText>();
+        line1->m_text     = msg1;
+        line1->m_color    = {255, 200, 80};
+        line1->m_fontId   = m_cardFontId;
+        line1->m_rotation = 0.0f;
+        line1->m_scaleX   = 1.0f;
+        line1->m_scaleY   = 1.0f;
+        line1->m_z        = SETTINGS_Z + 82;
+        line1->m_y        = panelY + 25.0f;
+        // Center horizontally
+        int w1 = 0, h1 = 0;
+        if(cardFont) TTF_GetStringSize(cardFont, msg1.c_str(), 0, &w1, &h1);
+        line1->m_x = panelX + (panelW - w1) * 0.5f;
+        renderQueueAdd(fid, line1);
+
+        auto line2 = std::make_shared<RenderText>();
+        line2->m_text     = msg2;
+        line2->m_color    = {255, 200, 80};
+        line2->m_fontId   = m_cardFontId;
+        line2->m_rotation = 0.0f;
+        line2->m_scaleX   = 1.0f;
+        line2->m_scaleY   = 1.0f;
+        line2->m_z        = SETTINGS_Z + 82;
+        line2->m_y        = panelY + 60.0f;
+        int w2 = 0, h2 = 0;
+        if(cardFont) TTF_GetStringSize(cardFont, msg2.c_str(), 0, &w2, &h2);
+        line2->m_x = panelX + (panelW - w2) * 0.5f;
+        renderQueueAdd(fid, line2);
+
+        // Dismiss hint
+        std::string dismiss = "Press any key to dismiss";
+        auto dismissText = std::make_shared<RenderText>();
+        dismissText->m_text     = dismiss;
+        dismissText->m_color    = {140, 140, 150};
+        dismissText->m_fontId   = m_smallFontId;
+        dismissText->m_rotation = 0.0f;
+        dismissText->m_scaleX   = 1.0f;
+        dismissText->m_scaleY   = 1.0f;
+        dismissText->m_z        = SETTINGS_Z + 82;
+        dismissText->m_y        = panelY + 100.0f;
+        TTF_Font* smallFont = getFont(m_smallFontId);
+        int w3 = 0, h3 = 0;
+        if(smallFont) TTF_GetStringSize(smallFont, dismiss.c_str(), 0, &w3, &h3);
+        dismissText->m_x = panelX + (panelW - w3) * 0.5f;
+        renderQueueAdd(fid, dismissText);
     }
 }

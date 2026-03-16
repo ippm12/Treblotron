@@ -3,8 +3,8 @@
  *
  * DartBoard entity: a scalable dart board composed of 82 individually
  * addressable segments. Each segment is a Flecs child entity with a
- * RenderShape component. Segments can be "lit up" via a dual palette
- * system (board palette + highlight palette).
+ * RenderShape component. Segments can be colored via a triple palette
+ * system (board palette + dim palette + highlight palette).
  */
 
 #ifndef DART_BOARD_HPP
@@ -58,16 +58,28 @@ class DartBoard
         /** Set a highlight palette color for a role. Updates affected highlighted segments. */
         void setHighlightColor(BoardColor role, Color color);
 
+        /** Set a dim palette color for a role. Updates affected dimmed segments. */
+        void setDimColor(BoardColor role, Color color);
+
         /** Highlight a segment (applies highlight palette color for its role). */
         void highlightSegment(DartSegment segment);
 
-        /** Unhighlight a segment (restores board palette color for its role). */
+        /** Unhighlight a segment (restores board or dim palette color for its role). */
         void unhighlightSegment(DartSegment segment);
 
         /** Unhighlight all segments. */
         void unhighlightAll();
 
-        /** Set a segment to a specific color, bypassing both palettes. */
+        /** Dim a segment (applies dim palette color for its role). */
+        void dimSegment(DartSegment segment);
+
+        /** Undim a segment (restores board palette color if not highlighted). */
+        void undimSegment(DartSegment segment);
+
+        /** Undim all segments. */
+        void undimAll();
+
+        /** Set a segment to a specific color, bypassing all palettes. */
         void setSegmentColor(DartSegment segment, Color color);
 
         /** Enqueue all segment shapes to the render queue for drawing. */
@@ -104,7 +116,9 @@ class DartBoard
         flecs::entity m_segments[NUM_SEGMENTS];
         Color         m_boardPalette[PALETTE_SIZE];
         Color         m_highlightPalette[PALETTE_SIZE];
+        Color         m_dimPalette[PALETTE_SIZE];
         bool          m_highlighted[NUM_SEGMENTS];
+        bool          m_dimmed[NUM_SEGMENTS];
         static constexpr size_t NUM_LABELS = DART_NUM_SECTIONS; // 20
 
         flecs::entity m_labels[NUM_LABELS];
