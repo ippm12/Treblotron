@@ -34,6 +34,16 @@ static struct X01Registrar
             {{"Any"}, {"Double"}, {"Master"}},
             0  // default = Any
         });
+        desc.settings.push_back({
+            "Legs",
+            {{"1"}, {"2"}, {"3"}, {"4"}, {"5"}, {"6"}, {"7"}, {"8"}, {"9"}, {"10"}, {"11"}},
+            0  // default = 1
+        });
+        desc.settings.push_back({
+            "Starting Player",
+            {{"Rotate"}, {"Winner"}, {"Loser"}},
+            0  // default = Rotate
+        });
         desc.createGame = [](const std::vector<size_t>& choices) -> GamePtr {
             static const X01Variant variants[] = {
                 X01Variant::V301, X01Variant::V501,
@@ -49,12 +59,23 @@ static struct X01Registrar
             // In Rule: Any(0), Double(1), Master(2) — already matches enum order
             size_t inIdx  = (choices.size() < 3 || choices[2] >= 3) ? 0 : choices[2];
 
+            // Legs: choice index + 1 (1..11)
+            uint8_t legsToWin = static_cast<uint8_t>(
+                (choices.size() >= 4 ? choices[3] : 0) + 1);
+
+            // Starting Player: Rotate(0), Winner(1), Loser(2)
+            static const X01StartingPlayer startingRules[] = {
+                X01StartingPlayer::Rotate, X01StartingPlayer::Winner, X01StartingPlayer::Loser
+            };
+            size_t startIdx = (choices.size() >= 5 && choices[4] < 3) ? choices[4] : 0;
+
             // Out Rule options are ordered Double, Master, Any
             static const X01InOutRule outRules[] = {
                 X01InOutRule::Double, X01InOutRule::Master, X01InOutRule::Any
             };
 
-            return std::make_shared<X01Game>(variants[varIdx], outRules[outIdx], inOutRules[inIdx]);
+            return std::make_shared<X01Game>(variants[varIdx], outRules[outIdx], inOutRules[inIdx],
+                                             legsToWin, startingRules[startIdx]);
         };
         registerGame(desc);
     }

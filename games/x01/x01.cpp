@@ -43,11 +43,14 @@ static bool satisfiesRule(X01InOutRule rule, DartSegment segment)
 }
 
 
-X01Game::X01Game(X01Variant variant, X01InOutRule outRule, X01InOutRule inRule)
+X01Game::X01Game(X01Variant variant, X01InOutRule outRule, X01InOutRule inRule,
+                 uint8_t legsToWin, X01StartingPlayer startingPlayer)
     : Game("X01")
     , m_variant(variant)
     , m_outRule(outRule)
     , m_inRule(inRule)
+    , m_legsToWin(legsToWin)
+    , m_startingPlayer(startingPlayer)
     , m_fontId(INVALID_FONT_ID)
     , m_largeFontId(INVALID_FONT_ID)
     , m_board()
@@ -86,6 +89,11 @@ Status X01Game::init(FrameID frameId)
     bool startedByDefault = (m_inRule == X01InOutRule::Any);
     m_playerStarted.assign(getPlayerCount(), startedByDefault);
 
+    // Initialize leg tracking
+    m_playerLegs.assign(getPlayerCount(), 0);
+    m_legStartPlayer = 0;
+    m_currentLeg = 1;
+
     return STATUS_OK;
 }
 
@@ -105,6 +113,16 @@ void X01Game::update(float deltaTime)
         if(m_bustTimer <= 0.0f)
         {
             m_showBust = false;
+        }
+    }
+
+    // Leg won display timer
+    if(m_showLegWon)
+    {
+        m_legWonTimer -= deltaTime;
+        if(m_legWonTimer <= 0.0f)
+        {
+            m_showLegWon = false;
         }
     }
 
@@ -225,13 +243,77 @@ void X01Game::update(float deltaTime)
         // Apply score
         score = newScore;
 
-        // Check for win
+        // Check for win (leg or match)
         if(score == 0)
         {
-            m_gameOver = true;
-            m_winnerIndex = m_currentPlayerIndex;
-            m_gameOverCursor = 0;
-            LOG_INFO(GAME_MANAGER_LOG_ID, "X01: Player {} wins!", m_currentPlayerIndex);
+            if(m_legsToWin <= 1)
+            {
+                // Single-leg game: immediate game over
+                m_gameOver = true;
+                m_winnerIndex = m_currentPlayerIndex;
+                m_gameOverCursor = 0;
+                LOG_INFO(GAME_MANAGER_LOG_ID, "X01: Player {} wins!", m_currentPlayerIndex);
+                break;
+            }
+
+            // Multi-leg: increment leg count
+            m_playerLegs[m_currentPlayerIndex]++;
+            LOG_INFO(GAME_MANAGER_LOG_ID, "X01: Player {} wins leg {} ({}/{})",
+                     m_currentPlayerIndex, m_currentLeg,
+                     m_playerLegs[m_currentPlayerIndex], m_legsToWin);
+
+            if(m_playerLegs[m_currentPlayerIndex] >= m_legsToWin)
+            {
+                // Match over
+                m_gameOver = true;
+                m_winnerIndex = m_currentPlayerIndex;
+                m_gameOverCursor = 0;
+                LOG_INFO(GAME_MANAGER_LOG_ID, "X01: Player {} wins the match!", m_currentPlayerIndex);
+                break;
+            }
+
+            // Start a new leg
+            m_showLegWon = true;
+            m_legWonTimer = BUST_DISPLAY_TIME;
+            m_currentLeg++;
+
+            // Determine who starts the next leg
+            uint8_t nextStarter = 0;
+            switch(m_startingPlayer)
+            {
+                case X01StartingPlayer::Rotate:
+                    nextStarter = (m_legStartPlayer + 1) % getPlayerCount();
+                    break;
+                case X01StartingPlayer::Winner:
+                    nextStarter = m_currentPlayerIndex;
+                    break;
+                case X01StartingPlayer::Loser:
+                    nextStarter = (m_currentPlayerIndex + 1) % getPlayerCount();
+                    break;
+            }
+            m_legStartPlayer = nextStarter;
+            m_currentPlayerIndex = nextStarter;
+
+            // Reset scores and in-rule tracking
+            uint16_t startScore = static_cast<uint16_t>(m_variant);
+            m_playerScores.assign(getPlayerCount(), startScore);
+            bool startedByDefault = (m_inRule == X01InOutRule::Any);
+            m_playerStarted.assign(getPlayerCount(), startedByDefault);
+
+            // Reset turn state
+            m_throwsRemaining = 3;
+            m_turnScoreProgression.clear();
+            m_turnStartScore = startScore;
+            m_waitingForCollect = false;
+            m_statusText = "Waiting for Throw";
+
+            // Clear board highlights
+            m_board.unhighlightAll();
+            m_hitSegments.clear();
+            m_hitPositions.clear();
+            m_blinkTimer = 0.0f;
+            m_blinkOn = true;
+            m_showBust = false;
             break;
         }
 
@@ -300,7 +382,15 @@ void X01Game::renderRightScoreboard()
     for(uint8_t i = 0; i < playerCount; i++)
     {
         PlayerID pid = getPlayerByIndex(i);
-        entries.push_back({getPlayerName(pid), std::to_string(m_playerScores[i])});
+        ScoreboardEntry entry;
+        entry.name  = getPlayerName(pid);
+        entry.value = std::to_string(m_playerScores[i]);
+        if(m_legsToWin > 1)
+        {
+            entry.value += "  (" + std::to_string(m_playerLegs[i])
+                         + "/" + std::to_string(m_legsToWin) + ")";
+        }
+        entries.push_back(entry);
     }
 
     renderScoreboardPanel(getFrameId(), m_fontId, entries, m_currentPlayerIndex);
@@ -313,6 +403,24 @@ void X01Game::renderLeftPlayerDetail()
     uint16_t score = m_playerScores[m_currentPlayerIndex];
     PlayerID pid = getPlayerByIndex(m_currentPlayerIndex);
     std::string name = getPlayerName(pid);
+
+    // Match info (multi-leg only)
+    if(m_legsToWin > 1)
+    {
+        std::string legInfo = "Leg " + std::to_string(m_currentLeg)
+                            + "  |  First to " + std::to_string(m_legsToWin);
+        auto legText = std::make_shared<RenderText>();
+        legText->m_text     = legInfo;
+        legText->m_color    = {160, 200, 255};
+        legText->m_fontId   = m_fontId;
+        legText->m_rotation = 0.0f;
+        legText->m_scaleX   = 1.0f;
+        legText->m_scaleY   = 1.0f;
+        legText->m_x        = LEFT_PANEL_X;
+        legText->m_y        = LEFT_NAME_Y - 30.0f;
+        legText->m_z        = GameLayout::SIDEBAR_Z;
+        renderQueueAdd(fid, legText);
+    }
 
     // Current player name
     auto nameText = std::make_shared<RenderText>();
@@ -354,6 +462,22 @@ void X01Game::renderLeftPlayerDetail()
         bustText->m_y        = LEFT_SCORE_Y;
         bustText->m_z        = GameLayout::SIDEBAR_Z + 1;
         renderQueueAdd(fid, bustText);
+    }
+
+    // LEG WON indicator (large green text, similar to BUST)
+    if(m_showLegWon)
+    {
+        auto legWonText = std::make_shared<RenderText>();
+        legWonText->m_text     = "LEG";
+        legWonText->m_color    = {40, 220, 80};
+        legWonText->m_fontId   = m_largeFontId;
+        legWonText->m_rotation = 0.0f;
+        legWonText->m_scaleX   = 1.0f;
+        legWonText->m_scaleY   = 1.0f;
+        legWonText->m_x        = LEFT_PANEL_X + 120.0f;
+        legWonText->m_y        = LEFT_SCORE_Y;
+        legWonText->m_z        = GameLayout::SIDEBAR_Z + 1;
+        renderQueueAdd(fid, legWonText);
     }
 
     // In-rule indicator: show what the player needs before darts count

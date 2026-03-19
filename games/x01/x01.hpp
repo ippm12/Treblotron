@@ -31,12 +31,22 @@ enum class X01InOutRule : uint8_t
     Master   // Must hit a double, triple, or inner bull
 };
 
+/** Who throws first in the next leg. */
+enum class X01StartingPlayer : uint8_t
+{
+    Rotate,  // Starting player advances each leg
+    Winner,  // Leg winner starts next
+    Loser    // Next player after winner starts next
+};
+
 class X01Game : public Game
 {
     public:
         explicit X01Game(X01Variant variant = X01Variant::V501,
                         X01InOutRule outRule = X01InOutRule::Double,
-                        X01InOutRule inRule  = X01InOutRule::Any);
+                        X01InOutRule inRule  = X01InOutRule::Any,
+                        uint8_t legsToWin = 1,
+                        X01StartingPlayer startingPlayer = X01StartingPlayer::Rotate);
         ~X01Game() override = default;
 
         Status init(FrameID frameId) override;
@@ -55,9 +65,11 @@ class X01Game : public Game
         void renderLeftPlayerDetail();
         void renderGameOver();
 
-        X01Variant   m_variant;
-        X01InOutRule m_outRule;
-        X01InOutRule m_inRule;
+        X01Variant        m_variant;
+        X01InOutRule      m_outRule;
+        X01InOutRule      m_inRule;
+        uint8_t           m_legsToWin;
+        X01StartingPlayer m_startingPlayer;
         FontID       m_fontId;
         FontID       m_largeFontId;
         DartBoard    m_board;
@@ -86,6 +98,13 @@ class X01Game : public Game
         // Bust display
         bool        m_showBust  = false;
         float       m_bustTimer = 0.0f;
+
+        // Leg tracking
+        std::vector<uint8_t> m_playerLegs;       // per-player leg win count
+        uint8_t              m_legStartPlayer = 0; // who threw first this leg
+        uint8_t              m_currentLeg     = 1; // current leg number (1-based)
+        bool                 m_showLegWon     = false;
+        float                m_legWonTimer    = 0.0f;
 
         // Game over state
         bool        m_gameOver       = false;
