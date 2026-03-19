@@ -14,6 +14,7 @@
 #include "games/main_menu.hpp"
 #include "players/players.hpp"
 
+#include <cstdio>
 #include <SDL3/SDL_keycode.h>
 #include <SDL3/SDL_gamepad.h>
 #include <SDL3_ttf/SDL_ttf.h>
@@ -88,6 +89,10 @@ Status X01Game::init(FrameID frameId)
     // Initialize in-rule tracking
     bool startedByDefault = (m_inRule == X01InOutRule::Any);
     m_playerStarted.assign(getPlayerCount(), startedByDefault);
+
+    // Initialize PPR tracking
+    m_playerTotalPoints.assign(getPlayerCount(), 0);
+    m_playerTotalDarts.assign(getPlayerCount(), 0);
 
     // Initialize leg tracking
     m_playerLegs.assign(getPlayerCount(), 0);
@@ -243,17 +248,59 @@ void X01Game::update(float deltaTime)
         // Apply score
         score = newScore;
 
-        // Check for win (leg or match)
+        // Check for checkout — wait for dart collection before transitioning
         if(score == 0)
+        {
+            // PPR: checkout — count only darts actually thrown this visit
+            uint16_t dartsThisVisit = 3 - m_throwsRemaining;
+            m_playerTotalPoints[m_currentPlayerIndex] += m_turnStartScore;
+            m_playerTotalDarts[m_currentPlayerIndex] += dartsThisVisit;
+
+            m_throwsRemaining = 0;
+            m_waitingForCollect = true;
+            break;
+        }
+
+        // Track turn progression
+        m_turnScoreProgression.push_back(score);
+
+        // Track and highlight the hit segment
+        m_hitSegments.push_back(segment.value());
+        m_hitPositions.push_back(pos);
+        m_board.highlightSegment(segment.value());
+
+        // All throws used — wait for board to be cleared
+        if(m_throwsRemaining == 0)
+        {
+            m_waitingForCollect = true;
+        }
+
+        hasPosition = popDartPosition(pos);
+    }
+
+    // When waiting for darts to be collected, poll the vision source
+    if(m_waitingForCollect && isBoardClear())
+    {
+        LOG_INFO(GAME_MANAGER_LOG_ID, "X01: Board cleared");
+
+        m_board.unhighlightAll();
+        m_hitSegments.clear();
+        m_hitPositions.clear();
+        m_blinkTimer = 0.0f;
+        m_blinkOn = true;
+        m_waitingForCollect = false;
+
+        // Check if current player checked out (score == 0)
+        if(m_playerScores[m_currentPlayerIndex] == 0)
         {
             if(m_legsToWin <= 1)
             {
-                // Single-leg game: immediate game over
+                // Single-leg game: game over
                 m_gameOver = true;
                 m_winnerIndex = m_currentPlayerIndex;
                 m_gameOverCursor = 0;
                 LOG_INFO(GAME_MANAGER_LOG_ID, "X01: Player {} wins!", m_currentPlayerIndex);
-                break;
+                return;
             }
 
             // Multi-leg: increment leg count
@@ -269,7 +316,7 @@ void X01Game::update(float deltaTime)
                 m_winnerIndex = m_currentPlayerIndex;
                 m_gameOverCursor = 0;
                 LOG_INFO(GAME_MANAGER_LOG_ID, "X01: Player {} wins the match!", m_currentPlayerIndex);
-                break;
+                return;
             }
 
             // Start a new leg
@@ -304,54 +351,24 @@ void X01Game::update(float deltaTime)
             m_throwsRemaining = 3;
             m_turnScoreProgression.clear();
             m_turnStartScore = startScore;
-            m_waitingForCollect = false;
-            m_statusText = "Waiting for Throw";
-
-            // Clear board highlights
-            m_board.unhighlightAll();
-            m_hitSegments.clear();
-            m_hitPositions.clear();
-            m_blinkTimer = 0.0f;
-            m_blinkOn = true;
             m_showBust = false;
-            break;
+            m_statusText = "Waiting for Throw";
         }
-
-        // Track turn progression
-        m_turnScoreProgression.push_back(score);
-
-        // Track and highlight the hit segment
-        m_hitSegments.push_back(segment.value());
-        m_hitPositions.push_back(pos);
-        m_board.highlightSegment(segment.value());
-
-        // All throws used — wait for board to be cleared
-        if(m_throwsRemaining == 0)
+        else
         {
-            m_waitingForCollect = true;
+            // PPR: normal visit end — always 3 darts, points = what was actually scored
+            // (0 on bust since score reverted to m_turnStartScore)
+            uint16_t pointsThisVisit = m_turnStartScore - m_playerScores[m_currentPlayerIndex];
+            m_playerTotalPoints[m_currentPlayerIndex] += pointsThisVisit;
+            m_playerTotalDarts[m_currentPlayerIndex] += 3;
+
+            // Advance to next player
+            m_currentPlayerIndex = (m_currentPlayerIndex + 1) % getPlayerCount();
+            m_throwsRemaining = 3;
+            m_turnScoreProgression.clear();
+            m_turnStartScore = m_playerScores[m_currentPlayerIndex];
+            m_statusText = "Waiting for Throw";
         }
-
-        hasPosition = popDartPosition(pos);
-    }
-
-    // When waiting for darts to be collected, poll the vision source
-    if(m_waitingForCollect && isBoardClear())
-    {
-        LOG_INFO(GAME_MANAGER_LOG_ID, "X01: Board cleared");
-
-        m_board.unhighlightAll();
-        m_hitSegments.clear();
-        m_hitPositions.clear();
-        m_blinkTimer = 0.0f;
-        m_blinkOn = true;
-        m_waitingForCollect = false;
-
-        // Advance to next player
-        m_currentPlayerIndex = (m_currentPlayerIndex + 1) % getPlayerCount();
-        m_throwsRemaining = 3;
-        m_turnScoreProgression.clear();
-        m_turnStartScore = m_playerScores[m_currentPlayerIndex];
-        m_statusText = "Waiting for Throw";
     }
 }
 
@@ -389,6 +406,13 @@ void X01Game::renderRightScoreboard()
         {
             entry.value += "  (" + std::to_string(m_playerLegs[i])
                          + "/" + std::to_string(m_legsToWin) + ")";
+        }
+        if(m_playerTotalDarts[i] > 0)
+        {
+            float ppr = (static_cast<float>(m_playerTotalPoints[i]) / m_playerTotalDarts[i]) * 3.0f;
+            char buf[16];
+            snprintf(buf, sizeof(buf), "%.1f", ppr);
+            entry.value += std::string("  PPR: ") + buf;
         }
         entries.push_back(entry);
     }

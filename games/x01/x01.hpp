@@ -99,6 +99,10 @@ class X01Game : public Game
         bool        m_showBust  = false;
         float       m_bustTimer = 0.0f;
 
+        // PPR (Points Per Round) tracking — cumulative across all legs
+        std::vector<uint32_t> m_playerTotalPoints; // total points scored
+        std::vector<uint16_t> m_playerTotalDarts;  // total darts thrown
+
         // Leg tracking
         std::vector<uint8_t> m_playerLegs;       // per-player leg win count
         uint8_t              m_legStartPlayer = 0; // who threw first this leg
