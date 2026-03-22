@@ -420,6 +420,15 @@ void CricketGame::render()
     renderMarksScoreboard();
     renderPointScores();
 
+    // Show "GAME!" banner while waiting for dart collection after a win
+    if(m_waitingForCollect && checkWinCondition(m_currentPlayerIndex))
+    {
+        std::string winnerName = m_teamsMode
+            ? m_turnTracker.teamName(m_currentPlayerIndex)
+            : getPlayerName(getPlayerByIndex(m_currentPlayerIndex));
+        renderAnnouncementBanner(getFrameId(), m_largeFontId, winnerName, "GAME!");
+    }
+
     if(m_gameOver)
     {
         renderGameOver();

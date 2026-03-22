@@ -177,6 +177,15 @@ void renderScoreboardPanel(FrameID frameId, FontID fontId,
 {
     TTF_Font* font = getFont(fontId);
 
+    // Determine row height: taller if any entry has detail text
+    static constexpr float DETAIL_ROW_H = 70.0f;
+    bool hasDetails = false;
+    for(auto& e : entries)
+    {
+        if(!e.detailText.empty()) { hasDetails = true; break; }
+    }
+    float rowH = hasDetails ? DETAIL_ROW_H : GameLayout::SCORE_ROW_H;
+
     // Header
     auto header = std::make_shared<RenderText>();
     header->m_text     = "SCOREBOARD";
@@ -192,7 +201,7 @@ void renderScoreboardPanel(FrameID frameId, FontID fontId,
 
     for(size_t i = 0; i < entries.size(); i++)
     {
-        float rowY = GameLayout::SCORE_TOP_Y + i * GameLayout::SCORE_ROW_H;
+        float rowY = GameLayout::SCORE_TOP_Y + i * rowH;
         bool isCurrent = (static_cast<uint8_t>(i) == currentPlayerIndex);
 
         // Row background
@@ -203,7 +212,7 @@ void renderScoreboardPanel(FrameID frameId, FontID fontId,
         bg->m_y      = rowY;
         bg->m_z      = GameLayout::SIDEBAR_Z;
         bg->m_width  = GameLayout::RIGHT_PANEL_W;
-        bg->m_height = GameLayout::SCORE_ROW_H - 4.0f;
+        bg->m_height = rowH - 4.0f;
         renderQueueAdd(frameId, bg);
 
         // Accent bar for current player
@@ -216,7 +225,7 @@ void renderScoreboardPanel(FrameID frameId, FontID fontId,
             accent->m_y      = rowY;
             accent->m_z      = GameLayout::SIDEBAR_Z + 1;
             accent->m_width  = SB_ACCENT_W;
-            accent->m_height = GameLayout::SCORE_ROW_H - 4.0f;
+            accent->m_height = rowH - 4.0f;
             renderQueueAdd(frameId, accent);
         }
 
@@ -262,6 +271,98 @@ void renderScoreboardPanel(FrameID frameId, FontID fontId,
         valText->m_y        = rowY + SB_ROW_PAD;
         valText->m_z        = GameLayout::SIDEBAR_Z + 1;
         renderQueueAdd(frameId, valText);
+
+        // Optional detail line
+        if(!entries[i].detailText.empty())
+        {
+            auto detailLine = std::make_shared<RenderText>();
+            detailLine->m_text     = entries[i].detailText;
+            detailLine->m_color    = entries[i].detailColor;
+            detailLine->m_fontId   = fontId;
+            detailLine->m_rotation = 0.0f;
+            detailLine->m_scaleX   = 1.0f;
+            detailLine->m_scaleY   = 1.0f;
+            detailLine->m_x        = GameLayout::RIGHT_PANEL_X + SB_ROW_PAD + SB_ACCENT_W;
+            detailLine->m_y        = rowY + 28.0f;
+            detailLine->m_z        = GameLayout::SIDEBAR_Z + 2;
+            renderQueueAdd(frameId, detailLine);
+        }
+    }
+}
+
+
+// ============================================================================
+// Announcement banner
+// ============================================================================
+
+void renderAnnouncementBanner(FrameID frameId, FontID largeFontId,
+                               const std::string& heading,
+                               const std::string& message,
+                               Color messageColor)
+{
+    TTF_Font* font = getFont(largeFontId);
+
+    float panelW = 300.0f;
+    float panelH = 120.0f;
+    float panelX = GameLayout::BOARD_CENTER_X - panelW * 0.5f;
+    float panelY = GameLayout::BOARD_CENTER_Y - panelH * 0.5f;
+
+    // Dark backdrop
+    auto bg = std::make_shared<RenderShape>();
+    bg->m_type   = ShapeType::Box;
+    bg->m_color  = {20, 20, 30};
+    bg->m_x      = panelX;
+    bg->m_y      = panelY;
+    bg->m_z      = GameLayout::OVERLAY_Z;
+    bg->m_width  = panelW;
+    bg->m_height = panelH;
+    renderQueueAdd(frameId, bg);
+
+    // Heading (player/team name) — centered, smaller scale
+    if(!heading.empty())
+    {
+        float headX = panelX + panelW * 0.5f;
+        if(font)
+        {
+            int w = 0, h = 0;
+            TTF_GetStringSize(font, heading.c_str(), 0, &w, &h);
+            headX -= static_cast<float>(w) * 0.5f * 0.5f; // 0.5 scale
+        }
+
+        auto headText = std::make_shared<RenderText>();
+        headText->m_text     = heading;
+        headText->m_color    = {200, 200, 200};
+        headText->m_fontId   = largeFontId;
+        headText->m_rotation = 0.0f;
+        headText->m_scaleX   = 0.5f;
+        headText->m_scaleY   = 0.5f;
+        headText->m_x        = headX;
+        headText->m_y        = panelY + 15.0f;
+        headText->m_z        = GameLayout::OVERLAY_Z + 1;
+        renderQueueAdd(frameId, headText);
+    }
+
+    // Message (LEG!, GAME!, etc.) — centered, full scale
+    {
+        float msgX = panelX + panelW * 0.5f;
+        if(font)
+        {
+            int w = 0, h = 0;
+            TTF_GetStringSize(font, message.c_str(), 0, &w, &h);
+            msgX -= static_cast<float>(w) * 0.5f;
+        }
+
+        auto msgText = std::make_shared<RenderText>();
+        msgText->m_text     = message;
+        msgText->m_color    = messageColor;
+        msgText->m_fontId   = largeFontId;
+        msgText->m_rotation = 0.0f;
+        msgText->m_scaleX   = 1.0f;
+        msgText->m_scaleY   = 1.0f;
+        msgText->m_x        = msgX;
+        msgText->m_y        = panelY + 50.0f;
+        msgText->m_z        = GameLayout::OVERLAY_Z + 1;
+        renderQueueAdd(frameId, msgText);
     }
 }
 

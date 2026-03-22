@@ -121,16 +121,6 @@ void X01Game::update(float deltaTime)
         }
     }
 
-    // Leg won display timer
-    if(m_showLegWon)
-    {
-        m_legWonTimer -= deltaTime;
-        if(m_legWonTimer <= 0.0f)
-        {
-            m_showLegWon = false;
-        }
-    }
-
     uint16_t& score = m_playerScores[m_currentPlayerIndex];
 
     // Blink highlighted segments
@@ -258,6 +248,11 @@ void X01Game::update(float deltaTime)
 
             m_throwsRemaining = 0;
             m_waitingForCollect = true;
+            m_statusText = "Collect Darts";
+
+            // Pre-increment leg count so render can check match vs leg win
+            m_playerLegs[m_currentPlayerIndex]++;
+            m_legWinnerIndex = m_currentPlayerIndex;
             break;
         }
 
@@ -291,11 +286,12 @@ void X01Game::update(float deltaTime)
         m_waitingForCollect = false;
 
         // Check if current player checked out (score == 0)
+        // Leg count was already incremented at checkout time
         if(m_playerScores[m_currentPlayerIndex] == 0)
         {
-            if(m_legsToWin <= 1)
+            if(m_playerLegs[m_currentPlayerIndex] >= m_legsToWin)
             {
-                // Single-leg game: game over
+                // Match or single-leg game over
                 m_gameOver = true;
                 m_winnerIndex = m_currentPlayerIndex;
                 m_gameOverCursor = 0;
@@ -303,25 +299,7 @@ void X01Game::update(float deltaTime)
                 return;
             }
 
-            // Multi-leg: increment leg count
-            m_playerLegs[m_currentPlayerIndex]++;
-            LOG_INFO(GAME_MANAGER_LOG_ID, "X01: Player {} wins leg {} ({}/{})",
-                     m_currentPlayerIndex, m_currentLeg,
-                     m_playerLegs[m_currentPlayerIndex], m_legsToWin);
-
-            if(m_playerLegs[m_currentPlayerIndex] >= m_legsToWin)
-            {
-                // Match over
-                m_gameOver = true;
-                m_winnerIndex = m_currentPlayerIndex;
-                m_gameOverCursor = 0;
-                LOG_INFO(GAME_MANAGER_LOG_ID, "X01: Player {} wins the match!", m_currentPlayerIndex);
-                return;
-            }
-
             // Start a new leg
-            m_showLegWon = true;
-            m_legWonTimer = BUST_DISPLAY_TIME;
             m_currentLeg++;
 
             // Determine who starts the next leg
@@ -402,18 +380,29 @@ void X01Game::renderRightScoreboard()
         ScoreboardEntry entry;
         entry.name  = getPlayerName(pid);
         entry.value = std::to_string(m_playerScores[i]);
+
+        // Build detail line with legs and PPR
+        std::string detail;
         if(m_legsToWin > 1)
         {
-            entry.value += "  (" + std::to_string(m_playerLegs[i])
-                         + "/" + std::to_string(m_legsToWin) + ")";
+            detail += "Legs: " + std::to_string(m_playerLegs[i])
+                    + "/" + std::to_string(m_legsToWin);
         }
         if(m_playerTotalDarts[i] > 0)
         {
             float ppr = (static_cast<float>(m_playerTotalPoints[i]) / m_playerTotalDarts[i]) * 3.0f;
             char buf[16];
             snprintf(buf, sizeof(buf), "%.1f", ppr);
-            entry.value += std::string("  PPR: ") + buf;
+            if(!detail.empty()) detail += "   ";
+            detail += std::string("PPR: ") + buf;
         }
+        else
+        {
+            if(!detail.empty()) detail += "   ";
+            detail += "PPR: -";
+        }
+        entry.detailText = detail;
+
         entries.push_back(entry);
     }
 
@@ -488,20 +477,14 @@ void X01Game::renderLeftPlayerDetail()
         renderQueueAdd(fid, bustText);
     }
 
-    // LEG WON indicator (large green text, similar to BUST)
-    if(m_showLegWon)
+    // Checkout banner — show only while waiting for dart collection
+    if(m_waitingForCollect && score == 0)
     {
-        auto legWonText = std::make_shared<RenderText>();
-        legWonText->m_text     = "LEG";
-        legWonText->m_color    = {40, 220, 80};
-        legWonText->m_fontId   = m_largeFontId;
-        legWonText->m_rotation = 0.0f;
-        legWonText->m_scaleX   = 1.0f;
-        legWonText->m_scaleY   = 1.0f;
-        legWonText->m_x        = LEFT_PANEL_X + 120.0f;
-        legWonText->m_y        = LEFT_SCORE_Y;
-        legWonText->m_z        = GameLayout::SIDEBAR_Z + 1;
-        renderQueueAdd(fid, legWonText);
+        PlayerID legWinnerId = getPlayerByIndex(m_legWinnerIndex);
+        std::string winnerName = getPlayerName(legWinnerId);
+        bool isMatchWin = (m_playerLegs[m_legWinnerIndex] >= m_legsToWin);
+        std::string bannerMsg = isMatchWin ? "GAME!" : "LEG!";
+        renderAnnouncementBanner(fid, m_largeFontId, winnerName, bannerMsg);
     }
 
     // In-rule indicator: show what the player needs before darts count

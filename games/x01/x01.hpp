@@ -107,8 +107,7 @@ class X01Game : public Game
         std::vector<uint8_t> m_playerLegs;       // per-player leg win count
         uint8_t              m_legStartPlayer = 0; // who threw first this leg
         uint8_t              m_currentLeg     = 1; // current leg number (1-based)
-        bool                 m_showLegWon     = false;
-        float                m_legWonTimer    = 0.0f;
+        uint8_t              m_legWinnerIndex = 0;    // who won the last leg (for banner)
 
         // Game over state
         bool        m_gameOver       = false;
