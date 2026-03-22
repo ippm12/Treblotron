@@ -31,7 +31,6 @@ static constexpr float LEFT_PROGRESS_Y   = 280.0f;
 static constexpr float LEFT_DARTS_Y      = 320.0f;
 static constexpr float LEFT_DART_ROW_H   = 28.0f;
 
-static constexpr float BUST_DISPLAY_TIME = 2.0f; // seconds to show BUST indicator
 
 /** Check whether a dart segment satisfies an in/out rule. */
 static bool satisfiesRule(X01InOutRule rule, DartSegment segment)
@@ -111,15 +110,7 @@ void X01Game::update(float deltaTime)
         return;
     }
 
-    // Bust display timer
-    if(m_showBust)
-    {
-        m_bustTimer -= deltaTime;
-        if(m_bustTimer <= 0.0f)
-        {
-            m_showBust = false;
-        }
-    }
+    // Bust display is cleared when darts are collected (in the board-clear block below)
 
     uint16_t& score = m_playerScores[m_currentPlayerIndex];
 
@@ -225,7 +216,6 @@ void X01Game::update(float deltaTime)
             score = m_turnStartScore;
             m_throwsRemaining = 0;
             m_showBust = true;
-            m_bustTimer = BUST_DISPLAY_TIME;
             m_waitingForCollect = true;
 
             // Still highlight the segment that caused the bust
@@ -284,6 +274,7 @@ void X01Game::update(float deltaTime)
         m_blinkTimer = 0.0f;
         m_blinkOn = true;
         m_waitingForCollect = false;
+        m_showBust = false;
 
         // Check if current player checked out (score == 0)
         // Leg count was already incremented at checkout time

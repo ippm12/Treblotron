@@ -95,9 +95,8 @@ class X01Game : public Game
         float       m_blinkTimer   = 0.0f;
         bool        m_blinkOn      = true;
 
-        // Bust display
+        // Bust display (shown until darts are collected)
         bool        m_showBust  = false;
-        float       m_bustTimer = 0.0f;
 
         // PPR (Points Per Round) tracking — cumulative across all legs
         std::vector<uint32_t> m_playerTotalPoints; // total points scored
