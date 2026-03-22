@@ -72,6 +72,7 @@ MainMenu::MainMenu()
     , m_showEmptyTeamWarning(false)
     , m_showDuplicateNameWarning(false)
     , m_showNoTeamsWarning(false)
+    , m_showNoPlayersWarning(false)
     , m_titleFontId(INVALID_FONT_ID)
     , m_cardFontId(INVALID_FONT_ID)
     , m_smallFontId(INVALID_FONT_ID)
@@ -588,6 +589,11 @@ void MainMenu::handleGameSettingsKey(uint32_t keycode)
         m_showNoTeamsWarning = false;
         return;
     }
+    if(m_showNoPlayersWarning)
+    {
+        m_showNoPlayersWarning = false;
+        return;
+    }
 
     const auto& desc = getRegisteredGames()[m_selectedGameIndex];
     int settingCount = static_cast<int>(desc.settings.size());
@@ -631,6 +637,13 @@ void MainMenu::handleGameSettingsKey(uint32_t keycode)
         case SDLK_KP_ENTER:
             if(m_settingsCursor == settingCount)
             {
+                // Check if there are any players
+                if(getPlayerCount() == 0)
+                {
+                    m_showNoPlayersWarning = true;
+                    return;
+                }
+
                 // Check if any "Teams" setting is enabled but no teams exist
                 for(int s = 0; s < settingCount; s++)
                 {
@@ -803,7 +816,7 @@ void MainMenu::renderGameSettings()
         renderQueueAdd(fid, overlay);
 
         // Panel
-        float panelW = 500.0f;
+        float panelW = 580.0f;
         float panelH = 140.0f;
         float panelX = (WINDOW_W - panelW) * 0.5f;
         float panelY = (WINDOW_H - panelH) * 0.5f - 30.0f;
@@ -868,6 +881,68 @@ void MainMenu::renderGameSettings()
         if(smallFont) TTF_GetStringSize(smallFont, dismiss.c_str(), 0, &w3, &h3);
         dismissText->m_x = panelX + (panelW - w3) * 0.5f;
         renderQueueAdd(fid, dismissText);
+    }
+
+    // ---- No-players warning popup ----
+    if(m_showNoPlayersWarning)
+    {
+        auto npOverlay = std::make_shared<RenderShape>();
+        npOverlay->m_type   = ShapeType::Box;
+        npOverlay->m_color  = {20, 20, 20};
+        npOverlay->m_x      = 0.0f;
+        npOverlay->m_y      = 0.0f;
+        npOverlay->m_z      = SETTINGS_Z + 80;
+        npOverlay->m_width  = WINDOW_W;
+        npOverlay->m_height = WINDOW_H;
+        renderQueueAdd(fid, npOverlay);
+
+        float npPanelW = 580.0f;
+        float npPanelH = 120.0f;
+        float npPanelX = (WINDOW_W - npPanelW) * 0.5f;
+        float npPanelY = (WINDOW_H - npPanelH) * 0.5f - 30.0f;
+
+        auto npPanel = std::make_shared<RenderShape>();
+        npPanel->m_type   = ShapeType::Box;
+        npPanel->m_color  = {50, 50, 55};
+        npPanel->m_x      = npPanelX;
+        npPanel->m_y      = npPanelY;
+        npPanel->m_z      = SETTINGS_Z + 81;
+        npPanel->m_width  = npPanelW;
+        npPanel->m_height = npPanelH;
+        renderQueueAdd(fid, npPanel);
+
+        std::string npMsg = "Add at least one player in Player Settings.";
+        TTF_Font* cardFont = getFont(m_cardFontId);
+
+        auto npText = std::make_shared<RenderText>();
+        npText->m_text     = npMsg;
+        npText->m_color    = {255, 200, 80};
+        npText->m_fontId   = m_cardFontId;
+        npText->m_rotation = 0.0f;
+        npText->m_scaleX   = 1.0f;
+        npText->m_scaleY   = 1.0f;
+        npText->m_z        = SETTINGS_Z + 82;
+        npText->m_y        = npPanelY + 25.0f;
+        int npW = 0, npH = 0;
+        if(cardFont) TTF_GetStringSize(cardFont, npMsg.c_str(), 0, &npW, &npH);
+        npText->m_x = npPanelX + (npPanelW - npW) * 0.5f;
+        renderQueueAdd(fid, npText);
+
+        std::string npDismiss = "Press any key to dismiss";
+        auto npDismissText = std::make_shared<RenderText>();
+        npDismissText->m_text     = npDismiss;
+        npDismissText->m_color    = {140, 140, 150};
+        npDismissText->m_fontId   = m_smallFontId;
+        npDismissText->m_rotation = 0.0f;
+        npDismissText->m_scaleX   = 1.0f;
+        npDismissText->m_scaleY   = 1.0f;
+        npDismissText->m_z        = SETTINGS_Z + 82;
+        npDismissText->m_y        = npPanelY + 75.0f;
+        TTF_Font* npSmallFont = getFont(m_smallFontId);
+        int npDW = 0, npDH = 0;
+        if(npSmallFont) TTF_GetStringSize(npSmallFont, npDismiss.c_str(), 0, &npDW, &npDH);
+        npDismissText->m_x = npPanelX + (npPanelW - npDW) * 0.5f;
+        renderQueueAdd(fid, npDismissText);
     }
 }
 

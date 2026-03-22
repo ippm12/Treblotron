@@ -80,6 +80,8 @@ struct ScoreboardEntry
     std::string name;
     std::string value;
     Color       valueColor = {255, 255, 255};
+    std::string detailText;                      // optional second line below value
+    Color       detailColor = {130, 180, 220};   // default light blue
 };
 
 /**
@@ -89,6 +91,21 @@ struct ScoreboardEntry
 void renderScoreboardPanel(FrameID frameId, FontID fontId,
                            const std::vector<ScoreboardEntry>& entries,
                            uint8_t currentPlayerIndex);
+
+
+// ============================================================================
+// Announcement banner
+// ============================================================================
+
+/**
+ * Render a centered announcement banner over the board area with a dark
+ * backdrop panel. Use for checkout/win/leg indicators while waiting for
+ * dart collection. Games provide their own heading and message text.
+ */
+void renderAnnouncementBanner(FrameID frameId, FontID largeFontId,
+                               const std::string& heading,
+                               const std::string& message,
+                               Color messageColor = {40, 220, 80});
 
 
 // ============================================================================

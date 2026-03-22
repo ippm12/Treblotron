@@ -360,12 +360,11 @@ void CricketGame::update(float deltaTime)
             m_board.setSegmentColor(hit.segment, COLOR_HIT_FLASH);
         }
 
-        // Check for win
+        // Check for win — defer game over until darts are collected
         if(checkWinCondition(m_currentPlayerIndex))
         {
-            m_gameOver = true;
-            m_winnerIndex = m_currentPlayerIndex;
-            m_gameOverCursor = 0;
+            m_throwsRemaining = 0;
+            m_waitingForCollect = true;
             break;
         }
 
@@ -377,7 +376,7 @@ void CricketGame::update(float deltaTime)
         hasPosition = popDartPosition(pos);
     }
 
-    // Board clear — advance turn
+    // Board clear — check for win or advance turn
     if(m_waitingForCollect && isBoardClear())
     {
         m_hitSegments.clear();
@@ -385,6 +384,15 @@ void CricketGame::update(float deltaTime)
         m_blinkTimer = 0.0f;
         m_blinkOn = true;
         m_waitingForCollect = false;
+
+        // Check if current player won
+        if(checkWinCondition(m_currentPlayerIndex))
+        {
+            m_gameOver = true;
+            m_winnerIndex = m_currentPlayerIndex;
+            m_gameOverCursor = 0;
+            return;
+        }
 
         if(m_teamsMode)
         {
@@ -411,6 +419,15 @@ void CricketGame::render()
                      GameLayout::BOARD_SCALE);
     renderMarksScoreboard();
     renderPointScores();
+
+    // Show "GAME!" banner while waiting for dart collection after a win
+    if(m_waitingForCollect && checkWinCondition(m_currentPlayerIndex))
+    {
+        std::string winnerName = m_teamsMode
+            ? m_turnTracker.teamName(m_currentPlayerIndex)
+            : getPlayerName(getPlayerByIndex(m_currentPlayerIndex));
+        renderAnnouncementBanner(getFrameId(), m_largeFontId, winnerName, "GAME!");
+    }
 
     if(m_gameOver)
     {

@@ -78,6 +78,7 @@ class MainMenu : public Game
         bool        m_showEmptyTeamWarning;
         bool        m_showDuplicateNameWarning;
         bool        m_showNoTeamsWarning;
+        bool        m_showNoPlayersWarning;
 
         // Fonts
         FontID m_titleFontId;

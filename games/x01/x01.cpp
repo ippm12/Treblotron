@@ -14,6 +14,7 @@
 #include "games/main_menu.hpp"
 #include "players/players.hpp"
 
+#include <cstdio>
 #include <SDL3/SDL_keycode.h>
 #include <SDL3/SDL_gamepad.h>
 #include <SDL3_ttf/SDL_ttf.h>
@@ -30,7 +31,6 @@ static constexpr float LEFT_PROGRESS_Y   = 280.0f;
 static constexpr float LEFT_DARTS_Y      = 320.0f;
 static constexpr float LEFT_DART_ROW_H   = 28.0f;
 
-static constexpr float BUST_DISPLAY_TIME = 2.0f; // seconds to show BUST indicator
 
 /** Check whether a dart segment satisfies an in/out rule. */
 static bool satisfiesRule(X01InOutRule rule, DartSegment segment)
@@ -43,11 +43,14 @@ static bool satisfiesRule(X01InOutRule rule, DartSegment segment)
 }
 
 
-X01Game::X01Game(X01Variant variant, X01InOutRule outRule, X01InOutRule inRule)
+X01Game::X01Game(X01Variant variant, X01InOutRule outRule, X01InOutRule inRule,
+                 uint8_t legsToWin, X01StartingPlayer startingPlayer)
     : Game("X01")
     , m_variant(variant)
     , m_outRule(outRule)
     , m_inRule(inRule)
+    , m_legsToWin(legsToWin)
+    , m_startingPlayer(startingPlayer)
     , m_fontId(INVALID_FONT_ID)
     , m_largeFontId(INVALID_FONT_ID)
     , m_board()
@@ -86,6 +89,15 @@ Status X01Game::init(FrameID frameId)
     bool startedByDefault = (m_inRule == X01InOutRule::Any);
     m_playerStarted.assign(getPlayerCount(), startedByDefault);
 
+    // Initialize PPR tracking
+    m_playerTotalPoints.assign(getPlayerCount(), 0);
+    m_playerTotalDarts.assign(getPlayerCount(), 0);
+
+    // Initialize leg tracking
+    m_playerLegs.assign(getPlayerCount(), 0);
+    m_legStartPlayer = 0;
+    m_currentLeg = 1;
+
     return STATUS_OK;
 }
 
@@ -98,15 +110,7 @@ void X01Game::update(float deltaTime)
         return;
     }
 
-    // Bust display timer
-    if(m_showBust)
-    {
-        m_bustTimer -= deltaTime;
-        if(m_bustTimer <= 0.0f)
-        {
-            m_showBust = false;
-        }
-    }
+    // Bust display is cleared when darts are collected (in the board-clear block below)
 
     uint16_t& score = m_playerScores[m_currentPlayerIndex];
 
@@ -212,7 +216,6 @@ void X01Game::update(float deltaTime)
             score = m_turnStartScore;
             m_throwsRemaining = 0;
             m_showBust = true;
-            m_bustTimer = BUST_DISPLAY_TIME;
             m_waitingForCollect = true;
 
             // Still highlight the segment that caused the bust
@@ -225,13 +228,21 @@ void X01Game::update(float deltaTime)
         // Apply score
         score = newScore;
 
-        // Check for win
+        // Check for checkout — wait for dart collection before transitioning
         if(score == 0)
         {
-            m_gameOver = true;
-            m_winnerIndex = m_currentPlayerIndex;
-            m_gameOverCursor = 0;
-            LOG_INFO(GAME_MANAGER_LOG_ID, "X01: Player {} wins!", m_currentPlayerIndex);
+            // PPR: checkout — count only darts actually thrown this visit
+            uint16_t dartsThisVisit = 3 - m_throwsRemaining;
+            m_playerTotalPoints[m_currentPlayerIndex] += m_turnStartScore;
+            m_playerTotalDarts[m_currentPlayerIndex] += dartsThisVisit;
+
+            m_throwsRemaining = 0;
+            m_waitingForCollect = true;
+            m_statusText = "Collect Darts";
+
+            // Pre-increment leg count so render can check match vs leg win
+            m_playerLegs[m_currentPlayerIndex]++;
+            m_legWinnerIndex = m_currentPlayerIndex;
             break;
         }
 
@@ -263,13 +274,70 @@ void X01Game::update(float deltaTime)
         m_blinkTimer = 0.0f;
         m_blinkOn = true;
         m_waitingForCollect = false;
+        m_showBust = false;
 
-        // Advance to next player
-        m_currentPlayerIndex = (m_currentPlayerIndex + 1) % getPlayerCount();
-        m_throwsRemaining = 3;
-        m_turnScoreProgression.clear();
-        m_turnStartScore = m_playerScores[m_currentPlayerIndex];
-        m_statusText = "Waiting for Throw";
+        // Check if current player checked out (score == 0)
+        // Leg count was already incremented at checkout time
+        if(m_playerScores[m_currentPlayerIndex] == 0)
+        {
+            if(m_playerLegs[m_currentPlayerIndex] >= m_legsToWin)
+            {
+                // Match or single-leg game over
+                m_gameOver = true;
+                m_winnerIndex = m_currentPlayerIndex;
+                m_gameOverCursor = 0;
+                LOG_INFO(GAME_MANAGER_LOG_ID, "X01: Player {} wins!", m_currentPlayerIndex);
+                return;
+            }
+
+            // Start a new leg
+            m_currentLeg++;
+
+            // Determine who starts the next leg
+            uint8_t nextStarter = 0;
+            switch(m_startingPlayer)
+            {
+                case X01StartingPlayer::Rotate:
+                    nextStarter = (m_legStartPlayer + 1) % getPlayerCount();
+                    break;
+                case X01StartingPlayer::Winner:
+                    nextStarter = m_currentPlayerIndex;
+                    break;
+                case X01StartingPlayer::Loser:
+                    nextStarter = (m_currentPlayerIndex + 1) % getPlayerCount();
+                    break;
+            }
+            m_legStartPlayer = nextStarter;
+            m_currentPlayerIndex = nextStarter;
+
+            // Reset scores and in-rule tracking
+            uint16_t startScore = static_cast<uint16_t>(m_variant);
+            m_playerScores.assign(getPlayerCount(), startScore);
+            bool startedByDefault = (m_inRule == X01InOutRule::Any);
+            m_playerStarted.assign(getPlayerCount(), startedByDefault);
+
+            // Reset turn state
+            m_throwsRemaining = 3;
+            m_turnScoreProgression.clear();
+            m_turnStartScore = startScore;
+            m_showBust = false;
+            m_statusText = "Waiting for Throw";
+        }
+        else
+        {
+            // PPR: normal visit end — always 3 darts, points = what was actually scored
+            // (0 on bust since score reverted to m_turnStartScore)
+            uint16_t pointsThisVisit = m_turnStartScore - m_playerScores[m_currentPlayerIndex];
+            m_playerTotalPoints[m_currentPlayerIndex] += pointsThisVisit;
+            m_playerTotalDarts[m_currentPlayerIndex] += 3;
+
+            // Advance to next player
+            m_currentPlayerIndex = (m_currentPlayerIndex + 1) % getPlayerCount();
+            m_throwsRemaining = 3;
+            m_turnScoreProgression.clear();
+            m_turnStartScore = m_playerScores[m_currentPlayerIndex];
+            m_statusText = "Waiting for Throw";
+        }
     }
 }
 
@@ -300,7 +368,33 @@ void X01Game::renderRightScoreboard()
     for(uint8_t i = 0; i < playerCount; i++)
     {
         PlayerID pid = getPlayerByIndex(i);
-        entries.push_back({getPlayerName(pid), std::to_string(m_playerScores[i])});
+        ScoreboardEntry entry;
+        entry.name  = getPlayerName(pid);
+        entry.value = std::to_string(m_playerScores[i]);
+
+        // Build detail line with legs and PPR
+        std::string detail;
+        if(m_legsToWin > 1)
+        {
+            detail += "Legs: " + std::to_string(m_playerLegs[i])
+                    + "/" + std::to_string(m_legsToWin);
+        }
+        if(m_playerTotalDarts[i] > 0)
+        {
+            float ppr = (static_cast<float>(m_playerTotalPoints[i]) / m_playerTotalDarts[i]) * 3.0f;
+            char buf[16];
+            snprintf(buf, sizeof(buf), "%.1f", ppr);
+            if(!detail.empty()) detail += "   ";
+            detail += std::string("PPR: ") + buf;
+        }
+        else
+        {
+            if(!detail.empty()) detail += "   ";
+            detail += "PPR: -";
+        }
+        entry.detailText = detail;
+
+        entries.push_back(entry);
     }
 
     renderScoreboardPanel(getFrameId(), m_fontId, entries, m_currentPlayerIndex);
@@ -313,6 +407,24 @@ void X01Game::renderLeftPlayerDetail()
     uint16_t score = m_playerScores[m_currentPlayerIndex];
     PlayerID pid = getPlayerByIndex(m_currentPlayerIndex);
     std::string name = getPlayerName(pid);
+
+    // Match info (multi-leg only)
+    if(m_legsToWin > 1)
+    {
+        std::string legInfo = "Leg " + std::to_string(m_currentLeg)
+                            + "  |  First to " + std::to_string(m_legsToWin);
+        auto legText = std::make_shared<RenderText>();
+        legText->m_text     = legInfo;
+        legText->m_color    = {160, 200, 255};
+        legText->m_fontId   = m_fontId;
+        legText->m_rotation = 0.0f;
+        legText->m_scaleX   = 1.0f;
+        legText->m_scaleY   = 1.0f;
+        legText->m_x        = LEFT_PANEL_X;
+        legText->m_y        = LEFT_NAME_Y - 30.0f;
+        legText->m_z        = GameLayout::SIDEBAR_Z;
+        renderQueueAdd(fid, legText);
+    }
 
     // Current player name
     auto nameText = std::make_shared<RenderText>();
@@ -354,6 +466,16 @@ void X01Game::renderLeftPlayerDetail()
         bustText->m_y        = LEFT_SCORE_Y;
         bustText->m_z        = GameLayout::SIDEBAR_Z + 1;
         renderQueueAdd(fid, bustText);
+    }
+
+    // Checkout banner — show only while waiting for dart collection
+    if(m_waitingForCollect && score == 0)
+    {
+        PlayerID legWinnerId = getPlayerByIndex(m_legWinnerIndex);
+        std::string winnerName = getPlayerName(legWinnerId);
+        bool isMatchWin = (m_playerLegs[m_legWinnerIndex] >= m_legsToWin);
+        std::string bannerMsg = isMatchWin ? "GAME!" : "LEG!";
+        renderAnnouncementBanner(fid, m_largeFontId, winnerName, bannerMsg);
     }
 
     // In-rule indicator: show what the player needs before darts count
