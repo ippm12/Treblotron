@@ -6,6 +6,7 @@
  */
 
 #include "games/main_menu.hpp"
+#include "calibration.hpp"
 #include "game_lib/game_registry.hpp"
 #include "game_lib/game_manager.hpp"
 #include "game_lib/components/render_shape.hpp"
@@ -73,6 +74,7 @@ MainMenu::MainMenu()
     , m_showDuplicateNameWarning(false)
     , m_showNoTeamsWarning(false)
     , m_showNoPlayersWarning(false)
+    , m_showSimWarning(false)
     , m_titleFontId(INVALID_FONT_ID)
     , m_cardFontId(INVALID_FONT_ID)
     , m_smallFontId(INVALID_FONT_ID)
@@ -109,6 +111,7 @@ Status MainMenu::init(FrameID frameId)
     // Build card list: Player Settings first, then one card per registered game
     m_cards.clear();
     m_cards.push_back({CardType::PlayerSettings, 0});
+    m_cards.push_back({CardType::Calibration, 0});
 
     const auto& games = getRegisteredGames();
     for(size_t i = 0; i < games.size(); i++)
@@ -341,6 +344,14 @@ void MainMenu::openCard()
         m_showEmptyTeamWarning = false;
         m_showDuplicateNameWarning = false;
     }
+    else if(card.type == CardType::Calibration)
+    {
+#ifdef DARTLENS_USE_SIM
+        m_showSimWarning = true;
+#else
+        loadGame(std::make_shared<CalibrationScreen>());
+#endif
+    }
     else
     {
         m_state = MenuState::GameSettings;
@@ -360,6 +371,12 @@ void MainMenu::openCard()
 
 void MainMenu::handleCardGridKey(uint32_t keycode)
 {
+    if(m_showSimWarning)
+    {
+        m_showSimWarning = false;
+        return;
+    }
+
     switch(keycode)
     {
         case SDLK_UP:
@@ -468,6 +485,11 @@ void MainMenu::renderCardGrid()
                 uint8_t count = getPlayerCount();
                 cardDesc = std::to_string(count) + " player" + (count != 1 ? "s" : "");
             }
+            else if(card.type == CardType::Calibration)
+            {
+                cardTitle = "Calibration";
+                cardDesc  = "Camera setup & data collection";
+            }
             else
             {
                 const auto& desc = getRegisteredGames()[card.gameIndex];
@@ -574,6 +596,68 @@ void MainMenu::renderCardGrid()
         {SDLK_UP,     GAMEPAD_ICON_LEFT_STICK,       "navigate"},
         {SDLK_RETURN, SDL_GAMEPAD_BUTTON_SOUTH,      "select"}
     });
+
+    // ---- Sim mode warning popup ----
+    if(m_showSimWarning)
+    {
+        auto overlay = std::make_shared<RenderShape>();
+        overlay->m_type   = ShapeType::Box;
+        overlay->m_color  = {20, 20, 20};
+        overlay->m_x      = 0.0f;
+        overlay->m_y      = 0.0f;
+        overlay->m_z      = CARD_Z + 80;
+        overlay->m_width  = WINDOW_W;
+        overlay->m_height = WINDOW_H;
+        renderQueueAdd(fid, overlay);
+
+        float panelW = 620.0f;
+        float panelH = 120.0f;
+        float panelX = (WINDOW_W - panelW) * 0.5f;
+        float panelY = (WINDOW_H - panelH) * 0.5f - 30.0f;
+
+        auto panel = std::make_shared<RenderShape>();
+        panel->m_type   = ShapeType::Box;
+        panel->m_color  = {50, 50, 55};
+        panel->m_x      = panelX;
+        panel->m_y      = panelY;
+        panel->m_z      = CARD_Z + 81;
+        panel->m_width  = panelW;
+        panel->m_height = panelH;
+        renderQueueAdd(fid, panel);
+
+        std::string msg = "Calibration requires live camera mode.";
+        TTF_Font* cardFont = getFont(m_cardFontId);
+
+        auto msgText = std::make_shared<RenderText>();
+        msgText->m_text     = msg;
+        msgText->m_color    = {255, 200, 80};
+        msgText->m_fontId   = m_cardFontId;
+        msgText->m_rotation = 0.0f;
+        msgText->m_scaleX   = 1.0f;
+        msgText->m_scaleY   = 1.0f;
+        msgText->m_z        = CARD_Z + 82;
+        msgText->m_y        = panelY + 25.0f;
+        int msgW = 0, msgH = 0;
+        if(cardFont) TTF_GetStringSize(cardFont, msg.c_str(), 0, &msgW, &msgH);
+        msgText->m_x = panelX + (panelW - msgW) * 0.5f;
+        renderQueueAdd(fid, msgText);
+
+        std::string dismiss = "Press any key to dismiss";
+        auto dismissText = std::make_shared<RenderText>();
+        dismissText->m_text     = dismiss;
+        dismissText->m_color    = {140, 140, 150};
+        dismissText->m_fontId   = m_smallFontId;
+        dismissText->m_rotation = 0.0f;
+        dismissText->m_scaleX   = 1.0f;
+        dismissText->m_scaleY   = 1.0f;
+        dismissText->m_z        = CARD_Z + 82;
+        dismissText->m_y        = panelY + 75.0f;
+        TTF_Font* smallFont = getFont(m_smallFontId);
+        int dW = 0, dH = 0;
+        if(smallFont) TTF_GetStringSize(smallFont, dismiss.c_str(), 0, &dW, &dH);
+        dismissText->m_x = panelX + (panelW - dW) * 0.5f;
+        renderQueueAdd(fid, dismissText);
+    }
 }
 
 

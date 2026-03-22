@@ -9,6 +9,7 @@
 #include "frame/render_queue.hpp"
 #include "game_lib/game_manager.hpp"
 #include "game_lib/game_helpers.hpp"
+#include "vision/vision.hpp"
 #include "game_lib/components/render_shape.hpp"
 #include "game_lib/components/render_text.hpp"
 #include "games/main_menu.hpp"

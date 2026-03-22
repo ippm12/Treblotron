@@ -5,7 +5,7 @@
  * window and translates mouse clicks into dart detection callbacks.
  */
 
-#include "vision/sim_vision_source.hpp"
+#include "sim_vision_source.hpp"
 #include "dart/dart_board_geometry.hpp"
 #include "frame/frame.hpp"
 #include "frame/render_queue.hpp"

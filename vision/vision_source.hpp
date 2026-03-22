@@ -3,6 +3,9 @@
  *
  * Abstract interface for dart detection vision sources. Both the
  * simulator and future camera implementations derive from this.
+ *
+ * INTERNAL HEADER — do not include from outside the vision module.
+ * Use vision/vision.hpp for the public API.
  */
 
 #ifndef VISION_SOURCE_HPP

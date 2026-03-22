@@ -14,7 +14,6 @@
 #include "frame/frame.hpp"
 #include "game_lib/game.hpp"
 #include "game_lib/input_hints.hpp"
-#include "vision/vision_source.hpp"
 
 class GameManager
 {
@@ -48,18 +47,6 @@ class GameManager
         Status restartCurrentGame();
 
         /**
-         * Set the vision source. Initializes it and connects
-         * to the current game if one is loaded.
-         */
-        Status setVisionSource(VisionSourcePtr source);
-
-        /**
-         * Returns true if the vision source reports no darts on the board.
-         * Returns true if no vision source is set.
-         */
-        bool isBoardClear() const;
-
-        /**
          * Runs one frame: computes delta time (clamped to 0.25s),
          * calls update, then clears/renders/flushes/presents.
          */
@@ -77,7 +64,6 @@ class GameManager
 
         bool m_initialized;
         GamePtr m_currentGame;
-        VisionSourcePtr m_visionSource;
         uint64_t m_lastTickNs;
         FrameID m_frameId;
         FontID m_barFontId;
