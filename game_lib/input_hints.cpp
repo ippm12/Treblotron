@@ -17,9 +17,9 @@
 static const char* KB_BASE = "assets/images/kenney_input-prompts_1.4.1/Keyboard & Mouse/Default/";
 static const char* XB_BASE = "assets/images/kenney_input-prompts_1.4.1/Xbox Series/Default/";
 
-static constexpr float ICON_SIZE  = 36.0f;
-static constexpr float ICON_GAP   = 8.0f;   // gap between icon and label
-static constexpr float HINT_GAP   = 31.0f;  // gap between hint groups
+static constexpr float ICON_SIZE  = 54.0f;
+static constexpr float ICON_GAP   = 12.0f;   // gap between icon and label
+static constexpr float HINT_GAP   = 46.0f;  // gap between hint groups
 
 
 static ImageID loadIcon(const char* basePath, const char* filename)
@@ -138,7 +138,7 @@ void InputHints::render(FrameID frameId, FontID fontId, float x, float y,
             text->m_scaleX   = 1.0f;
             text->m_scaleY   = 1.0f;
             text->m_x        = curX;
-            text->m_y        = y + 2.0f;  // slight vertical offset to align with icon
+            text->m_y        = y + 3.0f;  // slight vertical offset to align with icon
             text->m_z        = z + 1;
             renderQueueAdd(frameId, text);
 
@@ -152,7 +152,7 @@ void InputHints::render(FrameID frameId, FontID fontId, float x, float y,
             }
             else
             {
-                curX += hint.label.length() * 10.0f;
+                curX += hint.label.length() * 15.0f;
             }
         }
 

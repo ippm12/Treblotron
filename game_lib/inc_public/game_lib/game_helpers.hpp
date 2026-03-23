@@ -25,17 +25,17 @@
 namespace GameLayout
 {
     // Standard dart board position
-    constexpr float BOARD_CENTER_X = 640.0f;
-    constexpr float BOARD_CENTER_Y = 290.0f;
-    constexpr float BOARD_SCALE    = 1.2f;
+    constexpr float BOARD_CENTER_X = 960.0f;
+    constexpr float BOARD_CENTER_Y = 435.0f;
+    constexpr float BOARD_SCALE    = 1.8f;
 
     constexpr float BLINK_PERIOD = 1.2f;
 
     // Right scoreboard panel
-    constexpr float RIGHT_PANEL_X  = 940.0f;
-    constexpr float RIGHT_PANEL_W  = 320.0f;
-    constexpr float SCORE_TOP_Y    = 120.0f;
-    constexpr float SCORE_ROW_H    = 50.0f;
+    constexpr float RIGHT_PANEL_X  = 1410.0f;
+    constexpr float RIGHT_PANEL_W  = 480.0f;
+    constexpr float SCORE_TOP_Y    = 180.0f;
+    constexpr float SCORE_ROW_H    = 75.0f;
 
     // Z-ordering
     constexpr uint32_t SIDEBAR_Z  = 100;

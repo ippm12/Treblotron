@@ -6,7 +6,6 @@ target_link_libraries(${PRJ_NAME} PRIVATE spdlog::spdlog)
 
 # SDL
 add_subdirectory(SDL)
-target_link_libraries(${PRJ_NAME} PRIVATE SDL3::SDL3)
 
 # Flecs
 add_subdirectory(flecs)
@@ -20,6 +19,10 @@ target_link_libraries(${PRJ_NAME} PRIVATE SDL3_ttf::SDL3_ttf)
 # SDL_image (PNG/JPG image loading)
 add_subdirectory(SDL_image)
 target_link_libraries(${PRJ_NAME} PRIVATE SDL3_image::SDL3_image)
+
+# SDL3 linked last — SDL_ttf and SDL_image static libs need its symbols,
+# and GNU ld resolves left-to-right
+target_link_libraries(${PRJ_NAME} PRIVATE SDL3::SDL3)
 
 # OpenCV (minimal build — only core, imgproc, videoio, imgcodecs)
 set(BUILD_LIST "core,imgproc,videoio,imgcodecs" CACHE STRING "" FORCE)

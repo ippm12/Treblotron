@@ -24,12 +24,12 @@
 // Game-over overlay
 // ============================================================================
 
-static constexpr float GO_PANEL_X = 390.0f;
-static constexpr float GO_PANEL_Y = 160.0f;
-static constexpr float GO_PANEL_W = 500.0f;
-static constexpr float GO_PANEL_H = 280.0f;
-static constexpr float GO_ROW_H   = 50.0f;
-static constexpr float GO_ROW_W   = 300.0f;
+static constexpr float GO_PANEL_X = 585.0f;
+static constexpr float GO_PANEL_Y = 240.0f;
+static constexpr float GO_PANEL_W = 750.0f;
+static constexpr float GO_PANEL_H = 420.0f;
+static constexpr float GO_ROW_H   = 75.0f;
+static constexpr float GO_ROW_W   = 450.0f;
 
 
 void renderGameOverOverlay(FrameID frameId, FontID largeFontId, FontID fontId,
@@ -42,8 +42,8 @@ void renderGameOverOverlay(FrameID frameId, FontID largeFontId, FontID fontId,
     overlay->m_x      = 0.0f;
     overlay->m_y      = 0.0f;
     overlay->m_z      = GameLayout::OVERLAY_Z;
-    overlay->m_width  = 1280.0f;
-    overlay->m_height = 620.0f;
+    overlay->m_width  = 1920.0f;
+    overlay->m_height = 930.0f;
     renderQueueAdd(frameId, overlay);
 
     // Center panel
@@ -76,13 +76,13 @@ void renderGameOverOverlay(FrameID frameId, FontID largeFontId, FontID fontId,
     winLabel->m_scaleY   = 0.7f;
     float scaledW = winTextW * 0.7f;
     winLabel->m_x        = GO_PANEL_X + (GO_PANEL_W - scaledW) * 0.5f;
-    winLabel->m_y        = GO_PANEL_Y + 30.0f;
+    winLabel->m_y        = GO_PANEL_Y + 45.0f;
     winLabel->m_z        = GameLayout::OVERLAY_Z + 2;
     renderQueueAdd(frameId, winLabel);
 
     // Menu options
     const char* options[] = {"Restart", "Main Menu"};
-    float optionsStartY = GO_PANEL_Y + 130.0f;
+    float optionsStartY = GO_PANEL_Y + 195.0f;
 
     for(int i = 0; i < 2; i++)
     {
@@ -99,7 +99,7 @@ void renderGameOverOverlay(FrameID frameId, FontID largeFontId, FontID fontId,
             bg->m_y      = rowY;
             bg->m_z      = GameLayout::OVERLAY_Z + 2;
             bg->m_width  = GO_ROW_W;
-            bg->m_height = GO_ROW_H - 6.0f;
+            bg->m_height = GO_ROW_H - 9.0f;
             renderQueueAdd(frameId, bg);
         }
 
@@ -118,7 +118,7 @@ void renderGameOverOverlay(FrameID frameId, FontID largeFontId, FontID fontId,
         optText->m_scaleX   = 1.0f;
         optText->m_scaleY   = 1.0f;
         optText->m_x        = rowX + (GO_ROW_W - optW) * 0.5f;
-        optText->m_y        = rowY + (GO_ROW_H - 6.0f - optH) * 0.5f;
+        optText->m_y        = rowY + (GO_ROW_H - 9.0f - optH) * 0.5f;
         optText->m_z        = GameLayout::OVERLAY_Z + 3;
         renderQueueAdd(frameId, optText);
     }
@@ -166,8 +166,8 @@ GameOverAction handleGameOverGamepad(uint8_t button, uint8_t& cursor)
 // Scoreboard panel
 // ============================================================================
 
-static constexpr float  SB_ROW_PAD    = 8.0f;
-static constexpr float  SB_ACCENT_W   = 4.0f;
+static constexpr float  SB_ROW_PAD    = 12.0f;
+static constexpr float  SB_ACCENT_W   = 6.0f;
 static constexpr size_t SB_MAX_NAME   = 10;
 
 
@@ -178,7 +178,7 @@ void renderScoreboardPanel(FrameID frameId, FontID fontId,
     TTF_Font* font = getFont(fontId);
 
     // Determine row height: taller if any entry has detail text
-    static constexpr float DETAIL_ROW_H = 70.0f;
+    static constexpr float DETAIL_ROW_H = 105.0f;
     bool hasDetails = false;
     for(auto& e : entries)
     {
@@ -195,7 +195,7 @@ void renderScoreboardPanel(FrameID frameId, FontID fontId,
     header->m_scaleX   = 1.0f;
     header->m_scaleY   = 1.0f;
     header->m_x        = GameLayout::RIGHT_PANEL_X;
-    header->m_y        = GameLayout::SCORE_TOP_Y - 35.0f;
+    header->m_y        = GameLayout::SCORE_TOP_Y - 52.0f;
     header->m_z        = GameLayout::SIDEBAR_Z;
     renderQueueAdd(frameId, header);
 
@@ -283,7 +283,7 @@ void renderScoreboardPanel(FrameID frameId, FontID fontId,
             detailLine->m_scaleX   = 1.0f;
             detailLine->m_scaleY   = 1.0f;
             detailLine->m_x        = GameLayout::RIGHT_PANEL_X + SB_ROW_PAD + SB_ACCENT_W;
-            detailLine->m_y        = rowY + 28.0f;
+            detailLine->m_y        = rowY + 42.0f;
             detailLine->m_z        = GameLayout::SIDEBAR_Z + 2;
             renderQueueAdd(frameId, detailLine);
         }
@@ -302,8 +302,8 @@ void renderAnnouncementBanner(FrameID frameId, FontID largeFontId,
 {
     TTF_Font* font = getFont(largeFontId);
 
-    float panelW = 300.0f;
-    float panelH = 120.0f;
+    float panelW = 450.0f;
+    float panelH = 180.0f;
     float panelX = GameLayout::BOARD_CENTER_X - panelW * 0.5f;
     float panelY = GameLayout::BOARD_CENTER_Y - panelH * 0.5f;
 
@@ -337,7 +337,7 @@ void renderAnnouncementBanner(FrameID frameId, FontID largeFontId,
         headText->m_scaleX   = 0.5f;
         headText->m_scaleY   = 0.5f;
         headText->m_x        = headX;
-        headText->m_y        = panelY + 15.0f;
+        headText->m_y        = panelY + 22.0f;
         headText->m_z        = GameLayout::OVERLAY_Z + 1;
         renderQueueAdd(frameId, headText);
     }
@@ -360,7 +360,7 @@ void renderAnnouncementBanner(FrameID frameId, FontID largeFontId,
         msgText->m_scaleX   = 1.0f;
         msgText->m_scaleY   = 1.0f;
         msgText->m_x        = msgX;
-        msgText->m_y        = panelY + 50.0f;
+        msgText->m_y        = panelY + 75.0f;
         msgText->m_z        = GameLayout::OVERLAY_Z + 1;
         renderQueueAdd(frameId, msgText);
     }
@@ -388,7 +388,7 @@ bool updateBlink(float deltaTime, float& blinkTimer, bool& blinkOn, float blinkP
 // Hit markers
 // ============================================================================
 
-static constexpr float  HIT_MARKER_DIAMETER = 8.0f;
+static constexpr float  HIT_MARKER_DIAMETER = 12.0f;
 static constexpr Color  HIT_MARKER_COLOR    = {160, 60, 220};
 static constexpr uint32_t HIT_MARKER_Z      = 10; // Above board segments and labels
 
