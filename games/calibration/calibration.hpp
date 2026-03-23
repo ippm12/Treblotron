@@ -14,6 +14,7 @@
 #include <string>
 
 struct SDL_Texture;
+struct SDL_Surface;
 
 class CalibrationScreen : public Game
 {
@@ -45,7 +46,13 @@ class CalibrationScreen : public Game
         uint32_t     m_cameraCount;
         std::string  m_statusMessage;
         float        m_statusTimer;
-        SDL_Texture* m_cameraTextures[3] = {nullptr, nullptr, nullptr};
+
+        // Cached textures and the surface pointer that produced them.
+        // We only recreate the texture when the surface pointer changes.
+        SDL_Texture*  m_cameraTextures[3]    = {nullptr, nullptr, nullptr};
+        SDL_Surface*  m_lastCameraSurface[3] = {nullptr, nullptr, nullptr};
+        float         m_lastFrameW[3]        = {};
+        float         m_lastFrameH[3]        = {};
 };
 
 #endif // CALIBRATION_HPP

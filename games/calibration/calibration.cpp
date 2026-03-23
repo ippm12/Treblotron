@@ -260,44 +260,45 @@ void CalibrationScreen::renderCameraSlots()
         if(i < m_cameraCount)
         {
             SDL_Surface* surface = getCameraFrame(i);
-            if(surface)
+
+            // Only recreate texture when the surface pointer changed
+            // (getCameraFrame returns the same pointer when no new frame)
+            if(surface && surface != m_lastCameraSurface[i])
             {
-                // Destroy previous texture and create a new one from the surface
                 if(m_cameraTextures[i])
                 {
                     SDL_DestroyTexture(m_cameraTextures[i]);
-                    m_cameraTextures[i] = nullptr;
                 }
                 m_cameraTextures[i] = SDL_CreateTextureFromSurface(
                     getFrameRenderer(fid), surface);
+                m_lastCameraSurface[i] = surface;
+                m_lastFrameW[i] = static_cast<float>(surface->w);
+                m_lastFrameH[i] = static_cast<float>(surface->h);
+            }
 
-                if(m_cameraTextures[i])
-                {
-                    hasFrame = true;
+            if(m_cameraTextures[i])
+            {
+                hasFrame = true;
 
-                    // Scale to fit slot while maintaining aspect ratio
-                    float frameW = static_cast<float>(surface->w);
-                    float frameH = static_cast<float>(surface->h);
-                    float labelH = 40.0f; // space for camera name
-                    float availW = SLOT_W - 10.0f;
-                    float availH = SLOT_H - labelH - 10.0f;
-                    float scale = std::min(availW / frameW, availH / frameH);
-                    float drawW = frameW * scale;
-                    float drawH = frameH * scale;
+                // Scale to fit slot while maintaining aspect ratio
+                float labelH = 40.0f;
+                float availW = SLOT_W - 10.0f;
+                float availH = SLOT_H - labelH - 10.0f;
+                float scale = std::min(availW / m_lastFrameW[i], availH / m_lastFrameH[i]);
+                float drawW = m_lastFrameW[i] * scale;
+                float drawH = m_lastFrameH[i] * scale;
 
-                    // Center in slot below name label
-                    float drawX = slotX + (SLOT_W - drawW) * 0.5f;
-                    float drawY = slotY + labelH + (availH - drawH) * 0.5f;
+                float drawX = slotX + (SLOT_W - drawW) * 0.5f;
+                float drawY = slotY + labelH + (availH - drawH) * 0.5f;
 
-                    auto tex = std::make_shared<RenderCachedTexture>();
-                    tex->m_texture = m_cameraTextures[i];
-                    tex->m_x      = drawX;
-                    tex->m_y      = drawY;
-                    tex->m_z      = BASE_Z + 1;
-                    tex->m_width  = drawW;
-                    tex->m_height = drawH;
-                    renderQueueAdd(fid, tex);
-                }
+                auto tex = std::make_shared<RenderCachedTexture>();
+                tex->m_texture = m_cameraTextures[i];
+                tex->m_x      = drawX;
+                tex->m_y      = drawY;
+                tex->m_z      = BASE_Z + 1;
+                tex->m_width  = drawW;
+                tex->m_height = drawH;
+                renderQueueAdd(fid, tex);
             }
 
             if(!hasFrame)
@@ -312,7 +313,6 @@ void CalibrationScreen::renderCameraSlots()
             statusColor = {200, 80, 80};
         }
 
-        // Show status text only when there's no camera frame to display
         if(!hasFrame)
         {
             TTF_Font* bodyFont = getFont(m_bodyFontId);

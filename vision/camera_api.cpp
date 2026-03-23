@@ -58,11 +58,18 @@ static std::string generateUuidV4()
 struct CameraSlot
 {
     cv::VideoCapture capture;
-    cv::Mat          latestFrame;   // BGR, written by capture thread
-    cv::Mat          rgbFrame;      // RGB, backing memory for sdlSurface
-    SDL_Surface*     sdlSurface = nullptr;
-    std::thread      captureThread;
+    int              deviceIndex = -1;  // V4L2 device index (e.g. 0, 2, 4)
+
+    // Written by capture thread under lock
+    cv::Mat          latestFrame;       // RGB, ready for SDL
     std::mutex       frameMutex;
+    std::atomic<bool> frameNew{false};  // True when capture thread wrote a new frame
+
+    // Owned by render thread — only touched by getCameraFrame()
+    SDL_Surface*     sdlSurface = nullptr;
+    cv::Mat          surfaceBacking;    // Keeps memory alive for sdlSurface
+
+    std::thread      captureThread;
     std::atomic<bool> running{false};
     std::string      name;
 };
@@ -78,12 +85,17 @@ static std::vector<std::unique_ptr<CameraSlot>> f_cameras;
 static void captureLoop(CameraSlot* slot)
 {
     cv::Mat frame;
+    cv::Mat rgb;
     while(slot->running.load(std::memory_order_relaxed))
     {
         if(slot->capture.read(frame) && !frame.empty())
         {
+            // Convert BGR → RGB on the capture thread (not the render thread)
+            cv::cvtColor(frame, rgb, cv::COLOR_BGR2RGB);
+
             std::lock_guard<std::mutex> lock(slot->frameMutex);
-            slot->latestFrame = frame.clone();
+            slot->latestFrame = rgb.clone();
+            slot->frameNew.store(true, std::memory_order_release);
         }
     }
 }
@@ -95,7 +107,6 @@ static void captureLoop(CameraSlot* slot)
 
 Status initializeCameraSystem()
 {
-    // Probe camera indices to find connected cameras
     static constexpr int MAX_PROBE = 8;
 
     for(int idx = 0; idx < MAX_PROBE; idx++)
@@ -114,15 +125,23 @@ Status initializeCameraSystem()
             continue;
         }
 
+        // Sequential 1-based name for display; store device index for logging
+        uint32_t cameraNum = static_cast<uint32_t>(f_cameras.size()) + 1;
+
         auto slot = std::make_unique<CameraSlot>();
         slot->capture = std::move(cap);
-        slot->latestFrame = testFrame.clone();
-        slot->name = "Camera " + std::to_string(idx);
+        slot->deviceIndex = idx;
+        slot->name = "Camera " + std::to_string(cameraNum);
+
+        // Pre-convert first frame so there's something to show immediately
+        cv::cvtColor(testFrame, slot->latestFrame, cv::COLOR_BGR2RGB);
+        slot->frameNew.store(true, std::memory_order_release);
+
         slot->running.store(true, std::memory_order_relaxed);
         slot->captureThread = std::thread(captureLoop, slot.get());
 
-        LOG_INFO(VISION_LOG_ID, "Opened camera at index {} ({}x{})",
-                 idx, testFrame.cols, testFrame.rows);
+        LOG_INFO(VISION_LOG_ID, "Opened {} at device index {} ({}x{})",
+                 slot->name, idx, testFrame.cols, testFrame.rows);
 
         f_cameras.push_back(std::move(slot));
 
@@ -175,7 +194,7 @@ std::string getCameraName(uint32_t index)
 {
     if(index >= f_cameras.size())
     {
-        return "Camera " + std::to_string(index);
+        return "Camera " + std::to_string(index + 1);
     }
     return f_cameras[index]->name;
 }
@@ -189,32 +208,35 @@ SDL_Surface* getCameraFrame(uint32_t index)
     }
 
     CameraSlot& slot = *f_cameras[index];
-    std::lock_guard<std::mutex> lock(slot.frameMutex);
 
-    if(slot.latestFrame.empty())
+    // Only update when the capture thread has a new frame.
+    // Use try_lock so we never block the render loop.
+    if(slot.frameNew.load(std::memory_order_acquire))
     {
-        return nullptr;
+        std::unique_lock<std::mutex> lock(slot.frameMutex, std::try_to_lock);
+        if(lock.owns_lock())
+        {
+            // Free previous surface before replacing backing memory
+            if(slot.sdlSurface)
+            {
+                SDL_DestroySurface(slot.sdlSurface);
+                slot.sdlSurface = nullptr;
+            }
+
+            // Take ownership of the RGB frame (already converted on capture thread)
+            slot.surfaceBacking = std::move(slot.latestFrame);
+            slot.frameNew.store(false, std::memory_order_release);
+
+            slot.sdlSurface = SDL_CreateSurfaceFrom(
+                slot.surfaceBacking.cols,
+                slot.surfaceBacking.rows,
+                SDL_PIXELFORMAT_RGB24,
+                slot.surfaceBacking.data,
+                static_cast<int>(slot.surfaceBacking.step[0])
+            );
+        }
+        // If lock failed, we just return the previous surface — no stall
     }
-
-    // Convert BGR → RGB for SDL
-    cv::cvtColor(slot.latestFrame, slot.rgbFrame, cv::COLOR_BGR2RGB);
-
-    // Free previous surface
-    if(slot.sdlSurface)
-    {
-        SDL_DestroySurface(slot.sdlSurface);
-        slot.sdlSurface = nullptr;
-    }
-
-    // Create SDL_Surface that points into rgbFrame's data.
-    // The surface is valid until the next getCameraFrame() call or shutdown.
-    slot.sdlSurface = SDL_CreateSurfaceFrom(
-        slot.rgbFrame.cols,
-        slot.rgbFrame.rows,
-        SDL_PIXELFORMAT_RGB24,
-        slot.rgbFrame.data,
-        static_cast<int>(slot.rgbFrame.step[0])
-    );
 
     return slot.sdlSurface;
 }
@@ -233,13 +255,22 @@ Status saveCameraFrame(uint32_t cameraIndex, const std::string& outputDir)
         std::lock_guard<std::mutex> lock(f_cameras[cameraIndex]->frameMutex);
         if(f_cameras[cameraIndex]->latestFrame.empty())
         {
-            LOG_WARNING(VISION_LOG_ID, "saveCameraFrame: no frame available for camera {}", cameraIndex);
-            return STATUS_ERROR_GENERIC;
+            // Fall back to the surface backing if capture thread hasn't written yet
+            if(f_cameras[cameraIndex]->surfaceBacking.empty())
+            {
+                LOG_WARNING(VISION_LOG_ID, "saveCameraFrame: no frame available for camera {}", cameraIndex);
+                return STATUS_ERROR_GENERIC;
+            }
+            // surfaceBacking is RGB; convert back to BGR for imwrite
+            cv::cvtColor(f_cameras[cameraIndex]->surfaceBacking, frameCopy, cv::COLOR_RGB2BGR);
         }
-        frameCopy = f_cameras[cameraIndex]->latestFrame.clone();
+        else
+        {
+            // latestFrame is RGB; convert back to BGR for imwrite
+            cv::cvtColor(f_cameras[cameraIndex]->latestFrame, frameCopy, cv::COLOR_RGB2BGR);
+        }
     }
 
-    // Ensure output directory exists
     std::filesystem::create_directories(outputDir);
 
     std::string uuid = generateUuidV4();
