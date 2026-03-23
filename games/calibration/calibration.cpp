@@ -10,12 +10,16 @@
 #include "games/main_menu.hpp"
 #include "game_lib/components/render_shape.hpp"
 #include "game_lib/components/render_text.hpp"
+#include "game_lib/components/render_cached_texture.hpp"
+#include "frame/frame.hpp"
 #include "frame/render_queue.hpp"
 
+#include <SDL3/SDL.h>
 #include <SDL3/SDL_keycode.h>
 #include <SDL3/SDL_gamepad.h>
 #include <SDL3_ttf/SDL_ttf.h>
 
+#include <algorithm>
 #include <memory>
 
 
@@ -137,6 +141,15 @@ void CalibrationScreen::render()
 
 void CalibrationScreen::shutdown()
 {
+    for(uint32_t i = 0; i < EXPECTED_CAMERA_COUNT; i++)
+    {
+        if(m_cameraTextures[i])
+        {
+            SDL_DestroyTexture(m_cameraTextures[i]);
+            m_cameraTextures[i] = nullptr;
+        }
+    }
+
     shutdownCameraSystem();
     m_inputHints.shutdown();
 
@@ -239,20 +252,55 @@ void CalibrationScreen::renderCameraSlots()
         nameText->m_z        = BASE_Z + 1;
         renderQueueAdd(fid, nameText);
 
-        // Status text (centered in slot)
+        // Camera frame or status text
         std::string statusStr;
         Color statusColor;
+        bool hasFrame = false;
 
         if(i < m_cameraCount)
         {
-            SDL_Surface* frame = getCameraFrame(i);
-            if(frame)
+            SDL_Surface* surface = getCameraFrame(i);
+            if(surface)
             {
-                // Future: render camera frame as texture
-                statusStr = "Feed active";
-                statusColor = {80, 200, 80};
+                // Destroy previous texture and create a new one from the surface
+                if(m_cameraTextures[i])
+                {
+                    SDL_DestroyTexture(m_cameraTextures[i]);
+                    m_cameraTextures[i] = nullptr;
+                }
+                m_cameraTextures[i] = SDL_CreateTextureFromSurface(
+                    getFrameRenderer(fid), surface);
+
+                if(m_cameraTextures[i])
+                {
+                    hasFrame = true;
+
+                    // Scale to fit slot while maintaining aspect ratio
+                    float frameW = static_cast<float>(surface->w);
+                    float frameH = static_cast<float>(surface->h);
+                    float labelH = 40.0f; // space for camera name
+                    float availW = SLOT_W - 10.0f;
+                    float availH = SLOT_H - labelH - 10.0f;
+                    float scale = std::min(availW / frameW, availH / frameH);
+                    float drawW = frameW * scale;
+                    float drawH = frameH * scale;
+
+                    // Center in slot below name label
+                    float drawX = slotX + (SLOT_W - drawW) * 0.5f;
+                    float drawY = slotY + labelH + (availH - drawH) * 0.5f;
+
+                    auto tex = std::make_shared<RenderCachedTexture>();
+                    tex->m_texture = m_cameraTextures[i];
+                    tex->m_x      = drawX;
+                    tex->m_y      = drawY;
+                    tex->m_z      = BASE_Z + 1;
+                    tex->m_width  = drawW;
+                    tex->m_height = drawH;
+                    renderQueueAdd(fid, tex);
+                }
             }
-            else
+
+            if(!hasFrame)
             {
                 statusStr = "No feed";
                 statusColor = {200, 200, 80};
@@ -264,24 +312,28 @@ void CalibrationScreen::renderCameraSlots()
             statusColor = {200, 80, 80};
         }
 
-        TTF_Font* bodyFont = getFont(m_bodyFontId);
-        int textW = 0, textH = 0;
-        if(bodyFont)
+        // Show status text only when there's no camera frame to display
+        if(!hasFrame)
         {
-            TTF_GetStringSize(bodyFont, statusStr.c_str(), 0, &textW, &textH);
-        }
+            TTF_Font* bodyFont = getFont(m_bodyFontId);
+            int textW = 0, textH = 0;
+            if(bodyFont)
+            {
+                TTF_GetStringSize(bodyFont, statusStr.c_str(), 0, &textW, &textH);
+            }
 
-        auto statusText = std::make_shared<RenderText>();
-        statusText->m_text     = statusStr;
-        statusText->m_color    = statusColor;
-        statusText->m_fontId   = m_bodyFontId;
-        statusText->m_rotation = 0.0f;
-        statusText->m_scaleX   = 1.0f;
-        statusText->m_scaleY   = 1.0f;
-        statusText->m_x        = slotX + (SLOT_W - static_cast<float>(textW)) * 0.5f;
-        statusText->m_y        = slotY + (SLOT_H - static_cast<float>(textH)) * 0.5f;
-        statusText->m_z        = BASE_Z + 1;
-        renderQueueAdd(fid, statusText);
+            auto statusText = std::make_shared<RenderText>();
+            statusText->m_text     = statusStr;
+            statusText->m_color    = statusColor;
+            statusText->m_fontId   = m_bodyFontId;
+            statusText->m_rotation = 0.0f;
+            statusText->m_scaleX   = 1.0f;
+            statusText->m_scaleY   = 1.0f;
+            statusText->m_x        = slotX + (SLOT_W - static_cast<float>(textW)) * 0.5f;
+            statusText->m_y        = slotY + (SLOT_H - static_cast<float>(textH)) * 0.5f;
+            statusText->m_z        = BASE_Z + 1;
+            renderQueueAdd(fid, statusText);
+        }
     }
 }
 

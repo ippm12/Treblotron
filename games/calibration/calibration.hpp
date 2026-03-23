@@ -13,6 +13,8 @@
 #include "game_lib/input_hints.hpp"
 #include <string>
 
+struct SDL_Texture;
+
 class CalibrationScreen : public Game
 {
     public:
@@ -40,9 +42,10 @@ class CalibrationScreen : public Game
         FontID m_bodyFontId;
         InputHints m_inputHints;
 
-        uint32_t    m_cameraCount;
-        std::string m_statusMessage;
-        float       m_statusTimer;
+        uint32_t     m_cameraCount;
+        std::string  m_statusMessage;
+        float        m_statusTimer;
+        SDL_Texture* m_cameraTextures[3] = {nullptr, nullptr, nullptr};
 };
 
 #endif // CALIBRATION_HPP
