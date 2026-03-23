@@ -378,15 +378,8 @@ void CalibrationScreen::saveFrames()
         return;
     }
 
-    for(uint32_t i = 0; i < EXPECTED_CAMERA_COUNT; i++)
-    {
-        if(i < m_cameraCount)
-        {
-            saveCameraFrame(i, "./captures");
-        }
-    }
-
-    m_statusMessage = "Frames saved to ./captures/";
+    Status stat = saveAllCameraFrames("./captures");
+    m_statusMessage = IS_STATUS_OK(stat) ? "Frames saved to ./captures/" : "Failed to save frames";
     m_statusTimer = STATUS_FADE;
 }
 #endif

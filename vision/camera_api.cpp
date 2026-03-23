@@ -270,46 +270,52 @@ SDL_Surface* getCameraFrame(uint32_t index)
 }
 
 
-Status saveCameraFrame(uint32_t cameraIndex, const std::string& outputDir)
+Status saveAllCameraFrames(const std::string& outputDir)
 {
-    if(cameraIndex >= f_cameraCount.load(std::memory_order_acquire))
+    uint32_t count = f_cameraCount.load(std::memory_order_acquire);
+    if(count == 0)
     {
-        LOG_WARNING(VISION_LOG_ID, "saveCameraFrame: camera index {} out of range", cameraIndex);
-        return STATUS_ERROR_INVALID_PARAM;
-    }
-
-    cv::Mat frameCopy;
-    {
-        std::lock_guard<std::mutex> lock(f_cameras[cameraIndex]->frameMutex);
-        if(f_cameras[cameraIndex]->latestFrame.empty())
-        {
-            // Fall back to the surface backing if capture thread hasn't written yet
-            if(f_cameras[cameraIndex]->surfaceBacking.empty())
-            {
-                LOG_WARNING(VISION_LOG_ID, "saveCameraFrame: no frame available for camera {}", cameraIndex);
-                return STATUS_ERROR_GENERIC;
-            }
-            // surfaceBacking is RGB; convert back to BGR for imwrite
-            cv::cvtColor(f_cameras[cameraIndex]->surfaceBacking, frameCopy, cv::COLOR_RGB2BGR);
-        }
-        else
-        {
-            // latestFrame is RGB; convert back to BGR for imwrite
-            cv::cvtColor(f_cameras[cameraIndex]->latestFrame, frameCopy, cv::COLOR_RGB2BGR);
-        }
+        LOG_WARNING(VISION_LOG_ID, "saveAllCameraFrames: no cameras available");
+        return STATUS_ERROR_GENERIC;
     }
 
     std::filesystem::create_directories(outputDir);
 
+    // One UUID per capture — all cameras in this set share it
     std::string uuid = generateUuidV4();
-    std::string path = outputDir + "/cam" + std::to_string(cameraIndex) + "_" + uuid + ".png";
+    uint32_t saved = 0;
 
-    if(!cv::imwrite(path, frameCopy))
+    for(uint32_t i = 0; i < count; i++)
     {
-        LOG_ERROR(VISION_LOG_ID, "Failed to write frame to {}", path);
-        return STATUS_ERROR_GENERIC;
+        cv::Mat frameCopy;
+        {
+            std::lock_guard<std::mutex> lock(f_cameras[i]->frameMutex);
+            if(f_cameras[i]->latestFrame.empty())
+            {
+                if(f_cameras[i]->surfaceBacking.empty())
+                {
+                    LOG_WARNING(VISION_LOG_ID, "saveAllCameraFrames: no frame for camera {}", i);
+                    continue;
+                }
+                cv::cvtColor(f_cameras[i]->surfaceBacking, frameCopy, cv::COLOR_RGB2BGR);
+            }
+            else
+            {
+                cv::cvtColor(f_cameras[i]->latestFrame, frameCopy, cv::COLOR_RGB2BGR);
+            }
+        }
+
+        std::string path = outputDir + "/" + uuid + "_cam" + std::to_string(i) + ".png";
+
+        if(!cv::imwrite(path, frameCopy))
+        {
+            LOG_ERROR(VISION_LOG_ID, "Failed to write frame to {}", path);
+            continue;
+        }
+
+        LOG_INFO(VISION_LOG_ID, "Saved camera {} frame to {}", i, path);
+        saved++;
     }
 
-    LOG_INFO(VISION_LOG_ID, "Saved camera {} frame to {}", cameraIndex, path);
-    return STATUS_OK;
+    return (saved > 0) ? STATUS_OK : STATUS_ERROR_GENERIC;
 }

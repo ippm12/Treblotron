@@ -91,10 +91,10 @@ std::string getCameraName(uint32_t index);
 SDL_Surface* getCameraFrame(uint32_t index);
 
 /**
- * Save the current frame from the given camera to the output directory.
- * The filename includes a UUID for uniqueness.
+ * Save the current frame from every connected camera to the output directory.
+ * All images in one capture share the same UUID: {uuid}_cam0.png, {uuid}_cam1.png, ...
  * Creates the output directory if it does not exist.
  */
-Status saveCameraFrame(uint32_t cameraIndex, const std::string& outputDir);
+Status saveAllCameraFrames(const std::string& outputDir);
 
 #endif // VISION_HPP
