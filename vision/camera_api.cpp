@@ -209,33 +209,29 @@ SDL_Surface* getCameraFrame(uint32_t index)
 
     CameraSlot& slot = *f_cameras[index];
 
-    // Only update when the capture thread has a new frame.
-    // Use try_lock so we never block the render loop.
+    // Check the flag first — no lock needed if nothing changed
     if(slot.frameNew.load(std::memory_order_acquire))
     {
-        std::unique_lock<std::mutex> lock(slot.frameMutex, std::try_to_lock);
-        if(lock.owns_lock())
+        // Blocking lock is fine here — the capture thread only holds it
+        // for the duration of a clone(), which is fast
+        std::lock_guard<std::mutex> lock(slot.frameMutex);
+
+        if(slot.sdlSurface)
         {
-            // Free previous surface before replacing backing memory
-            if(slot.sdlSurface)
-            {
-                SDL_DestroySurface(slot.sdlSurface);
-                slot.sdlSurface = nullptr;
-            }
-
-            // Take ownership of the RGB frame (already converted on capture thread)
-            slot.surfaceBacking = std::move(slot.latestFrame);
-            slot.frameNew.store(false, std::memory_order_release);
-
-            slot.sdlSurface = SDL_CreateSurfaceFrom(
-                slot.surfaceBacking.cols,
-                slot.surfaceBacking.rows,
-                SDL_PIXELFORMAT_RGB24,
-                slot.surfaceBacking.data,
-                static_cast<int>(slot.surfaceBacking.step[0])
-            );
+            SDL_DestroySurface(slot.sdlSurface);
+            slot.sdlSurface = nullptr;
         }
-        // If lock failed, we just return the previous surface — no stall
+
+        slot.surfaceBacking = std::move(slot.latestFrame);
+        slot.frameNew.store(false, std::memory_order_release);
+
+        slot.sdlSurface = SDL_CreateSurfaceFrom(
+            slot.surfaceBacking.cols,
+            slot.surfaceBacking.rows,
+            SDL_PIXELFORMAT_RGB24,
+            slot.surfaceBacking.data,
+            static_cast<int>(slot.surfaceBacking.step[0])
+        );
     }
 
     return slot.sdlSurface;
