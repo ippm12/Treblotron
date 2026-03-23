@@ -84,8 +84,8 @@ bool Game::popDartPosition(DartPosition& out)
 // GameManager class
 // ============================================================================
 
-static constexpr size_t WINDOW_WIDTH  = 1280;
-static constexpr size_t WINDOW_HEIGHT = 720;
+static constexpr size_t WINDOW_WIDTH  = 1920;
+static constexpr size_t WINDOW_HEIGHT = 1080;
 
 
 GameManager::GameManager()
@@ -121,8 +121,13 @@ Status GameManager::initialize()
         return stat;
     }
 
+    // Set logical presentation so all game code uses 1920x1080 coordinates.
+    // SDL auto-scales to the actual monitor resolution (letterboxed).
+    SDL_SetRenderLogicalPresentation(getFrameRenderer(m_frameId),
+        WINDOW_WIDTH, WINDOW_HEIGHT, SDL_LOGICAL_PRESENTATION_LETTERBOX);
+
     // Load the status bar font
-    m_barFontId = loadFont("assets/fonts/Roboto-Regular.ttf", 42.0f);
+    m_barFontId = loadFont("assets/fonts/Roboto-Regular.ttf", 63.0f);
     if(m_barFontId == INVALID_FONT_ID)
     {
         LOG_ERROR(GAME_MANAGER_LOG_ID, "Failed to load bar font");
@@ -132,7 +137,7 @@ Status GameManager::initialize()
     }
 
     // Load the pause menu font
-    m_pauseFontId = loadFont("assets/fonts/Roboto-Regular.ttf", 28.0f);
+    m_pauseFontId = loadFont("assets/fonts/Roboto-Regular.ttf", 42.0f);
     if(m_pauseFontId == INVALID_FONT_ID)
     {
         LOG_WARNING(GAME_MANAGER_LOG_ID, "Failed to load pause menu font");
@@ -196,7 +201,7 @@ Status GameManager::initialize()
     m_lastTickNs = SDL_GetTicksNS();
 
 #ifdef DARTLENS_SHOW_FPS
-    m_fpsFontId = loadFont("assets/fonts/Roboto-Regular.ttf", 16.0f);
+    m_fpsFontId = loadFont("assets/fonts/Roboto-Regular.ttf", 24.0f);
     if(m_fpsFontId == INVALID_FONT_ID)
     {
         LOG_WARNING(GAME_MANAGER_LOG_ID, "Failed to load FPS font — FPS display disabled");
@@ -483,18 +488,18 @@ void GameManager::renderPauseMenu()
     overlay->m_x      = 0.0f;
     overlay->m_y      = 0.0f;
     overlay->m_z      = PAUSE_OVERLAY_Z;
-    overlay->m_width  = 1280.0f;
-    overlay->m_height = 720.0f;
+    overlay->m_width  = 1920.0f;
+    overlay->m_height = 1080.0f;
     renderQueueAdd(m_frameId, overlay);
 
     // Center panel
     bool hasRestart = (m_gameFactory != nullptr);
     uint8_t optionCount = hasRestart ? 3 : 2;
-    float panelW = 400.0f;
-    float rowH   = 50.0f;
-    float panelH = 80.0f + optionCount * rowH + 20.0f;
-    float panelX = (1280.0f - panelW) * 0.5f;
-    float panelY = (720.0f - panelH) * 0.5f;
+    float panelW = 600.0f;
+    float rowH   = 75.0f;
+    float panelH = 120.0f + optionCount * rowH + 30.0f;
+    float panelX = (1920.0f - panelW) * 0.5f;
+    float panelY = (1080.0f - panelH) * 0.5f;
 
     auto panel = std::make_shared<RenderShape>();
     panel->m_type   = ShapeType::Box;
@@ -523,7 +528,7 @@ void GameManager::renderPauseMenu()
     titleText->m_scaleX   = 1.0f;
     titleText->m_scaleY   = 1.0f;
     titleText->m_x        = panelX + (panelW - titleW) * 0.5f;
-    titleText->m_y        = panelY + 20.0f;
+    titleText->m_y        = panelY + 30.0f;
     titleText->m_z        = PAUSE_OVERLAY_Z + 2;
     renderQueueAdd(m_frameId, titleText);
 
@@ -539,8 +544,8 @@ void GameManager::renderPauseMenu()
     }
     visibleOptions[vi++] = allOptions[2]; // Main Menu
 
-    float optRowW = 260.0f;
-    float optStartY = panelY + 80.0f;
+    float optRowW = 390.0f;
+    float optStartY = panelY + 120.0f;
     FontID optFontId = (m_pauseFontId != INVALID_FONT_ID) ? m_pauseFontId : m_barFontId;
     TTF_Font* optFont = getFont(optFontId);
 
@@ -559,7 +564,7 @@ void GameManager::renderPauseMenu()
             bg->m_y      = rowY;
             bg->m_z      = PAUSE_OVERLAY_Z + 2;
             bg->m_width  = optRowW;
-            bg->m_height = rowH - 6.0f;
+            bg->m_height = rowH - 9.0f;
             renderQueueAdd(m_frameId, bg);
         }
 
@@ -577,7 +582,7 @@ void GameManager::renderPauseMenu()
         optText->m_scaleX   = 1.0f;
         optText->m_scaleY   = 1.0f;
         optText->m_x        = rowX + (optRowW - optW) * 0.5f;
-        optText->m_y        = rowY + (rowH - 6.0f - optH) * 0.5f;
+        optText->m_y        = rowY + (rowH - 9.0f - optH) * 0.5f;
         optText->m_z        = PAUSE_OVERLAY_Z + 3;
         renderQueueAdd(m_frameId, optText);
     }
@@ -588,15 +593,15 @@ void GameManager::renderPauseMenu()
 // Status bar rendering
 // ============================================================================
 
-static constexpr float    BAR_Y       = 620.0f;
-static constexpr float    BAR_HEIGHT  = 100.0f;
-static constexpr float    BAR_WIDTH   = 1280.0f;
+static constexpr float    BAR_Y       = 930.0f;
+static constexpr float    BAR_HEIGHT  = 150.0f;
+static constexpr float    BAR_WIDTH   = 1920.0f;
 static constexpr uint32_t BAR_Z       = UINT32_MAX - 10;
-static constexpr float    BAR_TEXT_Y  = BAR_Y + 30.0f;
-static constexpr float    BAR_PAD_X   = 20.0f;
-static constexpr float    DART_CIRCLE_DIAMETER = 35.0f;
-static constexpr float    DART_CIRCLE_SPACING  = 52.0f;
-static constexpr float    DART_CIRCLE_GAP      = 40.0f;  // Gap between name text and first dart circle
+static constexpr float    BAR_TEXT_Y  = BAR_Y + 45.0f;
+static constexpr float    BAR_PAD_X   = 30.0f;
+static constexpr float    DART_CIRCLE_DIAMETER = 53.0f;
+static constexpr float    DART_CIRCLE_SPACING  = 78.0f;
+static constexpr float    DART_CIRCLE_GAP      = 60.0f;  // Gap between name text and first dart circle
 static constexpr float    DART_CIRCLE_Y        = BAR_Y + BAR_HEIGHT * 0.5f;
 static constexpr size_t   MAX_PLAYER_NAME_DISPLAY = 12;  // Max characters to display for player name
 
@@ -671,7 +676,7 @@ void GameManager::enqueueBar(const GameBarInfo& info)
             status->m_rotation = 0.0f;
             status->m_scaleX   = 1.0f;
             status->m_scaleY   = 1.0f;
-            status->m_x        = BAR_WIDTH - BAR_PAD_X - info.statusText.length() * 22.0f;
+            status->m_x        = BAR_WIDTH - BAR_PAD_X - info.statusText.length() * 33.0f;
             status->m_y        = BAR_TEXT_Y;
             status->m_z        = BAR_Z + 1;
             renderQueueAdd(m_frameId, status);
@@ -708,7 +713,7 @@ void GameManager::enqueueBar(const GameBarInfo& info)
             status->m_rotation = 0.0f;
             status->m_scaleX   = 1.0f;
             status->m_scaleY   = 1.0f;
-            status->m_x        = BAR_WIDTH - BAR_PAD_X - info.statusText.length() * 22.0f;
+            status->m_x        = BAR_WIDTH - BAR_PAD_X - info.statusText.length() * 33.0f;
             status->m_y        = BAR_TEXT_Y;
             status->m_z        = BAR_Z + 1;
             renderQueueAdd(m_frameId, status);
@@ -719,8 +724,8 @@ void GameManager::enqueueBar(const GameBarInfo& info)
     // Pause hint (shown for all pauseable games, regardless of state)
     if(m_currentGame && m_currentGame->isPauseable() && m_pauseFontId != INVALID_FONT_ID)
     {
-        m_inputHints.render(m_frameId, m_pauseFontId, BAR_WIDTH - 150.0f,
-                            BAR_Y - 40.0f, BAR_Z, {
+        m_inputHints.render(m_frameId, m_pauseFontId, BAR_WIDTH - 225.0f,
+                            BAR_Y - 60.0f, BAR_Z, {
             {SDLK_ESCAPE, SDL_GAMEPAD_BUTTON_START, "pause"}
         });
     }
@@ -729,8 +734,8 @@ void GameManager::enqueueBar(const GameBarInfo& info)
 
 #ifdef DARTLENS_SHOW_FPS
 static constexpr float    FPS_UPDATE_INTERVAL = 0.5f;
-static constexpr float    FPS_X               = 1220.0f;
-static constexpr float    FPS_Y               = 4.0f;
+static constexpr float    FPS_X               = 1830.0f;
+static constexpr float    FPS_Y               = 6.0f;
 static constexpr uint32_t FPS_Z               = 200;
 
 void GameManager::enqueueFps(float deltaTime)

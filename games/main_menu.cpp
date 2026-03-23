@@ -24,29 +24,29 @@
 // Layout constants
 // ============================================================================
 
-static constexpr float    WINDOW_W      = 1280.0f;
-static constexpr float    WINDOW_H      = 720.0f;
+static constexpr float    WINDOW_W      = 1920.0f;
+static constexpr float    WINDOW_H      = 1080.0f;
 
 // Card grid
-static constexpr float    LEFT_MARGIN   = 40.0f;
-static constexpr float    TOP_MARGIN    = 80.0f;    // space for title
-static constexpr float    CARD_W        = 360.0f;
-static constexpr float    CARD_H        = 220.0f;
-static constexpr float    CARD_GAP      = 20.0f;
+static constexpr float    LEFT_MARGIN   = 60.0f;
+static constexpr float    TOP_MARGIN    = 120.0f;    // space for title
+static constexpr float    CARD_W        = 540.0f;
+static constexpr float    CARD_H        = 330.0f;
+static constexpr float    CARD_GAP      = 30.0f;
 static constexpr int      VISIBLE_COLS  = 3;
 static constexpr uint32_t CARD_Z        = 10;
 
 // Font sizes
-static constexpr float    TITLE_PT      = 48.0f;
-static constexpr float    CARD_PT       = 28.0f;
-static constexpr float    SMALL_PT      = 26.0f;
+static constexpr float    TITLE_PT      = 72.0f;
+static constexpr float    CARD_PT       = 42.0f;
+static constexpr float    SMALL_PT      = 39.0f;
 
 // Settings sub-screen
-static constexpr float    SETTINGS_LEFT = 100.0f;
-static constexpr float    SETTINGS_TOP  = 100.0f;
-static constexpr float    ROW_HEIGHT    = 55.0f;
-static constexpr float    ROW_PAD       = 12.0f;
-static constexpr float    OPTION_X      = 600.0f;
+static constexpr float    SETTINGS_LEFT = 150.0f;
+static constexpr float    SETTINGS_TOP  = 150.0f;
+static constexpr float    ROW_HEIGHT    = 83.0f;
+static constexpr float    ROW_PAD       = 18.0f;
+static constexpr float    OPTION_X      = 900.0f;
 static constexpr uint32_t SETTINGS_Z    = 10;
 
 // Player settings
@@ -428,7 +428,7 @@ void MainMenu::renderCardGrid()
         text->m_scaleX   = 1.0f;
         text->m_scaleY   = 1.0f;
         text->m_x        = titleX;
-        text->m_y        = 15.0f;
+        text->m_y        = 22.5f;
         text->m_z        = CARD_Z;
         renderQueueAdd(fid, text);
     }
@@ -471,7 +471,7 @@ void MainMenu::renderCardGrid()
                 accent->m_x      = cardX;
                 accent->m_y      = cardY;
                 accent->m_z      = CARD_Z + 1;
-                accent->m_width  = 5.0f;
+                accent->m_width  = 8.0f;
                 accent->m_height = CARD_H;
                 renderQueueAdd(fid, accent);
             }
@@ -504,14 +504,14 @@ void MainMenu::renderCardGrid()
             titleText->m_rotation = 0.0f;
             titleText->m_scaleX   = 1.0f;
             titleText->m_scaleY   = 1.0f;
-            titleText->m_x        = cardX + 20.0f;
-            titleText->m_y        = cardY + 30.0f;
+            titleText->m_x        = cardX + 30.0f;
+            titleText->m_y        = cardY + 45.0f;
             titleText->m_z        = CARD_Z + 2;
             renderQueueAdd(fid, titleText);
 
             // Card description — scale down if it overflows the card
             float descScaleX = 1.0f;
-            float maxDescW = CARD_W - 40.0f;
+            float maxDescW = CARD_W - 60.0f;
             TTF_Font* descFont = getFont(m_smallFontId);
             if(descFont)
             {
@@ -530,8 +530,8 @@ void MainMenu::renderCardGrid()
             descText->m_rotation = 0.0f;
             descText->m_scaleX   = descScaleX;
             descText->m_scaleY   = 1.0f;
-            descText->m_x        = cardX + 20.0f;
-            descText->m_y        = cardY + 70.0f;
+            descText->m_x        = cardX + 30.0f;
+            descText->m_y        = cardY + 105.0f;
             descText->m_z        = CARD_Z + 2;
             renderQueueAdd(fid, descText);
 
@@ -553,8 +553,8 @@ void MainMenu::renderCardGrid()
                 infoText->m_rotation = 0.0f;
                 infoText->m_scaleX   = 1.0f;
                 infoText->m_scaleY   = 1.0f;
-                infoText->m_x        = cardX + 20.0f;
-                infoText->m_y        = cardY + CARD_H - 40.0f;
+                infoText->m_x        = cardX + 30.0f;
+                infoText->m_y        = cardY + CARD_H - 60.0f;
                 infoText->m_z        = CARD_Z + 2;
                 renderQueueAdd(fid, infoText);
             }
@@ -571,8 +571,8 @@ void MainMenu::renderCardGrid()
         arrow->m_rotation = 0.0f;
         arrow->m_scaleX   = 1.0f;
         arrow->m_scaleY   = 1.0f;
-        arrow->m_x        = 8.0f;
-        arrow->m_y        = TOP_MARGIN + CARD_H - 10.0f;
+        arrow->m_x        = 12.0f;
+        arrow->m_y        = TOP_MARGIN + CARD_H - 15.0f;
         arrow->m_z        = CARD_Z + 3;
         renderQueueAdd(fid, arrow);
     }
@@ -585,14 +585,14 @@ void MainMenu::renderCardGrid()
         arrow->m_rotation = 0.0f;
         arrow->m_scaleX   = 1.0f;
         arrow->m_scaleY   = 1.0f;
-        arrow->m_x        = WINDOW_W - 35.0f;
-        arrow->m_y        = TOP_MARGIN + CARD_H - 10.0f;
+        arrow->m_x        = WINDOW_W - 52.5f;
+        arrow->m_y        = TOP_MARGIN + CARD_H - 15.0f;
         arrow->m_z        = CARD_Z + 3;
         renderQueueAdd(fid, arrow);
     }
 
     // Navigation hints (above the game bar at y=620)
-    m_inputHints.render(fid, m_smallFontId, LEFT_MARGIN, 575.0f, CARD_Z, {
+    m_inputHints.render(fid, m_smallFontId, LEFT_MARGIN, 862.5f, CARD_Z, {
         {SDLK_UP,     GAMEPAD_ICON_LEFT_STICK,       "navigate"},
         {SDLK_RETURN, SDL_GAMEPAD_BUTTON_SOUTH,      "select"}
     });
@@ -610,10 +610,10 @@ void MainMenu::renderCardGrid()
         overlay->m_height = WINDOW_H;
         renderQueueAdd(fid, overlay);
 
-        float panelW = 620.0f;
-        float panelH = 120.0f;
+        float panelW = 930.0f;
+        float panelH = 180.0f;
         float panelX = (WINDOW_W - panelW) * 0.5f;
-        float panelY = (WINDOW_H - panelH) * 0.5f - 30.0f;
+        float panelY = (WINDOW_H - panelH) * 0.5f - 45.0f;
 
         auto panel = std::make_shared<RenderShape>();
         panel->m_type   = ShapeType::Box;
@@ -636,7 +636,7 @@ void MainMenu::renderCardGrid()
         msgText->m_scaleX   = 1.0f;
         msgText->m_scaleY   = 1.0f;
         msgText->m_z        = CARD_Z + 82;
-        msgText->m_y        = panelY + 25.0f;
+        msgText->m_y        = panelY + 37.5f;
         int msgW = 0, msgH = 0;
         if(cardFont) TTF_GetStringSize(cardFont, msg.c_str(), 0, &msgW, &msgH);
         msgText->m_x = panelX + (panelW - msgW) * 0.5f;
@@ -651,7 +651,7 @@ void MainMenu::renderCardGrid()
         dismissText->m_scaleX   = 1.0f;
         dismissText->m_scaleY   = 1.0f;
         dismissText->m_z        = CARD_Z + 82;
-        dismissText->m_y        = panelY + 75.0f;
+        dismissText->m_y        = panelY + 112.5f;
         TTF_Font* smallFont = getFont(m_smallFontId);
         int dW = 0, dH = 0;
         if(smallFont) TTF_GetStringSize(smallFont, dismiss.c_str(), 0, &dW, &dH);
@@ -776,7 +776,7 @@ void MainMenu::renderGameSettings()
         text->m_scaleX   = 1.0f;
         text->m_scaleY   = 1.0f;
         text->m_x        = SETTINGS_LEFT;
-        text->m_y        = 30.0f;
+        text->m_y        = 45.0f;
         text->m_z        = SETTINGS_Z;
         renderQueueAdd(fid, text);
     }
@@ -791,7 +791,7 @@ void MainMenu::renderGameSettings()
         text->m_scaleX   = 1.0f;
         text->m_scaleY   = 1.0f;
         text->m_x        = SETTINGS_LEFT;
-        text->m_y        = 85.0f;
+        text->m_y        = 127.5f;
         text->m_z        = SETTINGS_Z;
         renderQueueAdd(fid, text);
     }
@@ -799,7 +799,7 @@ void MainMenu::renderGameSettings()
     // Settings rows
     for(int i = 0; i < settingCount; i++)
     {
-        float rowY = SETTINGS_TOP + 30.0f + i * ROW_HEIGHT;
+        float rowY = SETTINGS_TOP + 45.0f + i * ROW_HEIGHT;
         bool isSelected = (i == m_settingsCursor);
 
         // Row highlight
@@ -808,11 +808,11 @@ void MainMenu::renderGameSettings()
             auto bg = std::make_shared<RenderShape>();
             bg->m_type   = ShapeType::Box;
             bg->m_color  = {60, 60, 100};
-            bg->m_x      = SETTINGS_LEFT - 10.0f;
-            bg->m_y      = rowY - 5.0f;
+            bg->m_x      = SETTINGS_LEFT - 15.0f;
+            bg->m_y      = rowY - 7.5f;
             bg->m_z      = SETTINGS_Z;
-            bg->m_width  = WINDOW_W - 2 * SETTINGS_LEFT + 20.0f;
-            bg->m_height = ROW_HEIGHT - 4.0f;
+            bg->m_width  = WINDOW_W - 2 * SETTINGS_LEFT + 30.0f;
+            bg->m_height = ROW_HEIGHT - 6.0f;
             renderQueueAdd(fid, bg);
         }
 
@@ -848,7 +848,7 @@ void MainMenu::renderGameSettings()
 
     // Start Game button
     {
-        float btnY = SETTINGS_TOP + 30.0f + settingCount * ROW_HEIGHT;
+        float btnY = SETTINGS_TOP + 45.0f + settingCount * ROW_HEIGHT;
         bool isSelected = (m_settingsCursor == settingCount);
 
         if(isSelected)
@@ -856,11 +856,11 @@ void MainMenu::renderGameSettings()
             auto bg = std::make_shared<RenderShape>();
             bg->m_type   = ShapeType::Box;
             bg->m_color  = {40, 100, 60};
-            bg->m_x      = SETTINGS_LEFT - 10.0f;
-            bg->m_y      = btnY - 5.0f;
+            bg->m_x      = SETTINGS_LEFT - 15.0f;
+            bg->m_y      = btnY - 7.5f;
             bg->m_z      = SETTINGS_Z;
-            bg->m_width  = 250.0f;
-            bg->m_height = ROW_HEIGHT - 4.0f;
+            bg->m_width  = 375.0f;
+            bg->m_height = ROW_HEIGHT - 6.0f;
             renderQueueAdd(fid, bg);
         }
 
@@ -878,7 +878,7 @@ void MainMenu::renderGameSettings()
     }
 
     // Hints
-    m_inputHints.render(fid, m_smallFontId, SETTINGS_LEFT, 575.0f, SETTINGS_Z, {
+    m_inputHints.render(fid, m_smallFontId, SETTINGS_LEFT, 862.5f, SETTINGS_Z, {
         {SDLK_UP,     GAMEPAD_ICON_LEFT_STICK,       "navigate"},
         {SDLK_LEFT,   GAMEPAD_ICON_LEFT_STICK,       "change"},
         {SDLK_RETURN, SDL_GAMEPAD_BUTTON_SOUTH,      "confirm"},
@@ -900,10 +900,10 @@ void MainMenu::renderGameSettings()
         renderQueueAdd(fid, overlay);
 
         // Panel
-        float panelW = 580.0f;
-        float panelH = 140.0f;
+        float panelW = 870.0f;
+        float panelH = 210.0f;
         float panelX = (WINDOW_W - panelW) * 0.5f;
-        float panelY = (WINDOW_H - panelH) * 0.5f - 30.0f;
+        float panelY = (WINDOW_H - panelH) * 0.5f - 45.0f;
 
         auto panel = std::make_shared<RenderShape>();
         panel->m_type   = ShapeType::Box;
@@ -929,7 +929,7 @@ void MainMenu::renderGameSettings()
         line1->m_scaleX   = 1.0f;
         line1->m_scaleY   = 1.0f;
         line1->m_z        = SETTINGS_Z + 82;
-        line1->m_y        = panelY + 25.0f;
+        line1->m_y        = panelY + 37.5f;
         int w1 = 0, h1 = 0;
         if(cardFont) TTF_GetStringSize(cardFont, msg1.c_str(), 0, &w1, &h1);
         line1->m_x = panelX + (panelW - w1) * 0.5f;
@@ -943,7 +943,7 @@ void MainMenu::renderGameSettings()
         line2->m_scaleX   = 1.0f;
         line2->m_scaleY   = 1.0f;
         line2->m_z        = SETTINGS_Z + 82;
-        line2->m_y        = panelY + 60.0f;
+        line2->m_y        = panelY + 90.0f;
         int w2 = 0, h2 = 0;
         if(cardFont) TTF_GetStringSize(cardFont, msg2.c_str(), 0, &w2, &h2);
         line2->m_x = panelX + (panelW - w2) * 0.5f;
@@ -959,7 +959,7 @@ void MainMenu::renderGameSettings()
         dismissText->m_scaleX   = 1.0f;
         dismissText->m_scaleY   = 1.0f;
         dismissText->m_z        = SETTINGS_Z + 82;
-        dismissText->m_y        = panelY + 100.0f;
+        dismissText->m_y        = panelY + 150.0f;
         TTF_Font* smallFont = getFont(m_smallFontId);
         int w3 = 0, h3 = 0;
         if(smallFont) TTF_GetStringSize(smallFont, dismiss.c_str(), 0, &w3, &h3);
@@ -980,10 +980,10 @@ void MainMenu::renderGameSettings()
         npOverlay->m_height = WINDOW_H;
         renderQueueAdd(fid, npOverlay);
 
-        float npPanelW = 580.0f;
-        float npPanelH = 120.0f;
+        float npPanelW = 870.0f;
+        float npPanelH = 180.0f;
         float npPanelX = (WINDOW_W - npPanelW) * 0.5f;
-        float npPanelY = (WINDOW_H - npPanelH) * 0.5f - 30.0f;
+        float npPanelY = (WINDOW_H - npPanelH) * 0.5f - 45.0f;
 
         auto npPanel = std::make_shared<RenderShape>();
         npPanel->m_type   = ShapeType::Box;
@@ -1006,7 +1006,7 @@ void MainMenu::renderGameSettings()
         npText->m_scaleX   = 1.0f;
         npText->m_scaleY   = 1.0f;
         npText->m_z        = SETTINGS_Z + 82;
-        npText->m_y        = npPanelY + 25.0f;
+        npText->m_y        = npPanelY + 37.5f;
         int npW = 0, npH = 0;
         if(cardFont) TTF_GetStringSize(cardFont, npMsg.c_str(), 0, &npW, &npH);
         npText->m_x = npPanelX + (npPanelW - npW) * 0.5f;
@@ -1021,7 +1021,7 @@ void MainMenu::renderGameSettings()
         npDismissText->m_scaleX   = 1.0f;
         npDismissText->m_scaleY   = 1.0f;
         npDismissText->m_z        = SETTINGS_Z + 82;
-        npDismissText->m_y        = npPanelY + 75.0f;
+        npDismissText->m_y        = npPanelY + 112.5f;
         TTF_Font* npSmallFont = getFont(m_smallFontId);
         int npDW = 0, npDH = 0;
         if(npSmallFont) TTF_GetStringSize(npSmallFont, npDismiss.c_str(), 0, &npDW, &npDH);
@@ -1466,7 +1466,7 @@ void MainMenu::renderPlayerSettings()
         text->m_scaleX   = 1.0f;
         text->m_scaleY   = 1.0f;
         text->m_x        = SETTINGS_LEFT;
-        text->m_y        = 30.0f;
+        text->m_y        = 45.0f;
         text->m_z        = SETTINGS_Z;
         renderQueueAdd(fid, text);
     }
@@ -1492,7 +1492,7 @@ void MainMenu::renderPlayerSettings()
         return logical;
     };
 
-    float contentStartY = SETTINGS_TOP + 10.0f;
+    float contentStartY = SETTINGS_TOP + 15.0f;
 
     // ---- Player rows ----
     for(uint8_t i = 0; i < playerCount; i++)
@@ -1510,11 +1510,11 @@ void MainMenu::renderPlayerSettings()
             auto bg = std::make_shared<RenderShape>();
             bg->m_type   = ShapeType::Box;
             bg->m_color  = {60, 60, 100};
-            bg->m_x      = SETTINGS_LEFT - 10.0f;
-            bg->m_y      = rowY - 5.0f;
+            bg->m_x      = SETTINGS_LEFT - 15.0f;
+            bg->m_y      = rowY - 7.5f;
             bg->m_z      = SETTINGS_Z;
-            bg->m_width  = WINDOW_W - 2 * SETTINGS_LEFT + 20.0f;
-            bg->m_height = ROW_HEIGHT - 4.0f;
+            bg->m_width  = WINDOW_W - 2 * SETTINGS_LEFT + 30.0f;
+            bg->m_height = ROW_HEIGHT - 6.0f;
             renderQueueAdd(fid, bg);
         }
 
@@ -1536,8 +1536,8 @@ void MainMenu::renderPlayerSettings()
             name = (pid != INVALID_PLAYER_ID) ? getPlayerName(pid) : "???";
         }
 
-        float boxY = rowY - 5.0f;
-        float boxH = ROW_HEIGHT - 4.0f;
+        float boxY = rowY - 7.5f;
+        float boxH = ROW_HEIGHT - 6.0f;
         int textW = 0, textH = 0;
         if(cardFont)
         {
@@ -1586,8 +1586,8 @@ void MainMenu::renderPlayerSettings()
         // Action hints for selected player row (not renaming)
         if(isSelected && !m_renaming)
         {
-            float hintsX = (teamCount > 0) ? OPTION_X + 280.0f : OPTION_X;
-            float hintsY = boxY + (boxH - 36.0f) * 0.5f;
+            float hintsX = (teamCount > 0) ? OPTION_X + 420.0f : OPTION_X;
+            float hintsY = boxY + (boxH - 54.0f) * 0.5f;
             m_inputHints.render(fid, m_smallFontId, hintsX, hintsY, SETTINGS_Z, {
                 {SDLK_RETURN, SDL_GAMEPAD_BUTTON_SOUTH, "rename"},
                 {SDLK_DELETE, SDL_GAMEPAD_BUTTON_WEST,  "remove"}
@@ -1603,18 +1603,18 @@ void MainMenu::renderPlayerSettings()
         {
             float rowY = contentStartY + screenRow * ROW_HEIGHT;
             bool isSelected = (m_playerCursor == playerCount);
-            float addBoxY = rowY - 5.0f;
-            float addBoxH = ROW_HEIGHT - 4.0f;
+            float addBoxY = rowY - 7.5f;
+            float addBoxH = ROW_HEIGHT - 6.0f;
 
             if(isSelected)
             {
                 auto bg = std::make_shared<RenderShape>();
                 bg->m_type   = ShapeType::Box;
                 bg->m_color  = {40, 80, 60};
-                bg->m_x      = SETTINGS_LEFT - 10.0f;
+                bg->m_x      = SETTINGS_LEFT - 15.0f;
                 bg->m_y      = addBoxY;
                 bg->m_z      = SETTINGS_Z;
-                bg->m_width  = 300.0f;
+                bg->m_width  = 450.0f;
                 bg->m_height = addBoxH;
                 renderQueueAdd(fid, bg);
             }
@@ -1652,11 +1652,11 @@ void MainMenu::renderPlayerSettings()
             auto line = std::make_shared<RenderShape>();
             line->m_type   = ShapeType::Box;
             line->m_color  = {80, 80, 90};
-            line->m_x      = SETTINGS_LEFT - 10.0f;
-            line->m_y      = divY + 5.0f;
+            line->m_x      = SETTINGS_LEFT - 15.0f;
+            line->m_y      = divY + 7.5f;
             line->m_z      = SETTINGS_Z;
-            line->m_width  = WINDOW_W - 2 * SETTINGS_LEFT + 20.0f;
-            line->m_height = 2.0f;
+            line->m_width  = WINDOW_W - 2 * SETTINGS_LEFT + 30.0f;
+            line->m_height = 3.0f;
             renderQueueAdd(fid, line);
 
             // "Teams" header text
@@ -1668,7 +1668,7 @@ void MainMenu::renderPlayerSettings()
             header->m_scaleX   = 1.0f;
             header->m_scaleY   = 1.0f;
             header->m_x        = SETTINGS_LEFT;
-            header->m_y        = divY + 18.0f;
+            header->m_y        = divY + 27.0f;
             header->m_z        = SETTINGS_Z + 1;
             renderQueueAdd(fid, header);
         }
@@ -1690,11 +1690,11 @@ void MainMenu::renderPlayerSettings()
             auto bg = std::make_shared<RenderShape>();
             bg->m_type   = ShapeType::Box;
             bg->m_color  = {60, 60, 100};
-            bg->m_x      = SETTINGS_LEFT - 10.0f;
-            bg->m_y      = rowY - 5.0f;
+            bg->m_x      = SETTINGS_LEFT - 15.0f;
+            bg->m_y      = rowY - 7.5f;
             bg->m_z      = SETTINGS_Z;
-            bg->m_width  = WINDOW_W - 2 * SETTINGS_LEFT + 20.0f;
-            bg->m_height = ROW_HEIGHT - 4.0f;
+            bg->m_width  = WINDOW_W - 2 * SETTINGS_LEFT + 30.0f;
+            bg->m_height = ROW_HEIGHT - 6.0f;
             renderQueueAdd(fid, bg);
         }
 
@@ -1716,8 +1716,8 @@ void MainMenu::renderPlayerSettings()
             teamName = (tid != INVALID_TEAM_ID) ? getTeamName(tid) : "???";
         }
 
-        float boxY = rowY - 5.0f;
-        float boxH = ROW_HEIGHT - 4.0f;
+        float boxY = rowY - 7.5f;
+        float boxH = ROW_HEIGHT - 6.0f;
         int textW = 0, textH = 0;
         if(cardFont)
         {
@@ -1739,7 +1739,7 @@ void MainMenu::renderPlayerSettings()
         // Action hints for selected team row (not renaming)
         if(isSelected && !m_renamingTeam)
         {
-            float hintsY = boxY + (boxH - 36.0f) * 0.5f;
+            float hintsY = boxY + (boxH - 54.0f) * 0.5f;
             m_inputHints.render(fid, m_smallFontId, OPTION_X, hintsY, SETTINGS_Z, {
                 {SDLK_RETURN, SDL_GAMEPAD_BUTTON_SOUTH, "rename"},
                 {SDLK_DELETE, SDL_GAMEPAD_BUTTON_WEST,  "remove"}
@@ -1756,18 +1756,18 @@ void MainMenu::renderPlayerSettings()
         {
             float rowY = contentStartY + screenRow * ROW_HEIGHT;
             bool isSelected = (m_playerCursor == logicalRow);
-            float addBoxY = rowY - 5.0f;
-            float addBoxH = ROW_HEIGHT - 4.0f;
+            float addBoxY = rowY - 7.5f;
+            float addBoxH = ROW_HEIGHT - 6.0f;
 
             if(isSelected)
             {
                 auto bg = std::make_shared<RenderShape>();
                 bg->m_type   = ShapeType::Box;
                 bg->m_color  = {40, 80, 60};
-                bg->m_x      = SETTINGS_LEFT - 10.0f;
+                bg->m_x      = SETTINGS_LEFT - 15.0f;
                 bg->m_y      = addBoxY;
                 bg->m_z      = SETTINGS_Z;
-                bg->m_width  = 300.0f;
+                bg->m_width  = 450.0f;
                 bg->m_height = addBoxH;
                 renderQueueAdd(fid, bg);
             }
@@ -1800,7 +1800,7 @@ void MainMenu::renderPlayerSettings()
     }
     else if(m_renaming || m_renamingTeam)
     {
-        m_inputHints.render(fid, m_smallFontId, SETTINGS_LEFT, 575.0f, SETTINGS_Z, {
+        m_inputHints.render(fid, m_smallFontId, SETTINGS_LEFT, 862.5f, SETTINGS_Z, {
             {SDLK_RETURN, SDL_GAMEPAD_BUTTON_SOUTH, "confirm"},
             {SDLK_ESCAPE, SDL_GAMEPAD_BUTTON_EAST,  "cancel"}
         });
@@ -1817,7 +1817,7 @@ void MainMenu::renderPlayerSettings()
         {
             hints.insert(hints.begin() + 1, {SDLK_LEFT, GAMEPAD_ICON_LEFT_STICK, "team"});
         }
-        m_inputHints.render(fid, m_smallFontId, SETTINGS_LEFT, 575.0f, SETTINGS_Z, hints);
+        m_inputHints.render(fid, m_smallFontId, SETTINGS_LEFT, 862.5f, SETTINGS_Z, hints);
     }
 
     // ---- Warning popups ----
@@ -1849,10 +1849,10 @@ void MainMenu::renderPlayerSettings()
         renderQueueAdd(fid, overlay);
 
         // Panel
-        float panelW = 500.0f;
-        float panelH = 140.0f;
+        float panelW = 750.0f;
+        float panelH = 210.0f;
         float panelX = (WINDOW_W - panelW) * 0.5f;
-        float panelY = (WINDOW_H - panelH) * 0.5f - 30.0f;
+        float panelY = (WINDOW_H - panelH) * 0.5f - 45.0f;
 
         auto panel = std::make_shared<RenderShape>();
         panel->m_type   = ShapeType::Box;
@@ -1876,7 +1876,7 @@ void MainMenu::renderPlayerSettings()
         line1->m_scaleX   = 1.0f;
         line1->m_scaleY   = 1.0f;
         line1->m_z        = SETTINGS_Z + 82;
-        line1->m_y        = panelY + 25.0f;
+        line1->m_y        = panelY + 37.5f;
         // Center horizontally
         int w1 = 0, h1 = 0;
         if(cardFont) TTF_GetStringSize(cardFont, msg1.c_str(), 0, &w1, &h1);
@@ -1891,7 +1891,7 @@ void MainMenu::renderPlayerSettings()
         line2->m_scaleX   = 1.0f;
         line2->m_scaleY   = 1.0f;
         line2->m_z        = SETTINGS_Z + 82;
-        line2->m_y        = panelY + 60.0f;
+        line2->m_y        = panelY + 90.0f;
         int w2 = 0, h2 = 0;
         if(cardFont) TTF_GetStringSize(cardFont, msg2.c_str(), 0, &w2, &h2);
         line2->m_x = panelX + (panelW - w2) * 0.5f;
@@ -1907,7 +1907,7 @@ void MainMenu::renderPlayerSettings()
         dismissText->m_scaleX   = 1.0f;
         dismissText->m_scaleY   = 1.0f;
         dismissText->m_z        = SETTINGS_Z + 82;
-        dismissText->m_y        = panelY + 100.0f;
+        dismissText->m_y        = panelY + 150.0f;
         TTF_Font* smallFont = getFont(m_smallFontId);
         int w3 = 0, h3 = 0;
         if(smallFont) TTF_GetStringSize(smallFont, dismiss.c_str(), 0, &w3, &h3);

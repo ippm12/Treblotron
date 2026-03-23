@@ -22,18 +22,18 @@
 // Layout constants
 // ============================================================================
 
-static constexpr float WINDOW_W     = 1280.0f;
+static constexpr float WINDOW_W     = 1920.0f;
 
-static constexpr float KEY_W        = 80.0f;    // Standard key width
-static constexpr float KEY_H        = 55.0f;    // Key height
-static constexpr float ICON_SIZE    = 24.0f;    // Shortcut icon size on action keys
-static constexpr float ICON_PAD     = 4.0f;     // Padding from key edge
-static constexpr float KEY_GAP      = 6.0f;     // Gap between keys
-static constexpr float ROW_GAP      = 6.0f;     // Gap between rows
+static constexpr float KEY_W        = 120.0f;    // Standard key width
+static constexpr float KEY_H        = 83.0f;    // Key height
+static constexpr float ICON_SIZE    = 36.0f;    // Shortcut icon size on action keys
+static constexpr float ICON_PAD     = 6.0f;     // Padding from key edge
+static constexpr float KEY_GAP      = 9.0f;     // Gap between keys
+static constexpr float ROW_GAP      = 9.0f;     // Gap between rows
 
-static constexpr float KB_BG_TOP    = 240.0f;   // Background overlay top edge
-static constexpr float KB_TEXT_Y    = 260.0f;   // Text buffer display Y
-static constexpr float KB_ORIGIN_Y  = 320.0f;   // Top of first key row
+static constexpr float KB_BG_TOP    = 360.0f;   // Background overlay top edge
+static constexpr float KB_TEXT_Y    = 390.0f;   // Text buffer display Y
+static constexpr float KB_ORIGIN_Y  = 480.0f;   // Top of first key row
 
 // Colors
 static constexpr Color COL_BG          = {20, 20, 30};
@@ -426,7 +426,7 @@ void VirtualKeyboard::render(FrameID frameId, uint32_t zBase)
         bg->m_y      = KB_BG_TOP;
         bg->m_z      = zBase;
         bg->m_width  = WINDOW_W;
-        bg->m_height = 720.0f - KB_BG_TOP;
+        bg->m_height = 1080.0f - KB_BG_TOP;
         renderQueueAdd(frameId, bg);
     }
 

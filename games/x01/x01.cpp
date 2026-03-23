@@ -21,16 +21,16 @@
 #include <SDL3_ttf/SDL_ttf.h>
 
 
-static constexpr float  FONT_SIZE       = 20.0f;
-static constexpr float  LARGE_FONT_SIZE = 64.0f;
+static constexpr float  FONT_SIZE       = 30.0f;
+static constexpr float  LARGE_FONT_SIZE = 96.0f;
 
 // Left panel — current player detail
-static constexpr float LEFT_PANEL_X      = 10.0f;
-static constexpr float LEFT_NAME_Y       = 120.0f;
-static constexpr float LEFT_SCORE_Y      = 170.0f;
-static constexpr float LEFT_PROGRESS_Y   = 280.0f;
-static constexpr float LEFT_DARTS_Y      = 320.0f;
-static constexpr float LEFT_DART_ROW_H   = 28.0f;
+static constexpr float LEFT_PANEL_X      = 15.0f;
+static constexpr float LEFT_NAME_Y       = 180.0f;
+static constexpr float LEFT_SCORE_Y      = 255.0f;
+static constexpr float LEFT_PROGRESS_Y   = 420.0f;
+static constexpr float LEFT_DARTS_Y      = 480.0f;
+static constexpr float LEFT_DART_ROW_H   = 42.0f;
 
 
 /** Check whether a dart segment satisfies an in/out rule. */
@@ -422,7 +422,7 @@ void X01Game::renderLeftPlayerDetail()
         legText->m_scaleX   = 1.0f;
         legText->m_scaleY   = 1.0f;
         legText->m_x        = LEFT_PANEL_X;
-        legText->m_y        = LEFT_NAME_Y - 30.0f;
+        legText->m_y        = LEFT_NAME_Y - 45.0f;
         legText->m_z        = GameLayout::SIDEBAR_Z;
         renderQueueAdd(fid, legText);
     }
@@ -463,7 +463,7 @@ void X01Game::renderLeftPlayerDetail()
         bustText->m_rotation = 0.0f;
         bustText->m_scaleX   = 1.0f;
         bustText->m_scaleY   = 1.0f;
-        bustText->m_x        = LEFT_PANEL_X + 120.0f;
+        bustText->m_x        = LEFT_PANEL_X + 180.0f;
         bustText->m_y        = LEFT_SCORE_Y;
         bustText->m_z        = GameLayout::SIDEBAR_Z + 1;
         renderQueueAdd(fid, bustText);
@@ -492,7 +492,7 @@ void X01Game::renderLeftPlayerDetail()
         inText->m_scaleX   = 1.0f;
         inText->m_scaleY   = 1.0f;
         inText->m_x        = LEFT_PANEL_X;
-        inText->m_y        = LEFT_SCORE_Y + 70.0f;
+        inText->m_y        = LEFT_SCORE_Y + 105.0f;
         inText->m_z        = GameLayout::SIDEBAR_Z;
         renderQueueAdd(fid, inText);
     }
@@ -540,7 +540,7 @@ void X01Game::renderLeftPlayerDetail()
     if(!m_turnScoreProgression.empty())
     {
         uint16_t turnTotal = m_turnStartScore - score;
-        float totalY = LEFT_DARTS_Y + m_turnScoreProgression.size() * LEFT_DART_ROW_H + 8.0f;
+        float totalY = LEFT_DARTS_Y + m_turnScoreProgression.size() * LEFT_DART_ROW_H + 12.0f;
 
         auto totalText = std::make_shared<RenderText>();
         totalText->m_text     = "Total: " + std::to_string(turnTotal);

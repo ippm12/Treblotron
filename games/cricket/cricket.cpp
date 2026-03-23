@@ -23,16 +23,16 @@
 #include <random>
 
 
-static constexpr float  FONT_SIZE       = 20.0f;
-static constexpr float  LARGE_FONT_SIZE = 64.0f;
+static constexpr float  FONT_SIZE       = 30.0f;
+static constexpr float  LARGE_FONT_SIZE = 96.0f;
 
 // Left panel — marks scoreboard
-static constexpr float    LEFT_PANEL_X       = 10.0f;
-static constexpr float    LEFT_PANEL_W       = 330.0f;
-static constexpr float    MARKS_TOP_Y        = 120.0f;
-static constexpr float    MARKS_HEADER_H     = 30.0f;
-static constexpr float    MARKS_ROW_H        = 40.0f;
-static constexpr float    MARKS_LABEL_W      = 40.0f;
+static constexpr float    LEFT_PANEL_X       = 15.0f;
+static constexpr float    LEFT_PANEL_W       = 495.0f;
+static constexpr float    MARKS_TOP_Y        = 180.0f;
+static constexpr float    MARKS_HEADER_H     = 45.0f;
+static constexpr float    MARKS_ROW_H        = 60.0f;
+static constexpr float    MARKS_LABEL_W      = 60.0f;
 
 // Board segment colors for Cricket states
 static constexpr Color COLOR_CLOSED     = {60, 100, 200};   // Current player closed (blue)
@@ -459,7 +459,7 @@ void CricketGame::renderMarksScoreboard()
 
         // Truncate name to fit column width
         TTF_Font* nameFont = getFont(m_fontId);
-        float maxNameW = colW - 8.0f;
+        float maxNameW = colW - 12.0f;
         if(nameFont)
         {
             int nameW = 0, nameH = 0;
@@ -503,8 +503,8 @@ void CricketGame::renderMarksScoreboard()
         hdr->m_rotation = 0.0f;
         hdr->m_scaleX   = 1.0f;
         hdr->m_scaleY   = 1.0f;
-        hdr->m_x        = LEFT_PANEL_X + MARKS_LABEL_W + p * colW + 4.0f;
-        hdr->m_y        = MARKS_TOP_Y + 4.0f;
+        hdr->m_x        = LEFT_PANEL_X + MARKS_LABEL_W + p * colW + 6.0f;
+        hdr->m_y        = MARKS_TOP_Y + 6.0f;
         hdr->m_z        = GameLayout::SIDEBAR_Z + 1;
         renderQueueAdd(fid, hdr);
     }
@@ -535,8 +535,8 @@ void CricketGame::renderMarksScoreboard()
         lbl->m_rotation = 0.0f;
         lbl->m_scaleX   = 1.0f;
         lbl->m_scaleY   = 1.0f;
-        lbl->m_x        = LEFT_PANEL_X + 4.0f;
-        lbl->m_y        = rowY + 8.0f;
+        lbl->m_x        = LEFT_PANEL_X + 6.0f;
+        lbl->m_y        = rowY + 12.0f;
         lbl->m_z        = GameLayout::SIDEBAR_Z + 1;
         renderQueueAdd(fid, lbl);
 
@@ -564,8 +564,8 @@ void CricketGame::renderMarksScoreboard()
                 circle->m_x      = cellCenterX;
                 circle->m_y      = cellCenterY;
                 circle->m_z      = GameLayout::SIDEBAR_Z + 2;
-                circle->m_width  = 16.0f; // diameter
-                circle->m_height = 16.0f;
+                circle->m_width  = 24.0f; // diameter
+                circle->m_height = 24.0f;
                 renderQueueAdd(fid, circle);
             }
             else

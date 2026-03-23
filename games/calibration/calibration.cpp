@@ -27,28 +27,28 @@
 // Layout constants
 // ============================================================================
 
-static constexpr float    WINDOW_W       = 1280.0f;
-static constexpr float    WINDOW_H       = 720.0f;
+static constexpr float    WINDOW_W       = 1920.0f;
+static constexpr float    WINDOW_H       = 1080.0f;
 
-static constexpr float    TITLE_PT       = 48.0f;
-static constexpr float    BODY_PT        = 26.0f;
+static constexpr float    TITLE_PT       = 72.0f;
+static constexpr float    BODY_PT        = 39.0f;
 
-static constexpr float    LEFT_MARGIN    = 40.0f;
-static constexpr float    TITLE_Y        = 15.0f;
+static constexpr float    LEFT_MARGIN    = 60.0f;
+static constexpr float    TITLE_Y        = 22.0f;
 static constexpr uint32_t BASE_Z         = 10;
 
 // Camera slot layout (3 columns)
-static constexpr float    SLOT_TOP       = 80.0f;
-static constexpr float    SLOT_GAP       = 20.0f;
+static constexpr float    SLOT_TOP       = 120.0f;
+static constexpr float    SLOT_GAP       = 30.0f;
 static constexpr float    SLOT_W         = (WINDOW_W - LEFT_MARGIN * 2.0f - SLOT_GAP * 2.0f) / 3.0f;
-static constexpr float    SLOT_H         = 420.0f;
+static constexpr float    SLOT_H         = 630.0f;
 
 // Status message
-static constexpr float    STATUS_Y       = 520.0f;
+static constexpr float    STATUS_Y       = 780.0f;
 static constexpr float    STATUS_FADE    = 3.0f;
 
 // Input hints
-static constexpr float    HINTS_Y        = 575.0f;
+static constexpr float    HINTS_Y        = 862.0f;
 
 
 // ============================================================================
@@ -246,8 +246,8 @@ void CalibrationScreen::renderCameraSlots()
         nameText->m_rotation = 0.0f;
         nameText->m_scaleX   = 1.0f;
         nameText->m_scaleY   = 1.0f;
-        nameText->m_x        = slotX + 15.0f;
-        nameText->m_y        = slotY + 10.0f;
+        nameText->m_x        = slotX + 22.0f;
+        nameText->m_y        = slotY + 15.0f;
         nameText->m_z        = BASE_Z + 1;
         renderQueueAdd(fid, nameText);
 
@@ -280,9 +280,9 @@ void CalibrationScreen::renderCameraSlots()
                 hasFrame = true;
 
                 // Scale to fit slot while maintaining aspect ratio
-                float labelH = 40.0f;
-                float availW = SLOT_W - 10.0f;
-                float availH = SLOT_H - labelH - 10.0f;
+                float labelH = 60.0f;
+                float availW = SLOT_W - 15.0f;
+                float availH = SLOT_H - labelH - 15.0f;
                 float scale = std::min(availW / m_lastFrameW[i], availH / m_lastFrameH[i]);
                 float drawW = m_lastFrameW[i] * scale;
                 float drawH = m_lastFrameH[i] * scale;
