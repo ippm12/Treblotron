@@ -87,19 +87,18 @@ Status CalibrationScreen::init(FrameID frameId)
 
     m_inputHints.init();
 
-    Status stat = initializeCameraSystem();
-    if(IS_STATUS_NOT_OK(stat))
-    {
-        return stat;
-    }
-
-    m_cameraCount = getCameraCount();
+    // Camera probing runs on a background thread — does not block the render loop.
+    // m_cameraCount is updated each frame in update() as cameras are discovered.
+    initializeCameraSystem();
     return STATUS_OK;
 }
 
 
 void CalibrationScreen::update(float deltaTime)
 {
+    // Poll for newly discovered cameras (init thread adds them in the background)
+    m_cameraCount = getCameraCount();
+
     if(m_statusTimer > 0.0f)
     {
         m_statusTimer -= deltaTime;

@@ -74,8 +74,14 @@ struct CameraSlot
     std::string      name;
 };
 
-// Module state — vector of unique_ptrs so CameraSlot (non-movable due to mutex) works
-static std::vector<std::unique_ptr<CameraSlot>> f_cameras;
+// Module state — fixed-size array so the init thread can safely add cameras
+// while the render thread reads existing ones (atomic count provides synchronization)
+static std::unique_ptr<CameraSlot> f_cameras[EXPECTED_CAMERA_COUNT];
+static std::atomic<uint32_t>       f_cameraCount{0};
+
+// Background init thread
+static std::thread       f_initThread;
+static std::atomic<bool> f_initRunning{false};
 
 
 // ============================================================================
@@ -107,92 +113,118 @@ static void captureLoop(CameraSlot* slot)
 
 Status initializeCameraSystem()
 {
-    static constexpr int MAX_PROBE = 8;
+    f_initRunning.store(true, std::memory_order_relaxed);
 
-    for(int idx = 0; idx < MAX_PROBE; idx++)
+    f_initThread = std::thread([]()
     {
-        cv::VideoCapture cap;
-        if(!cap.open(idx))
+        static constexpr int MAX_PROBE = 8;
+
+        for(int idx = 0; idx < MAX_PROBE; idx++)
         {
-            continue;
+            if(!f_initRunning.load(std::memory_order_relaxed))
+            {
+                break;  // Shutdown requested before probing finished
+            }
+
+            cv::VideoCapture cap;
+            if(!cap.open(idx))
+            {
+                continue;
+            }
+
+            // Verify we can actually grab a frame
+            cv::Mat testFrame;
+            if(!cap.read(testFrame) || testFrame.empty())
+            {
+                cap.release();
+                continue;
+            }
+
+            uint32_t count = f_cameraCount.load(std::memory_order_relaxed);
+            uint32_t cameraNum = count + 1;
+
+            auto slot = std::make_unique<CameraSlot>();
+            slot->capture = std::move(cap);
+            slot->deviceIndex = idx;
+            slot->name = "Camera " + std::to_string(cameraNum);
+
+            // Pre-convert first frame so there's something to show immediately
+            cv::cvtColor(testFrame, slot->latestFrame, cv::COLOR_BGR2RGB);
+            slot->frameNew.store(true, std::memory_order_release);
+
+            slot->running.store(true, std::memory_order_relaxed);
+            slot->captureThread = std::thread(captureLoop, slot.get());
+
+            LOG_INFO(VISION_LOG_ID, "Opened {} at device index {} ({}x{})",
+                     slot->name, idx, testFrame.cols, testFrame.rows);
+
+            // Store slot then publish the new count — acquire/release ordering
+            // ensures the render thread sees the fully constructed slot
+            f_cameras[count] = std::move(slot);
+            f_cameraCount.store(cameraNum, std::memory_order_release);
+
+            if(cameraNum >= EXPECTED_CAMERA_COUNT)
+            {
+                break;
+            }
         }
 
-        // Verify we can actually grab a frame
-        cv::Mat testFrame;
-        if(!cap.read(testFrame) || testFrame.empty())
-        {
-            cap.release();
-            continue;
-        }
+        LOG_INFO(VISION_LOG_ID, "Camera system initialized: {} camera(s) detected",
+                 f_cameraCount.load(std::memory_order_relaxed));
+        f_initRunning.store(false, std::memory_order_relaxed);
+    });
 
-        // Sequential 1-based name for display; store device index for logging
-        uint32_t cameraNum = static_cast<uint32_t>(f_cameras.size()) + 1;
-
-        auto slot = std::make_unique<CameraSlot>();
-        slot->capture = std::move(cap);
-        slot->deviceIndex = idx;
-        slot->name = "Camera " + std::to_string(cameraNum);
-
-        // Pre-convert first frame so there's something to show immediately
-        cv::cvtColor(testFrame, slot->latestFrame, cv::COLOR_BGR2RGB);
-        slot->frameNew.store(true, std::memory_order_release);
-
-        slot->running.store(true, std::memory_order_relaxed);
-        slot->captureThread = std::thread(captureLoop, slot.get());
-
-        LOG_INFO(VISION_LOG_ID, "Opened {} at device index {} ({}x{})",
-                 slot->name, idx, testFrame.cols, testFrame.rows);
-
-        f_cameras.push_back(std::move(slot));
-
-        if(f_cameras.size() >= EXPECTED_CAMERA_COUNT)
-        {
-            break;
-        }
-    }
-
-    LOG_INFO(VISION_LOG_ID, "Camera system initialized: {} camera(s) detected",
-             f_cameras.size());
     return STATUS_OK;
 }
 
 
 void shutdownCameraSystem()
 {
-    for(auto& slot : f_cameras)
+    // Stop the init thread if still probing cameras
+    f_initRunning.store(false, std::memory_order_relaxed);
+    if(f_initThread.joinable())
     {
-        slot->running.store(false, std::memory_order_relaxed);
+        f_initThread.join();
     }
 
-    for(auto& slot : f_cameras)
-    {
-        if(slot->captureThread.joinable())
-        {
-            slot->captureThread.join();
-        }
-        slot->capture.release();
+    uint32_t count = f_cameraCount.load(std::memory_order_acquire);
 
-        if(slot->sdlSurface)
-        {
-            SDL_DestroySurface(slot->sdlSurface);
-            slot->sdlSurface = nullptr;
-        }
+    for(uint32_t i = 0; i < count; i++)
+    {
+        f_cameras[i]->running.store(false, std::memory_order_relaxed);
     }
 
-    f_cameras.clear();
+    for(uint32_t i = 0; i < count; i++)
+    {
+        if(f_cameras[i]->captureThread.joinable())
+        {
+            f_cameras[i]->captureThread.join();
+        }
+        f_cameras[i]->capture.release();
+
+        if(f_cameras[i]->sdlSurface)
+        {
+            SDL_DestroySurface(f_cameras[i]->sdlSurface);
+            f_cameras[i]->sdlSurface = nullptr;
+        }
+
+        f_cameras[i].reset();
+    }
+
+    f_cameraCount.store(0, std::memory_order_relaxed);
     LOG_INFO(VISION_LOG_ID, "Camera system shut down");
 }
 
 
 uint32_t getCameraCount()
 {
-    return static_cast<uint32_t>(f_cameras.size());
+    return f_cameraCount.load(std::memory_order_acquire);
 }
 
 
 std::string getCameraName(uint32_t index)
 {
-    if(index >= f_cameras.size())
+    if(index >= f_cameraCount.load(std::memory_order_acquire))
     {
         return "Camera " + std::to_string(index + 1);
     }
@@ -202,7 +234,7 @@ std::string getCameraName(uint32_t index)
 
 SDL_Surface* getCameraFrame(uint32_t index)
 {
-    if(index >= f_cameras.size())
+    if(index >= f_cameraCount.load(std::memory_order_acquire))
     {
         return nullptr;
     }
@@ -240,7 +272,7 @@ SDL_Surface* getCameraFrame(uint32_t index)
 
 Status saveCameraFrame(uint32_t cameraIndex, const std::string& outputDir)
 {
-    if(cameraIndex >= f_cameras.size())
+    if(cameraIndex >= f_cameraCount.load(std::memory_order_acquire))
     {
         LOG_WARNING(VISION_LOG_ID, "saveCameraFrame: camera index {} out of range", cameraIndex);
         return STATUS_ERROR_INVALID_PARAM;
