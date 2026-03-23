@@ -4,12 +4,15 @@
  * Simulated vision source: opens a second SDL window with a clickable
  * dart board. Clicking the board simulates dart throws, triggering the
  * same callbacks that a real camera vision source would.
+ *
+ * INTERNAL HEADER — do not include from outside the vision module.
+ * Use vision/vision.hpp for the public API.
  */
 
 #ifndef SIM_VISION_SOURCE_HPP
 #define SIM_VISION_SOURCE_HPP
 
-#include "vision/vision_source.hpp"
+#include "vision_source.hpp"
 #include "game_lib/entities/dart_board.hpp"
 #include "dart/dart_defs.hpp"
 #include "flecs.h"

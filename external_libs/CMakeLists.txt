@@ -21,4 +21,32 @@ target_link_libraries(${PRJ_NAME} PRIVATE SDL3_ttf::SDL3_ttf)
 add_subdirectory(SDL_image)
 target_link_libraries(${PRJ_NAME} PRIVATE SDL3_image::SDL3_image)
 
-# Add more libraries here
+# OpenCV (minimal build — only core, imgproc, videoio, imgcodecs)
+set(BUILD_LIST "core,imgproc,videoio,imgcodecs" CACHE STRING "" FORCE)
+set(BUILD_SHARED_LIBS_SAVED ${BUILD_SHARED_LIBS})
+set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
+set(BUILD_TESTS OFF CACHE BOOL "" FORCE)
+set(BUILD_PERF_TESTS OFF CACHE BOOL "" FORCE)
+set(BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+set(BUILD_opencv_apps OFF CACHE BOOL "" FORCE)
+set(BUILD_DOCS OFF CACHE BOOL "" FORCE)
+set(BUILD_JAVA OFF CACHE BOOL "" FORCE)
+set(BUILD_opencv_python3 OFF CACHE BOOL "" FORCE)
+set(WITH_CUDA OFF CACHE BOOL "" FORCE)
+set(WITH_OPENCL OFF CACHE BOOL "" FORCE)
+set(WITH_TIFF OFF CACHE BOOL "" FORCE)
+set(WITH_WEBP OFF CACHE BOOL "" FORCE)
+set(WITH_OPENJPEG OFF CACHE BOOL "" FORCE)
+set(WITH_JASPER OFF CACHE BOOL "" FORCE)
+set(WITH_OPENEXR OFF CACHE BOOL "" FORCE)
+set(OPENCV_GENERATE_PKGCONFIG OFF CACHE BOOL "" FORCE)
+add_subdirectory(opencv)
+target_link_libraries(${PRJ_NAME} PRIVATE opencv_core opencv_imgproc opencv_videoio opencv_imgcodecs)
+# OpenCV's add_subdirectory doesn't propagate include dirs properly — add them explicitly
+target_include_directories(${PRJ_NAME} PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/opencv/modules/core/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/opencv/modules/imgproc/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/opencv/modules/videoio/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/opencv/modules/imgcodecs/include
+    ${CMAKE_BINARY_DIR}  # generated headers (opencv2/cvconfig.h, opencv2/opencv_modules.hpp)
+)

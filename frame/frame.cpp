@@ -440,6 +440,26 @@ bool pollFrames()
                 }
                 break;
             }
+            case SDL_EVENT_JOYSTICK_ADDED:
+            {
+                SDL_JoystickID jid = evt.jdevice.which;
+                const char* jname = SDL_GetJoystickNameForID(jid);
+                if(!SDL_IsGamepad(jid))
+                {
+                    char guid[64] = {};
+                    SDL_GUIDToString(SDL_GetJoystickGUIDForID(jid), guid, sizeof(guid));
+                    LOG_WARNING(FRAME_LOG_ID,
+                        "Joystick '{}' (GUID: {}) has no gamepad mapping — "
+                        "it will not work as a controller. Add a mapping with "
+                        "SDL_AddGamepadMapping() or via SDL_GAMECONTROLLERCONFIG env var.",
+                        jname ? jname : "unknown", guid);
+                }
+                else
+                {
+                    LOG_INFO(FRAME_LOG_ID, "Joystick '{}' recognized as gamepad", jname ? jname : "unknown");
+                }
+                break;
+            }
             case SDL_EVENT_GAMEPAD_ADDED:
             {
                 SDL_JoystickID jid = evt.gdevice.which;

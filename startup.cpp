@@ -9,11 +9,8 @@
 #include "frame/frame.hpp"
 #include "players/players.hpp"
 #include "game_lib/game_manager.hpp"
+#include "vision/vision.hpp"
 #include "games/main_menu.hpp"
-
-#ifdef DARTLENS_USE_SIM
-#include "vision/sim_vision_source.hpp"
-#endif
 
 int main()
 {
@@ -62,19 +59,17 @@ int main()
         return -1;
     }
 
-    // Set up vision source
-#ifdef DARTLENS_USE_SIM
-    stat = setVisionSource(std::make_shared<SimVisionSource>());
+    // Initialize vision module (creates sim or real source based on build config)
+    stat = initializeVisionModule();
     if(IS_STATUS_NOT_OK(stat))
     {
-        LOG_CRITICAL(MAIN_LOG_ID, "Failed to initialize sim vision source");
+        LOG_CRITICAL(MAIN_LOG_ID, "Failed to initialize vision module");
         shutdownPlayersModule();
         shutdownGameManager();
         shutdownFrameModule();
         shutdownLoggingModule();
         return -1;
     }
-#endif
 
     LOG_INFO(MAIN_LOG_ID, "Finished Initializing");
 
@@ -83,6 +78,7 @@ int main()
         tickGameManager();
     }
 
+    shutdownVisionModule();
     shutdownPlayersModule();
     shutdownGameManager();
     shutdownFrameModule();

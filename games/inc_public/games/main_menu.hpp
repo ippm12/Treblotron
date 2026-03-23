@@ -25,6 +25,7 @@ enum class MenuState
 enum class CardType
 {
     PlayerSettings,
+    Calibration,
     Game
 };
 
@@ -79,6 +80,7 @@ class MainMenu : public Game
         bool        m_showDuplicateNameWarning;
         bool        m_showNoTeamsWarning;
         bool        m_showNoPlayersWarning;
+        bool        m_showSimWarning;
 
         // Fonts
         FontID m_titleFontId;

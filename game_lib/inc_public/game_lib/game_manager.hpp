@@ -10,7 +10,6 @@
 #include <functional>
 #include "common_inc.hpp"
 #include "game_lib/game.hpp"
-#include "vision/vision_source.hpp"
 
 /**
  * Initializes the game manager module.
@@ -40,17 +39,6 @@ Status unloadGame();
  * Returns STATUS_ERROR_INVALID_STATE if no factory was provided at load time.
  */
 Status restartCurrentGame();
-
-/**
- * Set the vision source. Initializes it and connects to the current game.
- */
-Status setVisionSource(VisionSourcePtr source);
-
-/**
- * Returns true if the vision source reports no darts on the board.
- * Returns true if no vision source is set.
- */
-bool isBoardClear();
 
 /**
  * Run one tick of the game loop: compute delta time

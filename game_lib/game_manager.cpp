@@ -17,6 +17,7 @@
 #include "game_lib/components/render_text.hpp"
 #include "games/main_menu.hpp"
 #include "game_manager_class.hpp"
+#include "vision/vision.hpp"
 #include "players/players.hpp"
 
 
@@ -88,7 +89,7 @@ static constexpr size_t WINDOW_HEIGHT = 720;
 
 
 GameManager::GameManager()
-    : m_initialized(false), m_currentGame(nullptr), m_visionSource(nullptr),
+    : m_initialized(false), m_currentGame(nullptr),
       m_lastTickNs(0), m_frameId(INVALID_FRAME_ID), m_barFontId(INVALID_FONT_ID),
       m_pauseFontId(INVALID_FONT_ID)
 #ifdef DARTLENS_SHOW_FPS
@@ -221,13 +222,6 @@ void GameManager::shutdown()
     unregisterFrameGamepadButtonHandler(m_frameId);
     unregisterFrameKeyHandler(m_frameId);
 
-    // Shut down vision source before game
-    if(m_visionSource != nullptr)
-    {
-        m_visionSource->shutdown();
-        m_visionSource = nullptr;
-    }
-
     // Unload current game
     if(m_currentGame != nullptr)
     {
@@ -316,10 +310,7 @@ Status GameManager::loadGame(GamePtr game, std::function<GamePtr()> restartFacto
         m_currentGame = game;
 
         // Connect vision source to the new game
-        if(m_visionSource)
-        {
-            m_visionSource->setGame(m_currentGame);
-        }
+        setVisionGame(m_currentGame);
     }
 
     // Reset delta time so first tick after load is not huge
@@ -342,10 +333,7 @@ Status GameManager::unloadGame()
         LOG_INFO(GAME_MANAGER_LOG_ID, "Unloading game: {}", m_currentGame->getName());
 
         // Disconnect vision source from the game
-        if(m_visionSource)
-        {
-            m_visionSource->setGame(nullptr);
-        }
+        setVisionGame(nullptr);
 
         m_currentGame->shutdown();
         m_currentGame = nullptr;
@@ -379,54 +367,6 @@ Status GameManager::restartCurrentGame()
 }
 
 
-Status GameManager::setVisionSource(VisionSourcePtr source)
-{
-    if(!m_initialized)
-    {
-        LOG_ERROR(GAME_MANAGER_LOG_ID, "Game Manager not initialized");
-        return STATUS_ERROR_NOT_INIT;
-    }
-
-    // Shut down previous vision source
-    if(m_visionSource)
-    {
-        m_visionSource->shutdown();
-        m_visionSource = nullptr;
-    }
-
-    if(source)
-    {
-        Status stat = source->init();
-        if(IS_STATUS_NOT_OK(stat))
-        {
-            LOG_ERROR(GAME_MANAGER_LOG_ID, "Failed to initialize vision source");
-            return stat;
-        }
-
-        // Connect to current game if one is loaded
-        if(m_currentGame)
-        {
-            source->setGame(m_currentGame);
-        }
-
-        m_visionSource = source;
-        LOG_INFO(GAME_MANAGER_LOG_ID, "Vision source set");
-    }
-
-    return STATUS_OK;
-}
-
-
-bool GameManager::isBoardClear() const
-{
-    if(!m_visionSource)
-    {
-        return true;
-    }
-    return m_visionSource->isBoardClear();
-}
-
-
 void GameManager::tick()
 {
     if(!m_initialized)
@@ -446,10 +386,7 @@ void GameManager::tick()
     }
 
     // Tick vision source (processes pending throw delays, renders sim window)
-    if(m_visionSource)
-    {
-        m_visionSource->tick(deltaTime);
-    }
+    tickVision(deltaTime);
 
     // Update and render current game
     if(m_currentGame != nullptr)
@@ -871,18 +808,6 @@ Status unloadGame()
 Status restartCurrentGame()
 {
     return f_gameManager.restartCurrentGame();
-}
-
-
-Status setVisionSource(VisionSourcePtr source)
-{
-    return f_gameManager.setVisionSource(source);
-}
-
-
-bool isBoardClear()
-{
-    return f_gameManager.isBoardClear();
 }
 
 
