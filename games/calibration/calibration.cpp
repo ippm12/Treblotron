@@ -258,21 +258,28 @@ void CalibrationScreen::renderCameraSlots()
 
         if(i < m_cameraCount)
         {
-            SDL_Surface* surface = getCameraFrame(i);
-
-            // Only recreate texture when the surface pointer changed
-            // (getCameraFrame returns the same pointer when no new frame)
-            if(surface && surface != m_lastCameraSurface[i])
+            if(getCameraFrame(i, m_cameraFrames[i]))
             {
                 if(m_cameraTextures[i])
                 {
                     SDL_DestroyTexture(m_cameraTextures[i]);
                 }
-                m_cameraTextures[i] = SDL_CreateTextureFromSurface(
-                    getFrameRenderer(fid), surface);
-                m_lastCameraSurface[i] = surface;
-                m_lastFrameW[i] = static_cast<float>(surface->w);
-                m_lastFrameH[i] = static_cast<float>(surface->h);
+
+                SDL_Surface* surface = SDL_CreateSurfaceFrom(
+                    m_cameraFrames[i].width, m_cameraFrames[i].height,
+                    SDL_PIXELFORMAT_RGB24,
+                    m_cameraFrames[i].pixels.data(),
+                    m_cameraFrames[i].stride);
+
+                if(surface)
+                {
+                    m_cameraTextures[i] = SDL_CreateTextureFromSurface(
+                        getFrameRenderer(fid), surface);
+                    SDL_DestroySurface(surface);
+                }
+
+                m_lastFrameW[i] = static_cast<float>(m_cameraFrames[i].width);
+                m_lastFrameH[i] = static_cast<float>(m_cameraFrames[i].height);
             }
 
             if(m_cameraTextures[i])

@@ -314,8 +314,13 @@ Status GameManager::loadGame(GamePtr game, std::function<GamePtr()> restartFacto
         }
         m_currentGame = game;
 
-        // Connect vision source to the new game
-        setVisionGame(m_currentGame);
+        // Connect vision callbacks to the new game
+        setVisionCallbacks(
+            [game]() { game->onDartLanded(); },
+            [game](float angle, float normalizedRadius) {
+                game->onDartPositionCalculated(angle, normalizedRadius);
+            }
+        );
     }
 
     // Reset delta time so first tick after load is not huge
@@ -337,8 +342,8 @@ Status GameManager::unloadGame()
     {
         LOG_INFO(GAME_MANAGER_LOG_ID, "Unloading game: {}", m_currentGame->getName());
 
-        // Disconnect vision source from the game
-        setVisionGame(nullptr);
+        // Disconnect vision callbacks
+        setVisionCallbacks(nullptr, nullptr);
 
         m_currentGame->shutdown();
         m_currentGame = nullptr;
