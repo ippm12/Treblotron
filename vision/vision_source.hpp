@@ -12,7 +12,7 @@
 #define VISION_SOURCE_HPP
 
 #include "common_inc.hpp"
-#include "game_lib/game.hpp"
+#include <functional>
 #include <memory>
 
 class VisionSource
@@ -32,11 +32,17 @@ class VisionSource
         /** Returns true if no darts are on the board. */
         virtual bool isBoardClear() const = 0;
 
-        /** Set the game that receives dart event callbacks. Pass nullptr to disconnect. */
-        void setGame(GamePtr game) { m_game = game; }
+        /** Set callbacks for dart events. Pass nullptr to disconnect. */
+        void setCallbacks(std::function<void()> onDartLanded,
+                          std::function<void(float, float)> onDartPositionCalculated)
+        {
+            m_onDartLanded = std::move(onDartLanded);
+            m_onDartPositionCalculated = std::move(onDartPositionCalculated);
+        }
 
     protected:
-        GamePtr m_game;
+        std::function<void()>          m_onDartLanded;
+        std::function<void(float, float)> m_onDartPositionCalculated;
 };
 
 typedef std::shared_ptr<VisionSource> VisionSourcePtr;

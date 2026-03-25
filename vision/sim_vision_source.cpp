@@ -101,9 +101,9 @@ void SimVisionSource::tick(float deltaTime)
         if(it->delayRemaining <= 0.0f)
         {
             // Fire position callback
-            if(m_game)
+            if(m_onDartPositionCalculated)
             {
-                m_game->onDartPositionCalculated(it->angle, it->normalizedRadius);
+                m_onDartPositionCalculated(it->angle, it->normalizedRadius);
             }
 
             // Move to visual markers
@@ -171,9 +171,9 @@ void SimVisionSource::onBoardClicked(FrameID /* frameId */, float mouseX, float 
     m_boardClear = false;
 
     // Fire immediate dart-landed callback
-    if(m_game)
+    if(m_onDartLanded)
     {
-        m_game->onDartLanded();
+        m_onDartLanded();
     }
 
     // Determine segment for visual highlighting

@@ -13,9 +13,8 @@
 #include <opencv2/videoio.hpp>
 #include <opencv2/imgcodecs.hpp>
 
-#include <SDL3/SDL_surface.h>
-
 #include <atomic>
+#include <cstring>
 #include <filesystem>
 #include <mutex>
 #include <random>
@@ -61,13 +60,9 @@ struct CameraSlot
     int              deviceIndex = -1;  // V4L2 device index (e.g. 0, 2, 4)
 
     // Written by capture thread under lock
-    cv::Mat          latestFrame;       // RGB, ready for SDL
+    cv::Mat          latestFrame;       // RGB
     std::mutex       frameMutex;
     std::atomic<bool> frameNew{false};  // True when capture thread wrote a new frame
-
-    // Owned by render thread — only touched by getCameraFrame()
-    SDL_Surface*     sdlSurface = nullptr;
-    cv::Mat          surfaceBacking;    // Keeps memory alive for sdlSurface
 
     std::thread      captureThread;
     std::atomic<bool> running{false};
@@ -82,6 +77,54 @@ static std::atomic<uint32_t>       f_cameraCount{0};
 // Background init thread
 static std::thread       f_initThread;
 static std::atomic<bool> f_initRunning{false};
+
+
+// ============================================================================
+// Resolution selection
+// ============================================================================
+
+static constexpr double TARGET_FPS = 30.0;
+
+// Common resolutions to probe, highest first
+static constexpr struct { int w; int h; } PROBE_RESOLUTIONS[] = {
+    {1920, 1080},
+    {1600,  900},
+    {1280,  720},
+    {1024,  768},
+    { 800,  600},
+    { 640,  480},
+};
+static constexpr int PROBE_COUNT = sizeof(PROBE_RESOLUTIONS) / sizeof(PROBE_RESOLUTIONS[0]);
+
+/// Select the highest resolution the camera supports at TARGET_FPS.
+/// Tries each candidate from highest to lowest; uses camera default as fallback.
+static void selectBestResolution(cv::VideoCapture& cap)
+{
+    cap.set(cv::CAP_PROP_FPS, TARGET_FPS);
+    cap.set(cv::CAP_PROP_BUFFERSIZE, 2);
+
+    for(int i = 0; i < PROBE_COUNT; i++)
+    {
+        cap.set(cv::CAP_PROP_FRAME_WIDTH,  PROBE_RESOLUTIONS[i].w);
+        cap.set(cv::CAP_PROP_FRAME_HEIGHT, PROBE_RESOLUTIONS[i].h);
+
+        int actualW = static_cast<int>(cap.get(cv::CAP_PROP_FRAME_WIDTH));
+        int actualH = static_cast<int>(cap.get(cv::CAP_PROP_FRAME_HEIGHT));
+
+        if(actualW == PROBE_RESOLUTIONS[i].w && actualH == PROBE_RESOLUTIONS[i].h)
+        {
+            LOG_INFO(VISION_LOG_ID, "Selected {}x{} @ {:.0f}fps",
+                     actualW, actualH, TARGET_FPS);
+            return;
+        }
+    }
+
+    int fallbackW = static_cast<int>(cap.get(cv::CAP_PROP_FRAME_WIDTH));
+    int fallbackH = static_cast<int>(cap.get(cv::CAP_PROP_FRAME_HEIGHT));
+    LOG_WARNING(VISION_LOG_ID,
+                "No preferred resolution matched — using camera default {}x{}",
+                fallbackW, fallbackH);
+}
 
 
 // ============================================================================
@@ -131,6 +174,8 @@ Status initializeCameraSystem()
             {
                 continue;
             }
+
+            selectBestResolution(cap);
 
             // Verify we can actually grab a frame
             cv::Mat testFrame;
@@ -201,13 +246,6 @@ void shutdownCameraSystem()
             f_cameras[i]->captureThread.join();
         }
         f_cameras[i]->capture.release();
-
-        if(f_cameras[i]->sdlSurface)
-        {
-            SDL_DestroySurface(f_cameras[i]->sdlSurface);
-            f_cameras[i]->sdlSurface = nullptr;
-        }
-
         f_cameras[i].reset();
     }
 
@@ -232,41 +270,37 @@ std::string getCameraName(uint32_t index)
 }
 
 
-SDL_Surface* getCameraFrame(uint32_t index)
+bool getCameraFrame(uint32_t index, CameraFrame& outFrame)
 {
     if(index >= f_cameraCount.load(std::memory_order_acquire))
     {
-        return nullptr;
+        return false;
     }
 
     CameraSlot& slot = *f_cameras[index];
 
-    // Check the flag first — no lock needed if nothing changed
-    if(slot.frameNew.load(std::memory_order_acquire))
+    if(!slot.frameNew.load(std::memory_order_acquire))
     {
-        // Blocking lock is fine here — the capture thread only holds it
-        // for the duration of a clone(), which is fast
-        std::lock_guard<std::mutex> lock(slot.frameMutex);
-
-        if(slot.sdlSurface)
-        {
-            SDL_DestroySurface(slot.sdlSurface);
-            slot.sdlSurface = nullptr;
-        }
-
-        slot.surfaceBacking = std::move(slot.latestFrame);
-        slot.frameNew.store(false, std::memory_order_release);
-
-        slot.sdlSurface = SDL_CreateSurfaceFrom(
-            slot.surfaceBacking.cols,
-            slot.surfaceBacking.rows,
-            SDL_PIXELFORMAT_RGB24,
-            slot.surfaceBacking.data,
-            static_cast<int>(slot.surfaceBacking.step[0])
-        );
+        return false;
     }
 
-    return slot.sdlSurface;
+    std::lock_guard<std::mutex> lock(slot.frameMutex);
+
+    if(slot.latestFrame.empty())
+    {
+        return false;
+    }
+
+    outFrame.width  = slot.latestFrame.cols;
+    outFrame.height = slot.latestFrame.rows;
+    outFrame.stride = static_cast<int>(slot.latestFrame.step[0]);
+
+    size_t dataSize = static_cast<size_t>(outFrame.height) * outFrame.stride;
+    outFrame.pixels.resize(dataSize);
+    std::memcpy(outFrame.pixels.data(), slot.latestFrame.data, dataSize);
+
+    slot.frameNew.store(false, std::memory_order_release);
+    return true;
 }
 
 
@@ -292,17 +326,10 @@ Status saveAllCameraFrames(const std::string& outputDir)
             std::lock_guard<std::mutex> lock(f_cameras[i]->frameMutex);
             if(f_cameras[i]->latestFrame.empty())
             {
-                if(f_cameras[i]->surfaceBacking.empty())
-                {
-                    LOG_WARNING(VISION_LOG_ID, "saveAllCameraFrames: no frame for camera {}", i);
-                    continue;
-                }
-                cv::cvtColor(f_cameras[i]->surfaceBacking, frameCopy, cv::COLOR_RGB2BGR);
+                LOG_WARNING(VISION_LOG_ID, "saveAllCameraFrames: no frame for camera {}", i);
+                continue;
             }
-            else
-            {
-                cv::cvtColor(f_cameras[i]->latestFrame, frameCopy, cv::COLOR_RGB2BGR);
-            }
+            cv::cvtColor(f_cameras[i]->latestFrame, frameCopy, cv::COLOR_RGB2BGR);
         }
 
         std::string path = outputDir + "/" + uuid + "_cam" + std::to_string(i) + ".png";

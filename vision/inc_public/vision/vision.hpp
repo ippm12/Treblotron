@@ -11,11 +11,10 @@
 #define VISION_HPP
 
 #include "common_inc.hpp"
-#include "game_lib/game.hpp"
 #include <cstdint>
+#include <functional>
 #include <string>
-
-struct SDL_Surface;
+#include <vector>
 
 
 // ============================================================================
@@ -53,15 +52,19 @@ bool isBoardClear();
 
 
 // ============================================================================
-// Game connection
+// Game connection (via callbacks — vision module knows nothing about Game)
 // ============================================================================
 
+using DartLandedCallback   = std::function<void()>;
+using DartPositionCallback = std::function<void(float angle, float normalizedRadius)>;
+
 /**
- * Connect or disconnect a game from the vision source.
- * The connected game receives dart event callbacks (onDartLanded,
- * onDartPositionCalculated). Pass nullptr to disconnect.
+ * Register callbacks that fire when darts are detected.
+ * Pass nullptr to disconnect. The game manager typically registers these
+ * and forwards events to the current game.
  */
-void setVisionGame(GamePtr game);
+void setVisionCallbacks(DartLandedCallback onDartLanded,
+                        DartPositionCallback onDartPositionCalculated);
 
 
 // ============================================================================
@@ -70,6 +73,15 @@ void setVisionGame(GamePtr game);
 
 /** The system expects exactly 3 cameras. */
 static constexpr uint32_t EXPECTED_CAMERA_COUNT = 3;
+
+/** Frame data copied out of the camera system. Caller owns the pixel data. */
+struct CameraFrame
+{
+    std::vector<uint8_t> pixels;  // RGB24 pixel data
+    int width  = 0;
+    int height = 0;
+    int stride = 0;               // bytes per row
+};
 
 /** Initialize the camera system. Call before any other camera functions. */
 Status initializeCameraSystem();
@@ -84,11 +96,11 @@ uint32_t getCameraCount();
 std::string getCameraName(uint32_t index);
 
 /**
- * Returns the latest frame from the camera at the given index.
- * The returned surface is owned by the camera system — do NOT free it.
- * Returns nullptr if no frame is available.
+ * Copies the latest frame from the camera at the given index into outFrame.
+ * Returns true if a new frame was available, false otherwise.
+ * The caller owns outFrame and may use it for as long as needed.
  */
-SDL_Surface* getCameraFrame(uint32_t index);
+bool getCameraFrame(uint32_t index, CameraFrame& outFrame);
 
 /**
  * Save the current frame from every connected camera to the output directory.

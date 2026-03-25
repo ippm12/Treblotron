@@ -21,6 +21,11 @@
 
 static VisionSourcePtr f_visionSource;
 
+// Stored at module level so callbacks registered before the VisionSource
+// exists (e.g., game manager inits before vision) are not lost.
+static DartLandedCallback   f_onDartLanded;
+static DartPositionCallback f_onDartPositionCalculated;
+
 
 // ============================================================================
 // Lifecycle
@@ -34,6 +39,9 @@ Status initializeVisionModule()
 
     if(f_visionSource)
     {
+        // Apply any callbacks registered before the vision source was created
+        f_visionSource->setCallbacks(f_onDartLanded, f_onDartPositionCalculated);
+
         Status stat = f_visionSource->init();
         if(IS_STATUS_NOT_OK(stat))
         {
@@ -93,10 +101,14 @@ bool isBoardClear()
 // Game connection
 // ============================================================================
 
-void setVisionGame(GamePtr game)
+void setVisionCallbacks(DartLandedCallback onDartLanded,
+                        DartPositionCallback onDartPositionCalculated)
 {
+    f_onDartLanded = onDartLanded;
+    f_onDartPositionCalculated = onDartPositionCalculated;
+
     if(f_visionSource)
     {
-        f_visionSource->setGame(game);
+        f_visionSource->setCallbacks(f_onDartLanded, f_onDartPositionCalculated);
     }
 }

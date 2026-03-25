@@ -11,10 +11,10 @@
 
 #include "game_lib/game.hpp"
 #include "game_lib/input_hints.hpp"
+#include "vision/vision.hpp"
 #include <string>
 
 struct SDL_Texture;
-struct SDL_Surface;
 
 class CalibrationScreen : public Game
 {
@@ -47,10 +47,8 @@ class CalibrationScreen : public Game
         std::string  m_statusMessage;
         float        m_statusTimer;
 
-        // Cached textures and the surface pointer that produced them.
-        // We only recreate the texture when the surface pointer changes.
         SDL_Texture*  m_cameraTextures[3]    = {nullptr, nullptr, nullptr};
-        SDL_Surface*  m_lastCameraSurface[3] = {nullptr, nullptr, nullptr};
+        CameraFrame   m_cameraFrames[3];
         float         m_lastFrameW[3]        = {};
         float         m_lastFrameH[3]        = {};
 };
