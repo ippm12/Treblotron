@@ -12,8 +12,10 @@
 #define VISION_SOURCE_HPP
 
 #include "common_inc.hpp"
+#include <cstdint>
 #include <functional>
 #include <memory>
+#include <vector>
 
 class VisionSource
 {
@@ -31,6 +33,21 @@ class VisionSource
 
         /** Returns true if no darts are on the board. */
         virtual bool isBoardClear() const = 0;
+
+        /** Clear all tracked darts and reset the board state. */
+        virtual void resetDarts() = 0;
+
+        /**
+         * Copy the latest inference heatmap (row-major, values in [0, 1]) out
+         * of the vision source. Returns false if the source doesn't produce a
+         * heatmap (e.g. the sim) or no inference has run yet.
+         */
+        virtual bool getLatestHeatmap(std::vector<float>& out,
+                                      uint32_t& width, uint32_t& height) const
+        {
+            (void)out; (void)width; (void)height;
+            return false;
+        }
 
         /** Set callbacks for dart events. Pass nullptr to disconnect. */
         void setCallbacks(std::function<void()> onDartLanded,

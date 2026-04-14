@@ -26,6 +26,7 @@ enum class CardType
 {
     PlayerSettings,
     Calibration,
+    VisionDebug,
     Game
 };
 

@@ -1,0 +1,379 @@
+/**
+ * wire_calibration.cpp
+ *
+ * Wire calibration storage, homography fitting, and frame warping.
+ */
+
+#include "vision/wire_calibration.hpp"
+#include "vision/vision.hpp"
+
+#include <opencv2/core.hpp>
+#include <opencv2/imgproc.hpp>
+#include <opencv2/calib3d.hpp>
+
+#include <array>
+#include <cmath>
+#include <cstdio>
+#include <filesystem>
+#include <fstream>
+#include <vector>
+
+
+// ============================================================================
+// Constants — match DartModelTraining template space
+// ============================================================================
+
+#ifndef M_PI
+#define M_PI 3.14159265358979323846
+#endif
+
+// Center of the 720x720 destination image
+static constexpr float TEMPLATE_CENTER = WARPED_OUTPUT_SIZE * 0.5f;
+
+// Outer-double radius in pixels (matches BOARD_RADIUS_PX in board_detection.py)
+static constexpr float BOARD_RADIUS_PX = 290.0f;
+
+// Ring radius ratios from board_detection.py
+static constexpr float RING_RATIO_OUTER_TRIPLE = 0.629f;
+static constexpr float RING_RATIO_OUTER_DOUBLE = 1.000f;
+
+// Wire angles (OpenCV convention: 0=right, +CW since y points down)
+static constexpr float WIRE_START_ANGLE_DEG = 279.0f; // 20/1 wire
+static constexpr float SEGMENT_ANGLE_DEG    = 18.0f;
+
+static constexpr uint32_t POINTS_PER_RING = 20;
+
+
+// ============================================================================
+// Per-camera state
+// ============================================================================
+
+struct WireCalibrationSlot
+{
+    std::vector<cv::Point2f> points;  // up to 40 clicked points
+    cv::Mat                  homography;
+    bool                     calibrated = false;
+};
+
+static std::array<WireCalibrationSlot, EXPECTED_CAMERA_COUNT> f_slots;
+static std::array<cv::Point2f, WIRE_POINTS_PER_CAMERA> f_templatePoints;
+static bool f_initialized = false;
+
+
+// ============================================================================
+// Template point computation
+// ============================================================================
+
+static void computeTemplatePoints()
+{
+    // Two rings (triple, double), 20 points each, clockwise from 20/1 wire.
+    // Order in the template array: [triple 0..19, double 0..19].
+    const float ringRadii[2] = {
+        BOARD_RADIUS_PX * RING_RATIO_OUTER_TRIPLE,
+        BOARD_RADIUS_PX * RING_RATIO_OUTER_DOUBLE
+    };
+
+    for(uint32_t ring = 0; ring < 2; ring++)
+    {
+        for(uint32_t i = 0; i < POINTS_PER_RING; i++)
+        {
+            float angleDeg = WIRE_START_ANGLE_DEG + static_cast<float>(i) * SEGMENT_ANGLE_DEG;
+            float angleRad = angleDeg * static_cast<float>(M_PI) / 180.0f;
+            float x = TEMPLATE_CENTER + ringRadii[ring] * std::cos(angleRad);
+            float y = TEMPLATE_CENTER + ringRadii[ring] * std::sin(angleRad);
+            f_templatePoints[ring * POINTS_PER_RING + i] = {x, y};
+        }
+    }
+}
+
+
+// ============================================================================
+// Lifecycle
+// ============================================================================
+
+void initializeWireCalibration()
+{
+    if(f_initialized)
+    {
+        return;
+    }
+
+    for(auto& slot : f_slots)
+    {
+        slot.points.clear();
+        slot.points.reserve(WIRE_POINTS_PER_CAMERA);
+        slot.homography.release();
+        slot.calibrated = false;
+    }
+
+    computeTemplatePoints();
+    f_initialized = true;
+
+    LOG_INFO(VISION_LOG_ID, "Wire calibration initialized");
+}
+
+
+void shutdownWireCalibration()
+{
+    for(auto& slot : f_slots)
+    {
+        slot.points.clear();
+        slot.homography.release();
+        slot.calibrated = false;
+    }
+    f_initialized = false;
+}
+
+
+// ============================================================================
+// Homography fitting
+// ============================================================================
+
+static void recomputeHomography(uint32_t camIndex)
+{
+    WireCalibrationSlot& slot = f_slots[camIndex];
+
+    if(slot.points.size() != WIRE_POINTS_PER_CAMERA)
+    {
+        slot.homography.release();
+        slot.calibrated = false;
+        return;
+    }
+
+    std::vector<cv::Point2f> dst(f_templatePoints.begin(), f_templatePoints.end());
+
+    slot.homography = cv::findHomography(slot.points, dst, cv::RANSAC, 3.0);
+    if(slot.homography.empty())
+    {
+        slot.calibrated = false;
+        LOG_WARNING(VISION_LOG_ID, "findHomography failed for camera {}", camIndex);
+        return;
+    }
+
+    slot.calibrated = true;
+    LOG_INFO(VISION_LOG_ID, "Camera {} calibrated ({} points)", camIndex, slot.points.size());
+}
+
+
+// ============================================================================
+// Point management
+// ============================================================================
+
+uint32_t getWirePointCount(uint32_t camIndex)
+{
+    if(camIndex >= EXPECTED_CAMERA_COUNT) return 0;
+    return static_cast<uint32_t>(f_slots[camIndex].points.size());
+}
+
+
+bool isCameraCalibrated(uint32_t camIndex)
+{
+    if(camIndex >= EXPECTED_CAMERA_COUNT) return false;
+    return f_slots[camIndex].calibrated;
+}
+
+
+void addWirePoint(uint32_t camIndex, float srcX, float srcY)
+{
+    if(camIndex >= EXPECTED_CAMERA_COUNT) return;
+
+    WireCalibrationSlot& slot = f_slots[camIndex];
+    if(slot.points.size() >= WIRE_POINTS_PER_CAMERA)
+    {
+        return;
+    }
+
+    slot.points.push_back({srcX, srcY});
+
+    if(slot.points.size() == WIRE_POINTS_PER_CAMERA)
+    {
+        recomputeHomography(camIndex);
+    }
+}
+
+
+void undoLastWirePoint(uint32_t camIndex)
+{
+    if(camIndex >= EXPECTED_CAMERA_COUNT) return;
+
+    WireCalibrationSlot& slot = f_slots[camIndex];
+    if(!slot.points.empty())
+    {
+        slot.points.pop_back();
+        slot.homography.release();
+        slot.calibrated = false;
+    }
+}
+
+
+void clearWirePoints(uint32_t camIndex)
+{
+    if(camIndex >= EXPECTED_CAMERA_COUNT) return;
+
+    WireCalibrationSlot& slot = f_slots[camIndex];
+    slot.points.clear();
+    slot.homography.release();
+    slot.calibrated = false;
+}
+
+
+bool getWirePoint(uint32_t camIndex, uint32_t pointIndex, float& outX, float& outY)
+{
+    if(camIndex >= EXPECTED_CAMERA_COUNT) return false;
+
+    const WireCalibrationSlot& slot = f_slots[camIndex];
+    if(pointIndex >= slot.points.size())
+    {
+        return false;
+    }
+
+    outX = slot.points[pointIndex].x;
+    outY = slot.points[pointIndex].y;
+    return true;
+}
+
+
+std::string getNextPointLabel(uint32_t camIndex)
+{
+    if(camIndex >= EXPECTED_CAMERA_COUNT) return "";
+
+    uint32_t count = getWirePointCount(camIndex);
+    if(count >= WIRE_POINTS_PER_CAMERA)
+    {
+        return "";
+    }
+
+    const char* ringName = (count < POINTS_PER_RING) ? "Triple" : "Double";
+    uint32_t indexInRing = (count % POINTS_PER_RING) + 1;
+
+    char buf[32];
+    std::snprintf(buf, sizeof(buf), "%s %u/%u", ringName, indexInRing, POINTS_PER_RING);
+    return std::string(buf);
+}
+
+
+// ============================================================================
+// Warping
+// ============================================================================
+
+bool warpCameraFrame(uint32_t camIndex, const cv::Mat& src, cv::Mat& dst)
+{
+    if(camIndex >= EXPECTED_CAMERA_COUNT) return false;
+
+    const WireCalibrationSlot& slot = f_slots[camIndex];
+    if(!slot.calibrated || slot.homography.empty() || src.empty())
+    {
+        return false;
+    }
+
+    cv::warpPerspective(src, dst, slot.homography,
+                        cv::Size(WARPED_OUTPUT_SIZE, WARPED_OUTPUT_SIZE),
+                        cv::INTER_LINEAR);
+    return true;
+}
+
+
+// ============================================================================
+// Save / Load
+// ============================================================================
+
+Status saveWireCalibration(const std::string& path)
+{
+    std::error_code ec;
+    std::filesystem::path p(path);
+    if(p.has_parent_path())
+    {
+        std::filesystem::create_directories(p.parent_path(), ec);
+        if(ec)
+        {
+            LOG_ERROR(VISION_LOG_ID, "Failed to create config directory: {}", ec.message());
+            return STATUS_ERROR_GENERIC;
+        }
+    }
+
+    std::ofstream out(path, std::ios::trunc);
+    if(!out)
+    {
+        LOG_ERROR(VISION_LOG_ID, "Failed to open {} for writing", path);
+        return STATUS_ERROR_GENERIC;
+    }
+
+    out << "# wire_calibration.txt\n";
+    out << "# 40 points per camera: 20 outer-triple, 20 outer-double\n";
+
+    for(uint32_t c = 0; c < EXPECTED_CAMERA_COUNT; c++)
+    {
+        const WireCalibrationSlot& slot = f_slots[c];
+        if(slot.points.size() != WIRE_POINTS_PER_CAMERA)
+        {
+            continue;
+        }
+
+        out << "camera " << c << "\n";
+        for(const auto& pt : slot.points)
+        {
+            out << pt.x << " " << pt.y << "\n";
+        }
+    }
+
+    LOG_INFO(VISION_LOG_ID, "Wire calibration saved to {}", path);
+    return STATUS_OK;
+}
+
+
+Status loadWireCalibration(const std::string& path)
+{
+    std::ifstream in(path);
+    if(!in)
+    {
+        LOG_INFO(VISION_LOG_ID, "No wire calibration file at {}", path);
+        return STATUS_ERROR_GENERIC;
+    }
+
+    int currentCam = -1;
+    std::vector<cv::Point2f> buffer;
+    auto commitBuffer = [&]()
+    {
+        if(currentCam >= 0 && currentCam < static_cast<int>(EXPECTED_CAMERA_COUNT))
+        {
+            if(buffer.size() == WIRE_POINTS_PER_CAMERA)
+            {
+                f_slots[currentCam].points = buffer;
+                recomputeHomography(static_cast<uint32_t>(currentCam));
+            }
+            else
+            {
+                LOG_WARNING(VISION_LOG_ID,
+                            "Camera {} has {} points in file (expected {}), skipping",
+                            currentCam, buffer.size(), WIRE_POINTS_PER_CAMERA);
+            }
+        }
+        buffer.clear();
+    };
+
+    std::string line;
+    while(std::getline(in, line))
+    {
+        if(line.empty() || line[0] == '#')
+        {
+            continue;
+        }
+
+        if(line.rfind("camera ", 0) == 0)
+        {
+            commitBuffer();
+            currentCam = std::atoi(line.c_str() + 7);
+            continue;
+        }
+
+        float x = 0, y = 0;
+        if(std::sscanf(line.c_str(), "%f %f", &x, &y) == 2)
+        {
+            buffer.push_back({x, y});
+        }
+    }
+    commitBuffer();
+
+    LOG_INFO(VISION_LOG_ID, "Wire calibration loaded from {}", path);
+    return STATUS_OK;
+}

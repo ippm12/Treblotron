@@ -180,4 +180,10 @@ uint8_t angleToSection(float angle);
  */
 std::optional<DartSegment> polarToSegment(float angle, float normalizedRadius);
 
+/**
+ * Human-readable name for a segment (e.g. "Double 20", "Triple 19", "Inner Bull").
+ * Returns a pointer to a static string — do not free.
+ */
+const char* getSegmentName(DartSegment segment);
+
 #endif // DART_DEFS_HPP

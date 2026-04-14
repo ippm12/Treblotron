@@ -321,6 +321,13 @@ Status GameManager::loadGame(GamePtr game, std::function<GamePtr()> restartFacto
                 game->onDartPositionCalculated(angle, normalizedRadius);
             }
         );
+
+        // Route mouse clicks on the game window to the game
+        registerFrameClickHandler(m_frameId,
+            [game](FrameID, float x, float y, uint8_t button)
+            {
+                game->onMouseClick(x, y, button);
+            });
     }
 
     // Reset delta time so first tick after load is not huge
@@ -344,6 +351,9 @@ Status GameManager::unloadGame()
 
         // Disconnect vision callbacks
         setVisionCallbacks(nullptr, nullptr);
+
+        // Disconnect mouse click handler
+        unregisterFrameClickHandler(m_frameId);
 
         m_currentGame->shutdown();
         m_currentGame = nullptr;

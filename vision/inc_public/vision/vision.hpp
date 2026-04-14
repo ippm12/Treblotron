@@ -50,6 +50,18 @@ void tickVision(float deltaTime);
  */
 bool isBoardClear();
 
+/** Clear all tracked darts and reset the vision source's board state. */
+void resetVisionDarts();
+
+/**
+ * Copy the latest dart-detection heatmap out of the active vision source.
+ * Returns false when the source doesn't produce a heatmap (e.g. the sim) or
+ * no inference has run yet. On success `out` holds width*height floats in
+ * row-major order, values roughly in [0, 1].
+ */
+bool getLatestVisionHeatmap(std::vector<float>& out,
+                            uint32_t& width, uint32_t& height);
+
 
 // ============================================================================
 // Game connection (via callbacks — vision module knows nothing about Game)

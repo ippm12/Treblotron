@@ -11,6 +11,9 @@
 #ifdef DARTLENS_USE_SIM
 #include "sim_vision_source.hpp"
 #endif
+#ifdef DARTLENS_USE_HAILO
+#include "hailo_vision_source.hpp"
+#endif
 
 #include <memory>
 
@@ -35,6 +38,9 @@ Status initializeVisionModule()
 {
 #ifdef DARTLENS_USE_SIM
     f_visionSource = std::make_shared<SimVisionSource>();
+#endif
+#ifdef DARTLENS_USE_HAILO
+    f_visionSource = std::make_shared<HailoVisionSource>();
 #endif
 
     if(f_visionSource)
@@ -94,6 +100,22 @@ bool isBoardClear()
         return true;
     }
     return f_visionSource->isBoardClear();
+}
+
+
+void resetVisionDarts()
+{
+    if(f_visionSource)
+    {
+        f_visionSource->resetDarts();
+    }
+}
+
+
+bool getLatestVisionHeatmap(std::vector<float>& out, uint32_t& width, uint32_t& height)
+{
+    if(!f_visionSource) return false;
+    return f_visionSource->getLatestHeatmap(out, width, height);
 }
 
 

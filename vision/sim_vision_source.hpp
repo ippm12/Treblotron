@@ -29,6 +29,7 @@ class SimVisionSource : public VisionSource
         void tick(float deltaTime) override;
         void shutdown() override;
         bool isBoardClear() const override;
+        void resetDarts() override;
 
         /** Set the delay (in seconds) between dart detection and position callback. */
         void setPositionDelay(float seconds) { m_positionDelay = seconds; }

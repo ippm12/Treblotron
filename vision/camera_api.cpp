@@ -7,6 +7,7 @@
  */
 
 #include "vision/vision.hpp"
+#include "vision/wire_calibration.hpp"
 
 #include <opencv2/core.hpp>
 #include <opencv2/imgproc.hpp>
@@ -156,6 +157,11 @@ static void captureLoop(CameraSlot* slot)
 
 Status initializeCameraSystem()
 {
+    initializeWireCalibration();
+    // Load any saved wire calibration synchronously before the user can interact
+    // with the calibration screen, so there's no race with the init thread.
+    loadWireCalibration();
+
     f_initRunning.store(true, std::memory_order_relaxed);
 
     f_initThread = std::thread([]()
@@ -216,6 +222,10 @@ Status initializeCameraSystem()
 
         LOG_INFO(VISION_LOG_ID, "Camera system initialized: {} camera(s) detected",
                  f_cameraCount.load(std::memory_order_relaxed));
+
+        // Auto-load saved wire calibration if present
+        loadWireCalibration();
+
         f_initRunning.store(false, std::memory_order_relaxed);
     });
 
@@ -250,6 +260,9 @@ void shutdownCameraSystem()
     }
 
     f_cameraCount.store(0, std::memory_order_relaxed);
+
+    shutdownWireCalibration();
+
     LOG_INFO(VISION_LOG_ID, "Camera system shut down");
 }
 
