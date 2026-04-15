@@ -50,8 +50,17 @@ static constexpr uint32_t POINTS_PER_RING = 20;
 
 struct WireCalibrationSlot
 {
-    std::vector<cv::Point2f> points;  // up to 40 clicked points
+    std::vector<cv::Point2f> points;     // up to 40 clicked points
     cv::Mat                  homography;
+
+    // Pre-baked remap tables — cv::remap with fixed-point maps is dramatically
+    // faster than cv::warpPerspective on ARM because the per-pixel inverse
+    // homography evaluation + interpolation-weight compute happens once at
+    // calibration time instead of every frame. map1 is CV_16SC2 (integer src
+    // coordinates), map2 is CV_16UC1 (interpolation weights).
+    cv::Mat                  remapXY;    // CV_16SC2, 720x720
+    cv::Mat                  remapFrac;  // CV_16UC1, 720x720
+
     bool                     calibrated = false;
 };
 
@@ -103,6 +112,8 @@ void initializeWireCalibration()
         slot.points.clear();
         slot.points.reserve(WIRE_POINTS_PER_CAMERA);
         slot.homography.release();
+        slot.remapXY.release();
+        slot.remapFrac.release();
         slot.calibrated = false;
     }
 
@@ -119,6 +130,8 @@ void shutdownWireCalibration()
     {
         slot.points.clear();
         slot.homography.release();
+        slot.remapXY.release();
+        slot.remapFrac.release();
         slot.calibrated = false;
     }
     f_initialized = false;
@@ -150,8 +163,37 @@ static void recomputeHomography(uint32_t camIndex)
         return;
     }
 
+    // Bake the inverse homography into a pair of dense 720x720 remap tables.
+    // For each destination pixel (u, v) we compute the source coordinate
+    //   [sx, sy, w] = H_inv * [u, v, 1]
+    //   (sx, sy) /= w
+    // then convertMaps() packs them into the INTER_LINEAR fixed-point format
+    // that cv::remap's NEON path accelerates. This moves the expensive
+    // per-pixel perspective math out of the capture hot loop entirely.
+    cv::Mat Hinv = slot.homography.inv();
+    const double* H = Hinv.ptr<double>(0);
+
+    const int N = static_cast<int>(WARPED_OUTPUT_SIZE);
+    cv::Mat mapX(N, N, CV_32FC1);
+    cv::Mat mapY(N, N, CV_32FC1);
+    for(int v = 0; v < N; v++)
+    {
+        float* rowX = mapX.ptr<float>(v);
+        float* rowY = mapY.ptr<float>(v);
+        for(int u = 0; u < N; u++)
+        {
+            double w = H[6] * u + H[7] * v + H[8];
+            double sx = (H[0] * u + H[1] * v + H[2]) / w;
+            double sy = (H[3] * u + H[4] * v + H[5]) / w;
+            rowX[u] = static_cast<float>(sx);
+            rowY[u] = static_cast<float>(sy);
+        }
+    }
+    cv::convertMaps(mapX, mapY, slot.remapXY, slot.remapFrac, CV_16SC2);
+
     slot.calibrated = true;
-    LOG_INFO(VISION_LOG_ID, "Camera {} calibrated ({} points)", camIndex, slot.points.size());
+    LOG_INFO(VISION_LOG_ID, "Camera {} calibrated ({} points, remap tables baked)",
+             camIndex, slot.points.size());
 }
 
 
@@ -201,6 +243,8 @@ void undoLastWirePoint(uint32_t camIndex)
     {
         slot.points.pop_back();
         slot.homography.release();
+        slot.remapXY.release();
+        slot.remapFrac.release();
         slot.calibrated = false;
     }
 }
@@ -213,6 +257,8 @@ void clearWirePoints(uint32_t camIndex)
     WireCalibrationSlot& slot = f_slots[camIndex];
     slot.points.clear();
     slot.homography.release();
+    slot.remapXY.release();
+    slot.remapFrac.release();
     slot.calibrated = false;
 }
 
@@ -261,14 +307,13 @@ bool warpCameraFrame(uint32_t camIndex, const cv::Mat& src, cv::Mat& dst)
     if(camIndex >= EXPECTED_CAMERA_COUNT) return false;
 
     const WireCalibrationSlot& slot = f_slots[camIndex];
-    if(!slot.calibrated || slot.homography.empty() || src.empty())
+    if(!slot.calibrated || slot.remapXY.empty() || src.empty())
     {
         return false;
     }
 
-    cv::warpPerspective(src, dst, slot.homography,
-                        cv::Size(WARPED_OUTPUT_SIZE, WARPED_OUTPUT_SIZE),
-                        cv::INTER_LINEAR);
+    cv::remap(src, dst, slot.remapXY, slot.remapFrac,
+              cv::INTER_LINEAR, cv::BORDER_CONSTANT, cv::Scalar(0, 0, 0));
     return true;
 }
 
