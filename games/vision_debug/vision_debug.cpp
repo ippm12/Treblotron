@@ -23,8 +23,11 @@
 #include <SDL3/SDL_keycode.h>
 #include <SDL3/SDL_gamepad.h>
 
+#include "debug/common_logging.hpp"
+
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
 #include <cstring>
 #include <memory>
 #include <string>
@@ -134,39 +137,55 @@ Status VisionDebugScreen::init(FrameID frameId)
 
 void VisionDebugScreen::updateComposite()
 {
+    VISION_PROFILE_SCOPE(m_timings, "composite");
+
     const int W = static_cast<int>(WARPED_OUTPUT_SIZE);
     const int H = static_cast<int>(WARPED_OUTPUT_SIZE);
 
     cv::Mat accumulator(H, W, CV_32FC3, cv::Scalar(0, 0, 0));
     int contributing = 0;
 
-    uint32_t count = getCameraCount();
-    for(uint32_t i = 0; i < count; i++)
     {
-        if(!isCameraCalibrated(i)) continue;
+        VISION_PROFILE_SCOPE(m_timings, "getFrames");
+        uint32_t count = getCameraCount();
+        for(uint32_t i = 0; i < count; i++)
+        {
+            if(!isCameraCalibrated(i)) continue;
+            getCameraFrame(i, m_cameraFrames[i]);
+        }
+    }
 
-        if(!getCameraFrame(i, m_cameraFrames[i])) continue;
+    {
+        VISION_PROFILE_SCOPE(m_timings, "warp");
+        uint32_t count = getCameraCount();
+        for(uint32_t i = 0; i < count; i++)
+        {
+            if(!isCameraCalibrated(i)) continue;
 
-        const CameraFrame& cf = m_cameraFrames[i];
-        if(cf.pixels.empty() || cf.width <= 0 || cf.height <= 0) continue;
+            const CameraFrame& cf = m_cameraFrames[i];
+            if(cf.pixels.empty() || cf.width <= 0 || cf.height <= 0) continue;
 
-        cv::Mat src(cf.height, cf.width, CV_8UC3,
-                    const_cast<uint8_t*>(cf.pixels.data()), cf.stride);
+            cv::Mat src(cf.height, cf.width, CV_8UC3,
+                        const_cast<uint8_t*>(cf.pixels.data()), cf.stride);
 
-        cv::Mat warped;
-        if(!warpCameraFrame(i, src, warped) || warped.empty()) continue;
+            cv::Mat warped;
+            if(!warpCameraFrame(i, src, warped) || warped.empty()) continue;
 
-        cv::Mat warpedF;
-        warped.convertTo(warpedF, CV_32FC3);
-        accumulator += warpedF;
-        contributing++;
+            cv::Mat warpedF;
+            warped.convertTo(warpedF, CV_32FC3);
+            accumulator += warpedF;
+            contributing++;
+        }
     }
 
     cv::Mat out(H, W, CV_8UC3, cv::Scalar(0, 0, 0));
-    if(contributing > 0)
     {
-        accumulator /= static_cast<float>(contributing);
-        accumulator.convertTo(out, CV_8UC3);
+        VISION_PROFILE_SCOPE(m_timings, "avg");
+        if(contributing > 0)
+        {
+            accumulator /= static_cast<float>(contributing);
+            accumulator.convertTo(out, CV_8UC3);
+        }
     }
 
     // Overlay the dart detection heatmap (if the active vision source
@@ -175,8 +194,14 @@ void VisionDebugScreen::updateComposite()
     // buffer after upscaling.
     std::vector<float> heatmap;
     uint32_t hmW = 0, hmH = 0;
-    if(getLatestVisionHeatmap(heatmap, hmW, hmH) && hmW > 0 && hmH > 0)
+    bool haveHeatmap = false;
     {
+        VISION_PROFILE_SCOPE(m_timings, "heatmapFetch");
+        haveHeatmap = getLatestVisionHeatmap(heatmap, hmW, hmH) && hmW > 0 && hmH > 0;
+    }
+    if(haveHeatmap)
+    {
+        VISION_PROFILE_SCOPE(m_timings, "heatmapOverlay");
         const float scaleX = static_cast<float>(hmW) / W;
         const float scaleY = static_cast<float>(hmH) / H;
         for(int y = 0; y < H; y++)
@@ -197,21 +222,24 @@ void VisionDebugScreen::updateComposite()
         }
     }
 
-    // Copy to contiguous buffer (row by row, respecting stride)
-    if(m_compositeBuffer.size() != static_cast<size_t>(W) * H * 3)
     {
-        m_compositeBuffer.resize(static_cast<size_t>(W) * H * 3);
-    }
-    for(int y = 0; y < H; y++)
-    {
-        std::memcpy(m_compositeBuffer.data() + static_cast<size_t>(y) * W * 3,
-                    out.ptr(y), static_cast<size_t>(W) * 3);
-    }
+        VISION_PROFILE_SCOPE(m_timings, "texUpload");
+        // Copy to contiguous buffer (row by row, respecting stride)
+        if(m_compositeBuffer.size() != static_cast<size_t>(W) * H * 3)
+        {
+            m_compositeBuffer.resize(static_cast<size_t>(W) * H * 3);
+        }
+        for(int y = 0; y < H; y++)
+        {
+            std::memcpy(m_compositeBuffer.data() + static_cast<size_t>(y) * W * 3,
+                        out.ptr(y), static_cast<size_t>(W) * 3);
+        }
 
-    if(m_compositeTexture)
-    {
-        SDL_UpdateTexture(m_compositeTexture, nullptr,
-                          m_compositeBuffer.data(), W * 3);
+        if(m_compositeTexture)
+        {
+            SDL_UpdateTexture(m_compositeTexture, nullptr,
+                              m_compositeBuffer.data(), W * 3);
+        }
     }
 }
 
@@ -219,6 +247,9 @@ void VisionDebugScreen::updateComposite()
 void VisionDebugScreen::update(float deltaTime)
 {
     (void)deltaTime;
+
+    {
+        VISION_PROFILE_SCOPE(m_timings, "update");
 
     updateComposite();
 
@@ -252,11 +283,30 @@ void VisionDebugScreen::update(float deltaTime)
             m_board.highlightSegment(seg.value());
         }
     }
+    }  // end "update" scope
+
+    m_timings.nextFrame();
+
+    double nowSec = static_cast<double>(SDL_GetTicksNS()) / 1e9;
+    if(m_lastLogSec == 0.0) m_lastLogSec = nowSec;
+    if(nowSec - m_lastLogSec >= 2.0)
+    {
+        m_lastLogSec = nowSec;
+        std::string line;
+        for(const auto& e : m_timings.snapshot())
+        {
+            char buf[64];
+            std::snprintf(buf, sizeof(buf), "%s=%.1f ", e.name, e.avgMs);
+            line += buf;
+        }
+        LOG_INFO(VISION_LOG_ID, "vision_debug timings: {}", line);
+    }
 }
 
 
 void VisionDebugScreen::render()
 {
+    VISION_PROFILE_SCOPE(m_timings, "render");
     FrameID fid = getFrameId();
 
     // Title
@@ -374,6 +424,31 @@ void VisionDebugScreen::render()
             empty->m_y        = y;
             empty->m_z        = BASE_Z;
             renderQueueAdd(fid, empty);
+        }
+    }
+
+    // Timing overlay — top-right corner, updated live
+    {
+        VISION_PROFILE_SCOPE(m_timings, "timingOverlay");
+        float ty = 80.0f;
+        for(const auto& e : m_timings.snapshot())
+        {
+            char buf[80];
+            std::snprintf(buf, sizeof(buf), "%-14s %5.1f / %5.1f ms",
+                          e.name, e.lastMs, e.avgMs);
+
+            auto text = std::make_shared<RenderText>();
+            text->m_text     = buf;
+            text->m_color    = {140, 140, 150};
+            text->m_fontId   = m_bodyFontId;
+            text->m_rotation = 0.0f;
+            text->m_scaleX   = 1.0f;
+            text->m_scaleY   = 1.0f;
+            text->m_x        = WINDOW_W - 340.0f;
+            text->m_y        = ty;
+            text->m_z        = BASE_Z + 4;
+            renderQueueAdd(fid, text);
+            ty += 28.0f;
         }
     }
 

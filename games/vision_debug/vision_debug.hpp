@@ -14,6 +14,7 @@
 #include "game_lib/input_hints.hpp"
 #include "vision/vision.hpp"
 #include "dart/dart_defs.hpp"
+#include "debug/scoped_timer.hpp"
 #include <cstdint>
 #include <vector>
 
@@ -57,6 +58,9 @@ class VisionDebugScreen : public Game
         std::vector<uint8_t>  m_compositeBuffer;  // 720*720*3 RGB
         CameraFrame           m_cameraFrames[3];
         bool                  m_lastBoardClear = true;
+
+        FrameTimings          m_timings;
+        double                m_lastLogSec = 0.0;
 };
 
 #endif // VISION_DEBUG_HPP

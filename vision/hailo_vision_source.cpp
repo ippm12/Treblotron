@@ -47,7 +47,7 @@ namespace
     constexpr uint32_t N_CAMS    = 3;
 
     // Peak-detection parameters — match DartModelTraining/heatmap_utils.py.
-    constexpr float PEAK_THRESHOLD    = 0.55f;
+    constexpr float PEAK_THRESHOLD    = 0.65f;
     constexpr int   PEAK_MIN_DISTANCE = 2;
 
     // A new peak within this distance (in heatmap pixels) of a previous-frame
