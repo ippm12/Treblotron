@@ -111,7 +111,7 @@ Status HailoVisionSource::init()
     auto vdevice_exp = VDevice::create();
     if(!vdevice_exp)
     {
-        LOG_ERROR(VISION_LOG_ID, "VDevice::create failed: {}", vdevice_exp.status());
+        LOG_ERROR(VISION_LOG_ID, "VDevice::create failed: {}", static_cast<int>(vdevice_exp.status()));
         return STATUS_ERROR_GENERIC;
     }
     m_impl->vdevice = vdevice_exp.release();
@@ -119,14 +119,14 @@ Status HailoVisionSource::init()
     auto hef_exp = Hef::create(HEF_PATH);
     if(!hef_exp)
     {
-        LOG_ERROR(VISION_LOG_ID, "Failed to load HEF '{}': {}", HEF_PATH, hef_exp.status());
+        LOG_ERROR(VISION_LOG_ID, "Failed to load HEF '{}': {}", HEF_PATH, static_cast<int>(hef_exp.status()));
         return STATUS_ERROR_GENERIC;
     }
 
     auto configure_params_exp = hef_exp->create_configure_params(HAILO_STREAM_INTERFACE_PCIE);
     if(!configure_params_exp)
     {
-        LOG_ERROR(VISION_LOG_ID, "create_configure_params failed: {}", configure_params_exp.status());
+        LOG_ERROR(VISION_LOG_ID, "create_configure_params failed: {}", static_cast<int>(configure_params_exp.status()));
         return STATUS_ERROR_GENERIC;
     }
 
@@ -166,7 +166,7 @@ Status HailoVisionSource::init()
     auto activated_exp = m_impl->networkGroup->activate();
     if(!activated_exp)
     {
-        LOG_ERROR(VISION_LOG_ID, "activate failed: {}", activated_exp.status());
+        LOG_ERROR(VISION_LOG_ID, "activate failed: {}", static_cast<int>(activated_exp.status()));
         return STATUS_ERROR_GENERIC;
     }
     m_impl->activated = activated_exp.release();
@@ -253,8 +253,6 @@ bool HailoVisionSource::getLatestHeatmap(std::vector<float>& out,
 
 void HailoVisionSource::inferenceLoop()
 {
-    using clock = std::chrono::steady_clock;
-
     while(m_running.load(std::memory_order_acquire))
     {
         if(m_resetRequested.exchange(false, std::memory_order_acq_rel))
@@ -328,7 +326,7 @@ void HailoVisionSource::inferenceLoop()
                        m_impl->inputTensor.size() * sizeof(float)));
         if(write_status != HAILO_SUCCESS)
         {
-            LOG_WARNING(VISION_LOG_ID, "vstream write failed: {}", write_status);
+            LOG_WARNING(VISION_LOG_ID, "vstream write failed: {}", static_cast<int>(write_status));
             continue;
         }
 
@@ -337,7 +335,7 @@ void HailoVisionSource::inferenceLoop()
                        m_impl->outputTensor.size() * sizeof(float)));
         if(read_status != HAILO_SUCCESS)
         {
-            LOG_WARNING(VISION_LOG_ID, "vstream read failed: {}", read_status);
+            LOG_WARNING(VISION_LOG_ID, "vstream read failed: {}", static_cast<int>(read_status));
             continue;
         }
 
