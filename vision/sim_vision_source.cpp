@@ -221,6 +221,12 @@ bool SimVisionSource::mapClickToPolar(float mouseX, float mouseY, float& outAngl
 
 void SimVisionSource::onCollectDartsClicked()
 {
+    resetDarts();
+}
+
+
+void SimVisionSource::resetDarts()
+{
     m_board.unhighlightAll();
     m_markers.clear();
     m_pendingThrows.clear();

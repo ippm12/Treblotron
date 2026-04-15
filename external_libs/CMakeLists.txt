@@ -24,8 +24,8 @@ target_link_libraries(${PRJ_NAME} PRIVATE SDL3_image::SDL3_image)
 # and GNU ld resolves left-to-right
 target_link_libraries(${PRJ_NAME} PRIVATE SDL3::SDL3)
 
-# OpenCV (minimal build — only core, imgproc, videoio, imgcodecs)
-set(BUILD_LIST "core,imgproc,videoio,imgcodecs" CACHE STRING "" FORCE)
+# OpenCV (minimal build — only core, imgproc, calib3d, videoio, imgcodecs)
+set(BUILD_LIST "core,imgproc,features2d,flann,calib3d,videoio,imgcodecs" CACHE STRING "" FORCE)
 set(BUILD_SHARED_LIBS_SAVED ${BUILD_SHARED_LIBS})
 set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
 set(BUILD_TESTS OFF CACHE BOOL "" FORCE)
@@ -44,11 +44,14 @@ set(WITH_JASPER OFF CACHE BOOL "" FORCE)
 set(WITH_OPENEXR OFF CACHE BOOL "" FORCE)
 set(OPENCV_GENERATE_PKGCONFIG OFF CACHE BOOL "" FORCE)
 add_subdirectory(opencv)
-target_link_libraries(${PRJ_NAME} PRIVATE opencv_core opencv_imgproc opencv_videoio opencv_imgcodecs)
+target_link_libraries(${PRJ_NAME} PRIVATE opencv_core opencv_imgproc opencv_calib3d opencv_videoio opencv_imgcodecs)
 # OpenCV's add_subdirectory doesn't propagate include dirs properly — add them explicitly
 target_include_directories(${PRJ_NAME} PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/opencv/modules/core/include
     ${CMAKE_CURRENT_SOURCE_DIR}/opencv/modules/imgproc/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/opencv/modules/features2d/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/opencv/modules/flann/include
+    ${CMAKE_CURRENT_SOURCE_DIR}/opencv/modules/calib3d/include
     ${CMAKE_CURRENT_SOURCE_DIR}/opencv/modules/videoio/include
     ${CMAKE_CURRENT_SOURCE_DIR}/opencv/modules/imgcodecs/include
     ${CMAKE_BINARY_DIR}  # generated headers (opencv2/cvconfig.h, opencv2/opencv_modules.hpp)

@@ -7,6 +7,7 @@
 #include "dart/dart_defs.hpp"
 #include "dart/dart_board_geometry.hpp"
 #include <cmath>
+#include <cstdio>
 
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
@@ -215,4 +216,51 @@ std::optional<DartSegment> polarToSegment(float angle, float normalizedRadius)
 
     uint8_t segmentIndex = ringOffset + (section - 1);
     return static_cast<DartSegment>(segmentIndex);
+}
+
+
+const char* getSegmentName(DartSegment segment)
+{
+    // Pre-built lookup table: 82 entries
+    static char names[DART_NUM_SEGMENTS][20] = {};
+    static bool built = false;
+
+    if(!built)
+    {
+        for(uint8_t i = 0; i < DART_NUM_SEGMENTS; i++)
+        {
+            DartSegment seg = static_cast<DartSegment>(i);
+            DartRing ring = getSegmentRing(seg);
+            uint8_t section = getSegmentSection(seg);
+
+            const char* ringName = "";
+            switch(ring)
+            {
+                case DartRing::Double:      ringName = "Double";       break;
+                case DartRing::OuterSingle: ringName = "Outer Single"; break;
+                case DartRing::Triple:      ringName = "Triple";       break;
+                case DartRing::InnerSingle: ringName = "Inner Single"; break;
+                case DartRing::OuterBull:   ringName = "Outer Bull";   break;
+                case DartRing::InnerBull:   ringName = "Inner Bull";   break;
+                default: break;
+            }
+
+            if(section > 0)
+            {
+                std::snprintf(names[i], sizeof(names[i]), "%s %u", ringName, section);
+            }
+            else
+            {
+                std::snprintf(names[i], sizeof(names[i]), "%s", ringName);
+            }
+        }
+        built = true;
+    }
+
+    uint8_t idx = static_cast<uint8_t>(segment);
+    if(idx >= DART_NUM_SEGMENTS)
+    {
+        return "Unknown";
+    }
+    return names[idx];
 }

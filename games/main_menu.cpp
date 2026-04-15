@@ -7,6 +7,7 @@
 
 #include "games/main_menu.hpp"
 #include "calibration.hpp"
+#include "vision_debug.hpp"
 #include "game_lib/game_registry.hpp"
 #include "game_lib/game_manager.hpp"
 #include "game_lib/components/render_shape.hpp"
@@ -112,6 +113,7 @@ Status MainMenu::init(FrameID frameId)
     m_cards.clear();
     m_cards.push_back({CardType::PlayerSettings, 0});
     m_cards.push_back({CardType::Calibration, 0});
+    m_cards.push_back({CardType::VisionDebug, 0});
 
     const auto& games = getRegisteredGames();
     for(size_t i = 0; i < games.size(); i++)
@@ -352,6 +354,10 @@ void MainMenu::openCard()
         loadGame(std::make_shared<CalibrationScreen>());
 #endif
     }
+    else if(card.type == CardType::VisionDebug)
+    {
+        loadGame(std::make_shared<VisionDebugScreen>());
+    }
     else
     {
         m_state = MenuState::GameSettings;
@@ -489,6 +495,11 @@ void MainMenu::renderCardGrid()
             {
                 cardTitle = "Calibration";
                 cardDesc  = "Camera setup & data collection";
+            }
+            else if(card.type == CardType::VisionDebug)
+            {
+                cardTitle = "Vision Debug";
+                cardDesc  = "AI model output & dart tracking";
             }
             else
             {

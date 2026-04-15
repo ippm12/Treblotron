@@ -7,7 +7,12 @@ set(PRJ_NAME Dart_Lens)
 project(${PRJ_NAME})
 
 option(DARTLENS_USE_SIM "Use simulated dart vision source instead of cameras" ON)
+option(DARTLENS_USE_HAILO "Use HAILO-accelerated dart detection (requires HailoRT)" OFF)
 option(DARTLENS_SHOW_FPS "Show framerate counter in the top right" ON)
+
+if(DARTLENS_USE_SIM AND DARTLENS_USE_HAILO)
+    message(FATAL_ERROR "DARTLENS_USE_SIM and DARTLENS_USE_HAILO are mutually exclusive — enable only one vision source.")
+endif()
 
 set(MODULES_LIST "debug" "frame" "dart" "players" "game_lib" "games" "vision")
 
@@ -58,9 +63,31 @@ foreach(game_dir IN LISTS GAME_SUBDIRS)
     endif()
 endforeach()
 
-# Sim vision compile definition
+# Vision source selection: only one of sim/hailo is compiled in.
+# The other source file is marked header-only so it's skipped by the compiler
+# but still tracked by CMake (keeps the glob-based source list honest).
 if(DARTLENS_USE_SIM)
     target_compile_definitions(${PRJ_NAME} PRIVATE DARTLENS_USE_SIM)
+    set_source_files_properties(
+        ${PROJECT_SOURCE_DIR}/vision/hailo_vision_source.cpp
+        PROPERTIES HEADER_FILE_ONLY TRUE)
+endif()
+
+if(DARTLENS_USE_HAILO)
+    target_compile_definitions(${PRJ_NAME} PRIVATE DARTLENS_USE_HAILO)
+    set_source_files_properties(
+        ${PROJECT_SOURCE_DIR}/vision/sim_vision_source.cpp
+        PROPERTIES HEADER_FILE_ONLY TRUE)
+
+    find_package(HailoRT REQUIRED)
+    target_link_libraries(${PRJ_NAME} PRIVATE HailoRT::libhailort)
+endif()
+
+if(NOT DARTLENS_USE_SIM AND NOT DARTLENS_USE_HAILO)
+    set_source_files_properties(
+        ${PROJECT_SOURCE_DIR}/vision/sim_vision_source.cpp
+        ${PROJECT_SOURCE_DIR}/vision/hailo_vision_source.cpp
+        PROPERTIES HEADER_FILE_ONLY TRUE)
 endif()
 
 if(DARTLENS_SHOW_FPS)

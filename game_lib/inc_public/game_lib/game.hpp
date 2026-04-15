@@ -91,6 +91,12 @@ class Game
         virtual void onGamepadButton(uint8_t button, bool pressed) { (void)button; (void)pressed; }
         virtual void onTextInput(const char* text) { (void)text; }
 
+        /**
+         * Mouse click on the game window. button: 1=left, 2=middle, 3=right.
+         * Coordinates are in window pixels (1920x1080 logical space).
+         */
+        virtual void onMouseClick(float x, float y, uint8_t button) { (void)x; (void)y; (void)button; }
+
         /** Whether the GameManager should allow pausing this game. Default: true. */
         virtual bool isPauseable() const { return true; }
 
