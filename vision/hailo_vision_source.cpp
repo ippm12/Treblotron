@@ -71,15 +71,18 @@ namespace
 
 struct HailoVisionSource::Impl
 {
-    std::unique_ptr<VDevice>                 vdevice;
-    std::shared_ptr<ConfiguredNetworkGroup>  networkGroup;
-    std::vector<InputVStream>                inputStreams;
-    std::vector<OutputVStream>               outputStreams;
-    std::unique_ptr<ActivatedNetworkGroup>   activated;
+    std::unique_ptr<VDevice>            vdevice;
+    std::shared_ptr<InferModel>         inferModel;
+    std::unique_ptr<ConfiguredInferModel> configuredInferModel;
+    ConfiguredInferModel::Bindings      bindings;
 
     // Pre-allocated tensors reused across inferences.
-    std::vector<float> inputTensor;   // NHWC: H*W*C
-    std::vector<float> outputTensor;  // H*W
+    // Input: UINT8 NHWC — matches the HEF's native input format, so HailoRT
+    // passes our camera bytes through without any quant/dequant work.
+    // Output: FLOAT32 — HailoRT dequantizes the UINT8-quantized output into
+    // real-domain logits for us.
+    std::vector<uint8_t> inputTensor;   // INPUT_H * INPUT_W * INPUT_C
+    std::vector<float>   outputTensor;  // OUTPUT_H * OUTPUT_W
 
     // Warp destinations for each camera (720x720 RGB8, recycled each frame).
     cv::Mat warped[N_CAMS];
@@ -100,6 +103,18 @@ HailoVisionSource::HailoVisionSource() : m_impl(std::make_unique<Impl>())
 }
 
 
+// Helper — unwrap an Expected<T>, log on failure, return bool success so the
+// init path stays flat. Using a macro so we can LOG_ERROR with the real status.
+#define HAILO_CHECK(expected, what)                                                      \
+    do {                                                                                 \
+        if(!(expected)) {                                                                \
+            LOG_ERROR(VISION_LOG_ID, what ": {}",                                        \
+                      static_cast<int>((expected).status()));                            \
+            return STATUS_ERROR_GENERIC;                                                 \
+        }                                                                                \
+    } while(0)
+
+
 HailoVisionSource::~HailoVisionSource() = default;
 
 
@@ -112,80 +127,64 @@ Status HailoVisionSource::init()
 
     LOG_INFO(VISION_LOG_ID, "HailoVisionSource: creating VDevice");
     auto vdevice_exp = VDevice::create();
-    if(!vdevice_exp)
-    {
-        LOG_ERROR(VISION_LOG_ID, "VDevice::create failed: {}", static_cast<int>(vdevice_exp.status()));
-        return STATUS_ERROR_GENERIC;
-    }
+    HAILO_CHECK(vdevice_exp, "VDevice::create failed");
     m_impl->vdevice = vdevice_exp.release();
 
-    LOG_INFO(VISION_LOG_ID, "HailoVisionSource: loading HEF");
-    auto hef_exp = Hef::create(HEF_PATH);
-    if(!hef_exp)
+    LOG_INFO(VISION_LOG_ID, "HailoVisionSource: creating InferModel from HEF");
+    auto infer_model_exp = m_impl->vdevice->create_infer_model(HEF_PATH);
+    HAILO_CHECK(infer_model_exp, "create_infer_model failed");
+    m_impl->inferModel = infer_model_exp.release();
+
+    // Match the HEF's native input format (UINT8) so HailoRT passes our camera
+    // bytes through untouched, and request FLOAT32 output so HailoRT
+    // dequantizes the heatmap into real-domain values for us.
     {
-        LOG_ERROR(VISION_LOG_ID, "Failed to load HEF '{}': {}", HEF_PATH, static_cast<int>(hef_exp.status()));
-        return STATUS_ERROR_GENERIC;
+        auto input_exp = m_impl->inferModel->input();
+        HAILO_CHECK(input_exp, "InferModel::input() failed");
+        input_exp->set_format_type(HAILO_FORMAT_TYPE_UINT8);
+
+        auto output_exp = m_impl->inferModel->output();
+        HAILO_CHECK(output_exp, "InferModel::output() failed");
+        output_exp->set_format_type(HAILO_FORMAT_TYPE_FLOAT32);
     }
 
-    LOG_INFO(VISION_LOG_ID, "HailoVisionSource: creating configure params");
-    // Let the VDevice build defaults — it knows whether the underlying device
-    // is a PCIe-attached Hailo-8 or an integrated NNC (Hailo-10H/15H), so we
-    // don't hard-code a stream interface enum.
-    auto configure_params_exp = m_impl->vdevice->create_configure_params(hef_exp.value());
-    if(!configure_params_exp)
-    {
-        LOG_ERROR(VISION_LOG_ID, "create_configure_params failed: {}", static_cast<int>(configure_params_exp.status()));
-        return STATUS_ERROR_GENERIC;
-    }
+    LOG_INFO(VISION_LOG_ID, "HailoVisionSource: configuring infer model");
+    auto configured_exp = m_impl->inferModel->configure();
+    HAILO_CHECK(configured_exp, "InferModel::configure failed");
+    m_impl->configuredInferModel =
+        std::make_unique<ConfiguredInferModel>(configured_exp.release());
 
-    LOG_INFO(VISION_LOG_ID, "HailoVisionSource: configuring network groups");
-    auto network_groups_exp = m_impl->vdevice->configure(hef_exp.value(), configure_params_exp.value());
-    if(!network_groups_exp)
-    {
-        LOG_ERROR(VISION_LOG_ID, "VDevice::configure failed: {}", static_cast<int>(network_groups_exp.status()));
-        return STATUS_ERROR_GENERIC;
-    }
-    if(network_groups_exp->empty())
-    {
-        LOG_ERROR(VISION_LOG_ID, "VDevice::configure returned no network groups");
-        return STATUS_ERROR_GENERIC;
-    }
-    m_impl->networkGroup = network_groups_exp.value()[0];
+    LOG_INFO(VISION_LOG_ID, "HailoVisionSource: creating bindings");
+    auto bindings_exp = m_impl->configuredInferModel->create_bindings();
+    HAILO_CHECK(bindings_exp, "create_bindings failed");
+    m_impl->bindings = bindings_exp.release();
 
-    LOG_INFO(VISION_LOG_ID, "HailoVisionSource: building vstream params");
-    // Ask for float32 IO — HailoRT handles quant/dequant for us.
-    auto input_params_exp = m_impl->networkGroup->make_input_vstream_params(
-        {}, HAILO_FORMAT_TYPE_FLOAT32,
-        HAILO_DEFAULT_VSTREAM_TIMEOUT_MS, HAILO_DEFAULT_VSTREAM_QUEUE_SIZE);
-    auto output_params_exp = m_impl->networkGroup->make_output_vstream_params(
-        {}, HAILO_FORMAT_TYPE_FLOAT32,
-        HAILO_DEFAULT_VSTREAM_TIMEOUT_MS, HAILO_DEFAULT_VSTREAM_QUEUE_SIZE);
-    if(!input_params_exp || !output_params_exp)
+    // Point bindings at our pre-allocated input/output buffers — they're
+    // reused every inference.
     {
-        LOG_ERROR(VISION_LOG_ID, "make_*_vstream_params failed");
-        return STATUS_ERROR_GENERIC;
-    }
+        auto in_exp = m_impl->bindings.input();
+        HAILO_CHECK(in_exp, "Bindings::input() failed");
+        auto in_status = in_exp->set_buffer(MemoryView(
+            m_impl->inputTensor.data(), m_impl->inputTensor.size()));
+        if(in_status != HAILO_SUCCESS)
+        {
+            LOG_ERROR(VISION_LOG_ID, "input set_buffer failed: {}",
+                      static_cast<int>(in_status));
+            return STATUS_ERROR_GENERIC;
+        }
 
-    auto input_streams_exp = VStreamsBuilder::create_input_vstreams(
-        *m_impl->networkGroup, input_params_exp.value());
-    auto output_streams_exp = VStreamsBuilder::create_output_vstreams(
-        *m_impl->networkGroup, output_params_exp.value());
-    if(!input_streams_exp || !output_streams_exp)
-    {
-        LOG_ERROR(VISION_LOG_ID, "create_*_vstreams failed");
-        return STATUS_ERROR_GENERIC;
+        auto out_exp = m_impl->bindings.output();
+        HAILO_CHECK(out_exp, "Bindings::output() failed");
+        auto out_status = out_exp->set_buffer(MemoryView(
+            m_impl->outputTensor.data(),
+            m_impl->outputTensor.size() * sizeof(float)));
+        if(out_status != HAILO_SUCCESS)
+        {
+            LOG_ERROR(VISION_LOG_ID, "output set_buffer failed: {}",
+                      static_cast<int>(out_status));
+            return STATUS_ERROR_GENERIC;
+        }
     }
-    m_impl->inputStreams  = input_streams_exp.release();
-    m_impl->outputStreams = output_streams_exp.release();
-
-    LOG_INFO(VISION_LOG_ID, "HailoVisionSource: activating network group");
-    auto activated_exp = m_impl->networkGroup->activate();
-    if(!activated_exp)
-    {
-        LOG_ERROR(VISION_LOG_ID, "activate failed: {}", static_cast<int>(activated_exp.status()));
-        return STATUS_ERROR_GENERIC;
-    }
-    m_impl->activated = activated_exp.release();
 
     m_running.store(true, std::memory_order_release);
     m_thread = std::thread(&HailoVisionSource::inferenceLoop, this);
@@ -214,11 +213,10 @@ void HailoVisionSource::shutdown()
         m_thread.join();
     }
 
-    // Tear down in reverse of init — activated scope, streams, network, device.
-    m_impl->activated.reset();
-    m_impl->outputStreams.clear();
-    m_impl->inputStreams.clear();
-    m_impl->networkGroup.reset();
+    // Tear down in reverse of init.
+    m_impl->bindings = ConfiguredInferModel::Bindings();
+    m_impl->configuredInferModel.reset();
+    m_impl->inferModel.reset();
     m_impl->vdevice.reset();
 
     shutdownCameraSystem();
@@ -322,8 +320,8 @@ void HailoVisionSource::inferenceLoop()
             continue;
         }
 
-        // Pack into NHWC float32 [0,1]. Pixels from missing cameras are zero.
-        float* dst = m_impl->inputTensor.data();
+        // Pack into NHWC uint8. Pixels from missing cameras are zero.
+        uint8_t* dst = m_impl->inputTensor.data();
         for(uint32_t r = 0; r < INPUT_H; r++)
         {
             for(uint32_t c = 0; c < INPUT_W; c++)
@@ -334,35 +332,27 @@ void HailoVisionSource::inferenceLoop()
                     if(!w.empty())
                     {
                         const uint8_t* px = w.ptr(r) + c * 3;
-                        dst[0] = px[0] / 255.0f;
-                        dst[1] = px[1] / 255.0f;
-                        dst[2] = px[2] / 255.0f;
+                        dst[0] = px[0];
+                        dst[1] = px[1];
+                        dst[2] = px[2];
                     }
                     else
                     {
-                        dst[0] = dst[1] = dst[2] = 0.0f;
+                        dst[0] = dst[1] = dst[2] = 0;
                     }
                     dst += 3;
                 }
             }
         }
 
-        // Inference — single input stream, single output stream.
-        auto write_status = m_impl->inputStreams[0].write(
-            MemoryView(m_impl->inputTensor.data(),
-                       m_impl->inputTensor.size() * sizeof(float)));
-        if(write_status != HAILO_SUCCESS)
+        // Synchronous inference — the bindings already point at our input/output
+        // buffers, so run() reads from inputTensor and writes to outputTensor.
+        auto run_status = m_impl->configuredInferModel->run(
+            m_impl->bindings, std::chrono::milliseconds(1000));
+        if(run_status != HAILO_SUCCESS)
         {
-            LOG_WARNING(VISION_LOG_ID, "vstream write failed: {}", static_cast<int>(write_status));
-            continue;
-        }
-
-        auto read_status = m_impl->outputStreams[0].read(
-            MemoryView(m_impl->outputTensor.data(),
-                       m_impl->outputTensor.size() * sizeof(float)));
-        if(read_status != HAILO_SUCCESS)
-        {
-            LOG_WARNING(VISION_LOG_ID, "vstream read failed: {}", static_cast<int>(read_status));
+            LOG_WARNING(VISION_LOG_ID, "ConfiguredInferModel::run failed: {}",
+                        static_cast<int>(run_status));
             continue;
         }
 
