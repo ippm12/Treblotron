@@ -137,9 +137,14 @@ Status HailoVisionSource::init()
 
     LOG_INFO(VISION_LOG_ID, "HailoVisionSource: configuring network groups");
     auto network_groups_exp = m_impl->vdevice->configure(hef_exp.value(), configure_params_exp.value());
-    if(!network_groups_exp || network_groups_exp->empty())
+    if(!network_groups_exp)
     {
-        LOG_ERROR(VISION_LOG_ID, "VDevice::configure failed");
+        LOG_ERROR(VISION_LOG_ID, "VDevice::configure failed: {}", static_cast<int>(network_groups_exp.status()));
+        return STATUS_ERROR_GENERIC;
+    }
+    if(network_groups_exp->empty())
+    {
+        LOG_ERROR(VISION_LOG_ID, "VDevice::configure returned no network groups");
         return STATUS_ERROR_GENERIC;
     }
     m_impl->networkGroup = network_groups_exp.value()[0];
