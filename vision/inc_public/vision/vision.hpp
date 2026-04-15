@@ -115,6 +115,14 @@ std::string getCameraName(uint32_t index);
 bool getCameraFrame(uint32_t index, CameraFrame& outFrame);
 
 /**
+ * Copies the latest warped (720x720 template-space) RGB frame for the given
+ * camera into outFrame. Returns false if the camera is not calibrated, has no
+ * frame yet, or the index is out of range. The warp is performed on the
+ * camera capture thread so readers never pay warp cost on the hot path.
+ */
+bool getCameraWarpedFrame(uint32_t index, CameraFrame& outFrame);
+
+/**
  * Save the current frame from every connected camera to the output directory.
  * All images in one capture share the same UUID: {uuid}_cam0.png, {uuid}_cam1.png, ...
  * Creates the output directory if it does not exist.

@@ -8,13 +8,17 @@
 
 #include "vision/vision.hpp"
 #include "vision/wire_calibration.hpp"
+#include "debug/scoped_timer.hpp"
 
 #include <opencv2/core.hpp>
+#include <opencv2/core/utility.hpp>
 #include <opencv2/imgproc.hpp>
 #include <opencv2/videoio.hpp>
 #include <opencv2/imgcodecs.hpp>
 
 #include <atomic>
+#include <chrono>
+#include <cstdio>
 #include <cstring>
 #include <filesystem>
 #include <mutex>
@@ -58,16 +62,25 @@ static std::string generateUuidV4()
 struct CameraSlot
 {
     cv::VideoCapture capture;
-    int              deviceIndex = -1;  // V4L2 device index (e.g. 0, 2, 4)
+    int              deviceIndex = -1;    // V4L2 device index (e.g. 0, 2, 4)
+    uint32_t         logicalIndex = 0;    // Index into f_cameras[] — used for warpCameraFrame
 
-    // Written by capture thread under lock
-    cv::Mat          latestFrame;       // RGB
+    // Front buffers — written by capture thread under frameMutex, read by any
+    // thread that calls get*CameraFrame. cv::Mat shallow-copy-on-assign means
+    // the capture thread can clone into these while a reader still holds a
+    // shared reference to the previous contents (copy-on-write double buffer).
+    cv::Mat          latestRaw;           // RGB, 1280x720ish from the sensor
+    cv::Mat          latestWarped;        // RGB, 720x720, empty if not calibrated
     std::mutex       frameMutex;
-    std::atomic<bool> frameNew{false};  // True when capture thread wrote a new frame
 
     std::thread      captureThread;
     std::atomic<bool> running{false};
     std::string      name;
+
+    // Per-thread profiling so we can see where capture time is going independently
+    // on each core. Logged every ~2s from the capture thread itself.
+    FrameTimings     timings;
+    double           lastLogSec = 0.0;
 };
 
 // Module state — fixed-size array so the init thread can safely add cameras
@@ -141,21 +154,92 @@ static void selectBestResolution(cv::VideoCapture& cap)
 // Capture thread
 // ============================================================================
 
+static double nowSeconds()
+{
+    return std::chrono::duration<double>(
+        std::chrono::steady_clock::now().time_since_epoch()).count();
+}
+
 static void captureLoop(CameraSlot* slot)
 {
     cv::Mat frame;
     cv::Mat rgb;
+    cv::Mat warped;
+
     while(slot->running.load(std::memory_order_relaxed))
     {
-        if(slot->capture.read(frame) && !frame.empty())
         {
-            // Convert BGR → RGB on the capture thread (not the render thread)
-            cv::cvtColor(frame, rgb, cv::COLOR_BGR2RGB);
+            VISION_PROFILE_SCOPE(slot->timings, "total");
 
-            std::lock_guard<std::mutex> lock(slot->frameMutex);
-            slot->latestFrame = rgb.clone();
-            slot->frameNew.store(true, std::memory_order_release);
+            bool ok;
+            {
+                VISION_PROFILE_SCOPE(slot->timings, "read");
+                ok = slot->capture.read(frame) && !frame.empty();
+            }
+            if(!ok) continue;
+
+            {
+                VISION_PROFILE_SCOPE(slot->timings, "cvtColor");
+                cv::cvtColor(frame, rgb, cv::COLOR_BGR2RGB);
+            }
+
+            bool haveWarp = false;
+            if(isCameraCalibrated(slot->logicalIndex))
+            {
+                VISION_PROFILE_SCOPE(slot->timings, "warp");
+                haveWarp = warpCameraFrame(slot->logicalIndex, rgb, warped)
+                           && !warped.empty();
+            }
+
+            // Publish via clone so any reader holding a shallow copy of the
+            // previous frame keeps their buffer intact (copy-on-write double buffer).
+            {
+                std::lock_guard<std::mutex> lock(slot->frameMutex);
+                slot->latestRaw = rgb.clone();
+                if(haveWarp)
+                {
+                    slot->latestWarped = warped.clone();
+                }
+            }
         }
+
+        slot->timings.nextFrame();
+
+        double t = nowSeconds();
+        if(slot->lastLogSec == 0.0) slot->lastLogSec = t;
+        if(t - slot->lastLogSec >= 2.0)
+        {
+            slot->lastLogSec = t;
+            std::string line;
+            for(const auto& e : slot->timings.snapshot())
+            {
+                char buf[64];
+                std::snprintf(buf, sizeof(buf), "%s=%.1f ", e.name, e.avgMs);
+                line += buf;
+            }
+            LOG_INFO(VISION_LOG_ID, "{} timings: {}", slot->name, line);
+        }
+    }
+}
+
+
+// ============================================================================
+// NEON detection — warn loudly on every run if OpenCV wasn't built with NEON,
+// since warpPerspective scales ~20x between the scalar and NEON paths on the
+// Pi 5 and is the dominant cost in each capture thread.
+// ============================================================================
+
+static void logOpenCVNeonStatus()
+{
+    if(cv::checkHardwareSupport(CV_CPU_NEON))
+    {
+        LOG_INFO(VISION_LOG_ID, "OpenCV NEON support: YES");
+    }
+    else
+    {
+        LOG_WARNING(VISION_LOG_ID,
+                    "OpenCV NEON support: NO — camera system may run slowly; "
+                    "rebuild OpenCV with NEON enabled for a major speedup");
     }
 }
 
@@ -170,6 +254,8 @@ Status initializeCameraSystem()
     {
         return STATUS_OK;
     }
+
+    logOpenCVNeonStatus();
 
     initializeWireCalibration();
     // Load any saved wire calibration synchronously before the user can interact
@@ -215,11 +301,11 @@ Status initializeCameraSystem()
             auto slot = std::make_unique<CameraSlot>();
             slot->capture = std::move(cap);
             slot->deviceIndex = idx;
+            slot->logicalIndex = count;
             slot->name = "Camera " + std::to_string(cameraNum);
 
             // Pre-convert first frame so there's something to show immediately
-            cv::cvtColor(testFrame, slot->latestFrame, cv::COLOR_BGR2RGB);
-            slot->frameNew.store(true, std::memory_order_release);
+            cv::cvtColor(testFrame, slot->latestRaw, cv::COLOR_BGR2RGB);
 
             slot->running.store(true, std::memory_order_relaxed);
             slot->captureThread = std::thread(captureLoop, slot.get());
@@ -306,6 +392,24 @@ std::string getCameraName(uint32_t index)
 }
 
 
+// Internal: snapshot a Mat out of the slot (shallow copy under lock) and
+// memcpy it into an outFrame so the caller gets a standalone byte buffer.
+// Shared across the raw and warped accessors.
+static bool copyFrameOut(const cv::Mat& src, CameraFrame& outFrame)
+{
+    if(src.empty()) return false;
+
+    outFrame.width  = src.cols;
+    outFrame.height = src.rows;
+    outFrame.stride = static_cast<int>(src.step[0]);
+
+    size_t dataSize = static_cast<size_t>(outFrame.height) * outFrame.stride;
+    outFrame.pixels.resize(dataSize);
+    std::memcpy(outFrame.pixels.data(), src.data, dataSize);
+    return true;
+}
+
+
 bool getCameraFrame(uint32_t index, CameraFrame& outFrame)
 {
     if(index >= f_cameraCount.load(std::memory_order_acquire))
@@ -315,28 +419,30 @@ bool getCameraFrame(uint32_t index, CameraFrame& outFrame)
 
     CameraSlot& slot = *f_cameras[index];
 
-    if(!slot.frameNew.load(std::memory_order_acquire))
+    cv::Mat snapshot;
+    {
+        std::lock_guard<std::mutex> lock(slot.frameMutex);
+        snapshot = slot.latestRaw;  // shallow copy
+    }
+    return copyFrameOut(snapshot, outFrame);
+}
+
+
+bool getCameraWarpedFrame(uint32_t index, CameraFrame& outFrame)
+{
+    if(index >= f_cameraCount.load(std::memory_order_acquire))
     {
         return false;
     }
 
-    std::lock_guard<std::mutex> lock(slot.frameMutex);
+    CameraSlot& slot = *f_cameras[index];
 
-    if(slot.latestFrame.empty())
+    cv::Mat snapshot;
     {
-        return false;
+        std::lock_guard<std::mutex> lock(slot.frameMutex);
+        snapshot = slot.latestWarped;
     }
-
-    outFrame.width  = slot.latestFrame.cols;
-    outFrame.height = slot.latestFrame.rows;
-    outFrame.stride = static_cast<int>(slot.latestFrame.step[0]);
-
-    size_t dataSize = static_cast<size_t>(outFrame.height) * outFrame.stride;
-    outFrame.pixels.resize(dataSize);
-    std::memcpy(outFrame.pixels.data(), slot.latestFrame.data, dataSize);
-
-    slot.frameNew.store(false, std::memory_order_release);
-    return true;
+    return copyFrameOut(snapshot, outFrame);
 }
 
 
@@ -360,12 +466,12 @@ Status saveAllCameraFrames(const std::string& outputDir)
         cv::Mat frameCopy;
         {
             std::lock_guard<std::mutex> lock(f_cameras[i]->frameMutex);
-            if(f_cameras[i]->latestFrame.empty())
+            if(f_cameras[i]->latestRaw.empty())
             {
                 LOG_WARNING(VISION_LOG_ID, "saveAllCameraFrames: no frame for camera {}", i);
                 continue;
             }
-            cv::cvtColor(f_cameras[i]->latestFrame, frameCopy, cv::COLOR_RGB2BGR);
+            cv::cvtColor(f_cameras[i]->latestRaw, frameCopy, cv::COLOR_RGB2BGR);
         }
 
         std::string path = outputDir + "/" + uuid + "_cam" + std::to_string(i) + ".png";

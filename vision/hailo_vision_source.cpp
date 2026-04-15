@@ -291,25 +291,25 @@ void HailoVisionSource::inferenceLoop()
             }
         }
 
-        // Build input tensor — warp each camera into template space and
-        // interleave their RGB channels into NHWC order.
+        // Pull pre-warped frames from the camera system. Warping now happens
+        // on each camera's own capture thread (one per core), so this loop
+        // is just a memcpy out of the producer's double-buffered front Mat.
         uint32_t camCount = getCameraCount();
         uint32_t contributing = 0;
         for(uint32_t i = 0; i < N_CAMS; i++)
         {
             m_impl->warped[i] = cv::Mat();  // reset
             if(i >= camCount) continue;
-            if(!isCameraCalibrated(i)) continue;
-            if(!getCameraFrame(i, m_impl->cameraFrames[i])) continue;
+            if(!getCameraWarpedFrame(i, m_impl->cameraFrames[i])) continue;
 
             const CameraFrame& cf = m_impl->cameraFrames[i];
             if(cf.pixels.empty()) continue;
 
-            cv::Mat src(cf.height, cf.width, CV_8UC3,
-                        const_cast<uint8_t*>(cf.pixels.data()), cf.stride);
-
-            if(!warpCameraFrame(i, src, m_impl->warped[i])) continue;
-            if(m_impl->warped[i].empty()) continue;
+            // Wrap the copied buffer as a cv::Mat (no pixel copy) for the NHWC
+            // packing loop below.
+            m_impl->warped[i] = cv::Mat(cf.height, cf.width, CV_8UC3,
+                                        const_cast<uint8_t*>(cf.pixels.data()),
+                                        cf.stride);
             contributing++;
         }
 

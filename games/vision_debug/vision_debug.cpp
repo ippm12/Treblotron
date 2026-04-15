@@ -142,7 +142,7 @@ void VisionDebugScreen::updateComposite()
     const int W = static_cast<int>(WARPED_OUTPUT_SIZE);
     const int H = static_cast<int>(WARPED_OUTPUT_SIZE);
 
-    cv::Mat accumulator(H, W, CV_32FC3, cv::Scalar(0, 0, 0));
+    cv::Mat out(H, W, CV_8UC3, cv::Scalar(0, 0, 0));
     int contributing = 0;
 
     {
@@ -150,41 +150,46 @@ void VisionDebugScreen::updateComposite()
         uint32_t count = getCameraCount();
         for(uint32_t i = 0; i < count; i++)
         {
-            if(!isCameraCalibrated(i)) continue;
-            getCameraFrame(i, m_cameraFrames[i]);
+            if(getCameraWarpedFrame(i, m_cameraFrames[i]) &&
+               !m_cameraFrames[i].pixels.empty() &&
+               m_cameraFrames[i].width == W && m_cameraFrames[i].height == H)
+            {
+                contributing++;
+            }
+            else
+            {
+                m_cameraFrames[i].pixels.clear();
+            }
         }
     }
 
-    {
-        VISION_PROFILE_SCOPE(m_timings, "warp");
-        uint32_t count = getCameraCount();
-        for(uint32_t i = 0; i < count; i++)
-        {
-            if(!isCameraCalibrated(i)) continue;
-
-            const CameraFrame& cf = m_cameraFrames[i];
-            if(cf.pixels.empty() || cf.width <= 0 || cf.height <= 0) continue;
-
-            cv::Mat src(cf.height, cf.width, CV_8UC3,
-                        const_cast<uint8_t*>(cf.pixels.data()), cf.stride);
-
-            cv::Mat warped;
-            if(!warpCameraFrame(i, src, warped) || warped.empty()) continue;
-
-            cv::Mat warpedF;
-            warped.convertTo(warpedF, CV_32FC3);
-            accumulator += warpedF;
-            contributing++;
-        }
-    }
-
-    cv::Mat out(H, W, CV_8UC3, cv::Scalar(0, 0, 0));
     {
         VISION_PROFILE_SCOPE(m_timings, "avg");
         if(contributing > 0)
         {
-            accumulator /= static_cast<float>(contributing);
-            accumulator.convertTo(out, CV_8UC3);
+            // Straight UINT8 average of up to 3 warped frames — stays in
+            // integer domain (the float accumulator path was ~5% of the old
+            // frame budget once warps moved to the camera threads).
+            const uint32_t count = getCameraCount();
+            for(int y = 0; y < H; y++)
+            {
+                uint8_t* orow = out.ptr(y);
+                for(int x = 0; x < W; x++)
+                {
+                    uint32_t r = 0, g = 0, b = 0;
+                    for(uint32_t i = 0; i < count; i++)
+                    {
+                        const CameraFrame& cf = m_cameraFrames[i];
+                        if(cf.pixels.empty()) continue;
+                        const uint8_t* px = cf.pixels.data() +
+                            static_cast<size_t>(y) * cf.stride + x * 3;
+                        r += px[0]; g += px[1]; b += px[2];
+                    }
+                    orow[x * 3 + 0] = static_cast<uint8_t>(r / contributing);
+                    orow[x * 3 + 1] = static_cast<uint8_t>(g / contributing);
+                    orow[x * 3 + 2] = static_cast<uint8_t>(b / contributing);
+                }
+            }
         }
     }
 
