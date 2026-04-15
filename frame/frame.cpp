@@ -413,7 +413,19 @@ bool pollFrames()
                 FrameID fid = convertSDLWindowIdToInternal(evt.button.windowID);
                 if(fid != INVALID_FRAME_ID && f_clickHandlers[fid])
                 {
-                    f_clickHandlers[fid](fid, evt.button.x, evt.button.y, evt.button.button);
+                    // Mouse events arrive in window pixels, but game code
+                    // works in the 1920x1080 logical space set up by
+                    // SDL_SetRenderLogicalPresentation. Convert here so the
+                    // whole stack uses one coordinate system.
+                    float lx = evt.button.x;
+                    float ly = evt.button.y;
+                    SDL_Renderer* rend = f_frames[fid].rend;
+                    if(rend)
+                    {
+                        SDL_RenderCoordinatesFromWindow(rend,
+                            evt.button.x, evt.button.y, &lx, &ly);
+                    }
+                    f_clickHandlers[fid](fid, lx, ly, evt.button.button);
                 }
                 break;
             }

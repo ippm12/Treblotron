@@ -43,6 +43,9 @@ void InputHints::init()
     m_keyboardIcons[SDLK_TAB]       = loadIcon(KB_BASE, "keyboard_tab.png");
     m_keyboardIcons[SDLK_HOME]      = loadIcon(KB_BASE, "keyboard_home.png");
     m_keyboardIcons[SDLK_S]         = loadIcon(KB_BASE, "keyboard_s.png");
+    m_keyboardIcons[SDLK_C]         = loadIcon(KB_BASE, "keyboard_c.png");
+    m_keyboardIcons[SDLK_F]         = loadIcon(KB_BASE, "keyboard_f.png");
+    m_keyboardIcons[SDLK_R]         = loadIcon(KB_BASE, "keyboard_r.png");
 
     // Xbox colored button icons
     m_gamepadIcons[SDL_GAMEPAD_BUTTON_SOUTH]      = loadIcon(XB_BASE, "xbox_button_color_a.png");
