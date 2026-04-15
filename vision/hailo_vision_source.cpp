@@ -128,7 +128,10 @@ Status HailoVisionSource::init()
     }
 
     LOG_INFO(VISION_LOG_ID, "HailoVisionSource: creating configure params");
-    auto configure_params_exp = hef_exp->create_configure_params(HAILO_STREAM_INTERFACE_PCIE);
+    // Hailo-10H is an integrated NNC (firmware runs on the chip's ARM cores and
+    // HailoRT talks to it via INTEGRATED, not raw PCIe — even though the
+    // physical transport is PCIe). HEFs are compiled for this interface.
+    auto configure_params_exp = hef_exp->create_configure_params(HAILO_STREAM_INTERFACE_INTEGRATED);
     if(!configure_params_exp)
     {
         LOG_ERROR(VISION_LOG_ID, "create_configure_params failed: {}", static_cast<int>(configure_params_exp.status()));
