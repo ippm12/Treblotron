@@ -93,14 +93,11 @@ static uint32_t          f_refCount = 0;
 
 static constexpr double TARGET_FPS = 30.0;
 
-// Common resolutions to probe, highest first
+// Common resolutions to probe, highest first. The detection models are
+// trained on 1280x720 so nothing higher is useful, and USB bandwidth on
+// the Pi can't sustain three cameras above 720p anyway.
 static constexpr struct { int w; int h; } PROBE_RESOLUTIONS[] = {
-    {1920, 1080},
-    {1600,  900},
     {1280,  720},
-    {1024,  768},
-    { 800,  600},
-    { 640,  480},
 };
 static constexpr int PROBE_COUNT = sizeof(PROBE_RESOLUTIONS) / sizeof(PROBE_RESOLUTIONS[0]);
 
@@ -108,6 +105,11 @@ static constexpr int PROBE_COUNT = sizeof(PROBE_RESOLUTIONS) / sizeof(PROBE_RESO
 /// Tries each candidate from highest to lowest; uses camera default as fallback.
 static void selectBestResolution(cv::VideoCapture& cap)
 {
+    // UVC cameras on the Pi default to YUYV, which can't sustain our target
+    // resolutions over USB — reads come back empty. MJPG is what the cameras
+    // actually advertise for HD modes, so force it before touching w/h.
+    cap.set(cv::CAP_PROP_FOURCC,
+            cv::VideoWriter::fourcc('M', 'J', 'P', 'G'));
     cap.set(cv::CAP_PROP_FPS, TARGET_FPS);
     cap.set(cv::CAP_PROP_BUFFERSIZE, 2);
 
