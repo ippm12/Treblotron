@@ -51,6 +51,11 @@ Status initializeVisionModule()
         Status stat = f_visionSource->init();
         if(IS_STATUS_NOT_OK(stat))
         {
+            // init() may have partially initialized internal resources (e.g.
+            // brought the camera system up before a later step failed). Run
+            // shutdown so they get torn down cleanly — otherwise their
+            // destructors fire during process exit and terminate the program.
+            f_visionSource->shutdown();
             f_visionSource = nullptr;
             return stat;
         }
