@@ -189,8 +189,12 @@ Status initializeCameraSystem()
                 break;  // Shutdown requested before probing finished
             }
 
+            // Force the V4L2 backend. OpenCV's default auto-selection prefers
+            // GStreamer, which builds a v4l2src pipeline that silently ignores
+            // CAP_PROP_FOURCC — our MJPG request never reaches the driver and
+            // the pipeline fails to negotiate a format. V4L2 honors fourcc.
             cv::VideoCapture cap;
-            if(!cap.open(idx))
+            if(!cap.open(idx, cv::CAP_V4L2))
             {
                 continue;
             }
