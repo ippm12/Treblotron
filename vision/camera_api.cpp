@@ -79,6 +79,13 @@ static std::atomic<uint32_t>       f_cameraCount{0};
 static std::thread       f_initThread;
 static std::atomic<bool> f_initRunning{false};
 
+// Reference count — both HailoVisionSource and CalibrationScreen independently
+// call initializeCameraSystem(). The first call actually brings the camera
+// threads up; subsequent calls just bump the count. shutdown() only tears the
+// system down when the count hits zero. Without this, a second init() would
+// overwrite f_initThread while the previous one was still joinable → terminate.
+static uint32_t          f_refCount = 0;
+
 
 // ============================================================================
 // Resolution selection
@@ -157,6 +164,11 @@ static void captureLoop(CameraSlot* slot)
 
 Status initializeCameraSystem()
 {
+    if(f_refCount++ > 0)
+    {
+        return STATUS_OK;
+    }
+
     initializeWireCalibration();
     // Load any saved wire calibration synchronously before the user can interact
     // with the calibration screen, so there's no race with the init thread.
@@ -235,6 +247,11 @@ Status initializeCameraSystem()
 
 void shutdownCameraSystem()
 {
+    if(f_refCount == 0 || --f_refCount > 0)
+    {
+        return;
+    }
+
     // Stop the init thread if still probing cameras
     f_initRunning.store(false, std::memory_order_relaxed);
     if(f_initThread.joinable())
