@@ -167,28 +167,38 @@ void VisionDebugScreen::updateComposite()
         VISION_PROFILE_SCOPE(m_timings, "avg");
         if(contributing > 0)
         {
-            // Straight UINT8 average of up to 3 warped frames — stays in
-            // integer domain (the float accumulator path was ~5% of the old
-            // frame budget once warps moved to the camera threads).
+            // Wrap each contributing CameraFrame as a non-owning cv::Mat so we
+            // can use OpenCV's vectorized arithmetic. The scalar per-pixel
+            // loop this replaced cost ~75ms for 3×720×720; addWeighted pulls
+            // it into the single-digit-ms range.
+            cv::Mat mats[3];
+            int n = 0;
             const uint32_t count = getCameraCount();
-            for(int y = 0; y < H; y++)
+            for(uint32_t i = 0; i < count && n < 3; i++)
             {
-                uint8_t* orow = out.ptr(y);
-                for(int x = 0; x < W; x++)
-                {
-                    uint32_t r = 0, g = 0, b = 0;
-                    for(uint32_t i = 0; i < count; i++)
-                    {
-                        const CameraFrame& cf = m_cameraFrames[i];
-                        if(cf.pixels.empty()) continue;
-                        const uint8_t* px = cf.pixels.data() +
-                            static_cast<size_t>(y) * cf.stride + x * 3;
-                        r += px[0]; g += px[1]; b += px[2];
-                    }
-                    orow[x * 3 + 0] = static_cast<uint8_t>(r / contributing);
-                    orow[x * 3 + 1] = static_cast<uint8_t>(g / contributing);
-                    orow[x * 3 + 2] = static_cast<uint8_t>(b / contributing);
-                }
+                const CameraFrame& cf = m_cameraFrames[i];
+                if(cf.pixels.empty()) continue;
+                mats[n++] = cv::Mat(cf.height, cf.width, CV_8UC3,
+                                    const_cast<uint8_t*>(cf.pixels.data()),
+                                    cf.stride);
+            }
+
+            if(n == 1)
+            {
+                mats[0].copyTo(out);
+            }
+            else if(n == 2)
+            {
+                cv::addWeighted(mats[0], 0.5, mats[1], 0.5, 0.0, out);
+            }
+            else  // n == 3
+            {
+                // (a+b+c)/3 via two addWeighted steps. First combine a+b at
+                // equal weight into a temp, then mix with c using weights
+                // 2/3 and 1/3 so the final per-pixel sum is (a+b+c)/3.
+                cv::Mat tmp;
+                cv::addWeighted(mats[0], 0.5, mats[1], 0.5, 0.0, tmp);
+                cv::addWeighted(tmp, 2.0 / 3.0, mats[2], 1.0 / 3.0, 0.0, out);
             }
         }
     }

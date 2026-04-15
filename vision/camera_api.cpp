@@ -233,13 +233,25 @@ static void logOpenCVNeonStatus()
 {
     if(cv::checkHardwareSupport(CV_CPU_NEON))
     {
-        LOG_INFO(VISION_LOG_ID, "OpenCV NEON support: YES");
+        LOG_INFO(VISION_LOG_ID, "OpenCV runtime NEON support: YES");
     }
     else
     {
         LOG_WARNING(VISION_LOG_ID,
-                    "OpenCV NEON support: NO — camera system may run slowly; "
+                    "OpenCV runtime NEON support: NO — camera system may run slowly; "
                     "rebuild OpenCV with NEON enabled for a major speedup");
+    }
+
+    // Runtime CPU feature detection can report NEON even when the OpenCV build
+    // itself wasn't compiled with NEON intrinsics in the hot paths (warpPerspective
+    // in particular). Dump the build info once so we can see the compile-time
+    // CPU_BASELINE / CPU_DISPATCH values and confirm warp is actually vectorized.
+    const cv::String info = cv::getBuildInformation();
+    std::stringstream ss(info);
+    std::string line;
+    while(std::getline(ss, line))
+    {
+        LOG_INFO(VISION_LOG_ID, "cv::getBuildInformation | {}", line);
     }
 }
 
