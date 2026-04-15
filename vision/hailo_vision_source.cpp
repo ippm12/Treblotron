@@ -105,9 +105,12 @@ HailoVisionSource::~HailoVisionSource() = default;
 
 Status HailoVisionSource::init()
 {
+    try
+    {
     // Cameras must already be up so the inference thread can pull frames.
     initializeCameraSystem();
 
+    LOG_INFO(VISION_LOG_ID, "HailoVisionSource: creating VDevice");
     auto vdevice_exp = VDevice::create();
     if(!vdevice_exp)
     {
@@ -116,6 +119,7 @@ Status HailoVisionSource::init()
     }
     m_impl->vdevice = vdevice_exp.release();
 
+    LOG_INFO(VISION_LOG_ID, "HailoVisionSource: loading HEF");
     auto hef_exp = Hef::create(HEF_PATH);
     if(!hef_exp)
     {
@@ -123,6 +127,7 @@ Status HailoVisionSource::init()
         return STATUS_ERROR_GENERIC;
     }
 
+    LOG_INFO(VISION_LOG_ID, "HailoVisionSource: creating configure params");
     auto configure_params_exp = hef_exp->create_configure_params(HAILO_STREAM_INTERFACE_PCIE);
     if(!configure_params_exp)
     {
@@ -130,6 +135,7 @@ Status HailoVisionSource::init()
         return STATUS_ERROR_GENERIC;
     }
 
+    LOG_INFO(VISION_LOG_ID, "HailoVisionSource: configuring network groups");
     auto network_groups_exp = m_impl->vdevice->configure(hef_exp.value(), configure_params_exp.value());
     if(!network_groups_exp || network_groups_exp->empty())
     {
@@ -138,6 +144,7 @@ Status HailoVisionSource::init()
     }
     m_impl->networkGroup = network_groups_exp.value()[0];
 
+    LOG_INFO(VISION_LOG_ID, "HailoVisionSource: building vstream params");
     // Ask for float32 IO — HailoRT handles quant/dequant for us.
     auto input_params_exp = m_impl->networkGroup->make_input_vstream_params(
         {}, HAILO_FORMAT_TYPE_FLOAT32,
@@ -163,6 +170,7 @@ Status HailoVisionSource::init()
     m_impl->inputStreams  = input_streams_exp.release();
     m_impl->outputStreams = output_streams_exp.release();
 
+    LOG_INFO(VISION_LOG_ID, "HailoVisionSource: activating network group");
     auto activated_exp = m_impl->networkGroup->activate();
     if(!activated_exp)
     {
@@ -176,6 +184,17 @@ Status HailoVisionSource::init()
 
     LOG_INFO(VISION_LOG_ID, "HailoVisionSource initialized ({})", HEF_PATH);
     return STATUS_OK;
+    }
+    catch(const std::exception& e)
+    {
+        LOG_ERROR(VISION_LOG_ID, "HailoVisionSource::init threw: {}", e.what());
+        return STATUS_ERROR_GENERIC;
+    }
+    catch(...)
+    {
+        LOG_ERROR(VISION_LOG_ID, "HailoVisionSource::init threw unknown exception");
+        return STATUS_ERROR_GENERIC;
+    }
 }
 
 
