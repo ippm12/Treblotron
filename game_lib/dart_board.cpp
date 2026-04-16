@@ -118,15 +118,17 @@ BoardColor DartBoard::getSegmentRole(DartSegment segment)
 
     uint8_t section  = getSegmentSection(segment);
     uint8_t posIndex = getSectionPositionIndex(section);
-    bool isEven      = (posIndex % 2) == 0;
+    // Section 20 sits at posIndex 0 and must render dark (B); section 1 at
+    // posIndex 1 must render light (A). Odd positions are the light role.
+    bool isLight     = (posIndex % 2) == 1;
 
     if(ring == DartRing::Double || ring == DartRing::Triple)
     {
-        return isEven ? BoardColor::DoubleTripleA : BoardColor::DoubleTripleB;
+        return isLight ? BoardColor::DoubleTripleA : BoardColor::DoubleTripleB;
     }
 
     // OuterSingle or InnerSingle
-    return isEven ? BoardColor::SingleA : BoardColor::SingleB;
+    return isLight ? BoardColor::SingleA : BoardColor::SingleB;
 }
 
 
