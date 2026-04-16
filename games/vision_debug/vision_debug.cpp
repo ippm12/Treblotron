@@ -124,8 +124,6 @@ Status VisionDebugScreen::init(FrameID frameId)
                                                static_cast<int>(WARPED_OUTPUT_SIZE),
                                                static_cast<int>(WARPED_OUTPUT_SIZE));
     }
-    m_compositeBuffer.assign(WARPED_OUTPUT_SIZE * WARPED_OUTPUT_SIZE * 3, 40);
-
     return STATUS_OK;
 }
 
@@ -142,6 +140,9 @@ void VisionDebugScreen::updateComposite()
     const int W = static_cast<int>(WARPED_OUTPUT_SIZE);
     const int H = static_cast<int>(WARPED_OUTPUT_SIZE);
 
+    // Optimization 3: skip recompute if no new camera data arrived.
+    bool haveNewData = false;
+
     cv::Mat out(H, W, CV_8UC3, cv::Scalar(0, 0, 0));
     int contributing = 0;
 
@@ -155,6 +156,7 @@ void VisionDebugScreen::updateComposite()
                m_cameraFrames[i].width == W && m_cameraFrames[i].height == H)
             {
                 contributing++;
+                haveNewData = true;
             }
             else
             {
@@ -163,14 +165,16 @@ void VisionDebugScreen::updateComposite()
         }
     }
 
+    if(!haveNewData && m_lastCompositeFrameId > 0)
+    {
+        return;
+    }
+    m_lastCompositeFrameId = ++m_compositeFrameCounter;
+
     {
         VISION_PROFILE_SCOPE(m_timings, "avg");
         if(contributing > 0)
         {
-            // Wrap each contributing CameraFrame as a non-owning cv::Mat so we
-            // can use OpenCV's vectorized arithmetic. The scalar per-pixel
-            // loop this replaced cost ~75ms for 3×720×720; addWeighted pulls
-            // it into the single-digit-ms range.
             cv::Mat mats[3];
             int n = 0;
             const uint32_t count = getCameraCount();
@@ -193,9 +197,6 @@ void VisionDebugScreen::updateComposite()
             }
             else  // n == 3
             {
-                // (a+b+c)/3 via two addWeighted steps. First combine a+b at
-                // equal weight into a temp, then mix with c using weights
-                // 2/3 and 1/3 so the final per-pixel sum is (a+b+c)/3.
                 cv::Mat tmp;
                 cv::addWeighted(mats[0], 0.5, mats[1], 0.5, 0.0, tmp);
                 cv::addWeighted(tmp, 2.0 / 3.0, mats[2], 1.0 / 3.0, 0.0, out);
@@ -203,10 +204,9 @@ void VisionDebugScreen::updateComposite()
         }
     }
 
-    // Overlay the dart detection heatmap (if the active vision source
-    // produces one) as a red tint on top of the warped composite. The
-    // heatmap is in template space so it lines up 1:1 with the 720x720
-    // buffer after upscaling.
+    // Optimization 1: overlay the heatmap at its native 180×180 resolution
+    // using OpenCV, then resize to 720×720 — avoids the expensive scalar
+    // per-pixel loop at full resolution.
     std::vector<float> heatmap;
     uint32_t hmW = 0, hmH = 0;
     bool haveHeatmap = false;
@@ -217,43 +217,42 @@ void VisionDebugScreen::updateComposite()
     if(haveHeatmap)
     {
         VISION_PROFILE_SCOPE(m_timings, "heatmapOverlay");
-        const float scaleX = static_cast<float>(hmW) / W;
-        const float scaleY = static_cast<float>(hmH) / H;
-        for(int y = 0; y < H; y++)
-        {
-            int hy = static_cast<int>(y * scaleY);
-            if(hy >= static_cast<int>(hmH)) hy = hmH - 1;
-            const float* hrow = heatmap.data() + static_cast<size_t>(hy) * hmW;
-            uint8_t* orow = out.ptr(y);
-            for(int x = 0; x < W; x++)
-            {
-                int hx = static_cast<int>(x * scaleX);
-                if(hx >= static_cast<int>(hmW)) hx = hmW - 1;
-                float v = std::clamp(hrow[hx], 0.0f, 1.0f);
-                int boost = static_cast<int>(v * 255.0f);
-                int r = orow[x * 3 + 0] + boost;
-                orow[x * 3 + 0] = static_cast<uint8_t>(std::min(r, 255));
-            }
-        }
+
+        // Build a 180×180 single-channel 8-bit image from the heatmap floats.
+        cv::Mat hmFloat(static_cast<int>(hmH), static_cast<int>(hmW), CV_32FC1,
+                        heatmap.data());
+        cv::Mat hm8;
+        hmFloat.convertTo(hm8, CV_8UC1, 255.0);
+
+        // Create a red-only overlay at heatmap resolution.
+        cv::Mat overlay(hm8.rows, hm8.cols, CV_8UC3, cv::Scalar(0, 0, 0));
+        cv::Mat channels[3] = {hm8, cv::Mat::zeros(hm8.size(), CV_8UC1),
+                                cv::Mat::zeros(hm8.size(), CV_8UC1)};
+        cv::merge(channels, 3, overlay);
+
+        // Upscale to 720×720 and add to the composite.
+        cv::Mat overlayFull;
+        cv::resize(overlay, overlayFull, cv::Size(W, H), 0, 0, cv::INTER_LINEAR);
+        cv::add(out, overlayFull, out);
     }
 
+    // Optimization 2: write directly into the SDL streaming texture via
+    // SDL_LockTexture, avoiding the intermediate buffer + SDL_UpdateTexture.
     {
         VISION_PROFILE_SCOPE(m_timings, "texUpload");
-        // Copy to contiguous buffer (row by row, respecting stride)
-        if(m_compositeBuffer.size() != static_cast<size_t>(W) * H * 3)
-        {
-            m_compositeBuffer.resize(static_cast<size_t>(W) * H * 3);
-        }
-        for(int y = 0; y < H; y++)
-        {
-            std::memcpy(m_compositeBuffer.data() + static_cast<size_t>(y) * W * 3,
-                        out.ptr(y), static_cast<size_t>(W) * 3);
-        }
-
         if(m_compositeTexture)
         {
-            SDL_UpdateTexture(m_compositeTexture, nullptr,
-                              m_compositeBuffer.data(), W * 3);
+            void* pixels = nullptr;
+            int pitch = 0;
+            if(SDL_LockTexture(m_compositeTexture, nullptr, &pixels, &pitch))
+            {
+                for(int y = 0; y < H; y++)
+                {
+                    std::memcpy(static_cast<uint8_t*>(pixels) + y * pitch,
+                                out.ptr(y), static_cast<size_t>(W) * 3);
+                }
+                SDL_UnlockTexture(m_compositeTexture);
+            }
         }
     }
 }

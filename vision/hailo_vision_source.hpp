@@ -69,8 +69,21 @@ class HailoVisionSource : public VisionSource
         std::atomic<bool>       m_resetRequested{false};
         std::atomic<bool>       m_boardClear{true};
 
-        // Previous inference's peaks (in polar space). Owned by the inference
-        // thread — no external access.
+        // Temporal filter: a peak must appear in CONFIRM_FRAMES consecutive
+        // inferences before it's reported as a dart. Each candidate tracks
+        // its frame streak. Owned by the inference thread — no external access.
+        static constexpr int CONFIRM_FRAMES = 3;
+
+        struct CandidateDart
+        {
+            PolarDart polar;
+            int       streak = 0;   // consecutive frames this peak has been seen
+            bool      emitted = false;
+        };
+
+        std::vector<CandidateDart> m_candidates;
+
+        // Previous inference's confirmed peaks for board-clear detection.
         std::vector<PolarDart>  m_prevPeaks;
 
         // Events produced by the inference thread, consumed by tick() on the

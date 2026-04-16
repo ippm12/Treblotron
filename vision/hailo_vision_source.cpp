@@ -48,7 +48,7 @@ namespace
 
     // Peak-detection parameters — match DartModelTraining/heatmap_utils.py.
     constexpr float PEAK_THRESHOLD    = 0.65f;
-    constexpr int   PEAK_MIN_DISTANCE = 2;
+    constexpr int   PEAK_MIN_DISTANCE = 1;
 
     // A new peak within this distance (in heatmap pixels) of a previous-frame
     // peak is treated as the same dart, not a new throw. 4px @180 ≈ 16px @720
@@ -283,6 +283,7 @@ void HailoVisionSource::inferenceLoop()
         if(m_resetRequested.exchange(false, std::memory_order_acq_rel))
         {
             m_prevPeaks.clear();
+            m_candidates.clear();
             m_boardClear.store(true, std::memory_order_release);
             {
                 std::lock_guard<std::mutex> lock(m_eventMutex);
@@ -408,39 +409,74 @@ void HailoVisionSource::handleHeatmap(const float* heatmap, uint32_t w, uint32_t
 
     m_boardClear.store(current.empty(), std::memory_order_release);
 
-    // Match each current peak to the previous-frame set (in heatmap space for
-    // a distance threshold that's invariant to angle). Any unmatched current
-    // peak is treated as a new dart and emitted as an event.
     const float matchR2 = (DART_MATCH_RADIUS_PX * DART_MATCH_RADIUS_PX) *
                           (HEATMAP_TO_TEMPLATE * HEATMAP_TO_TEMPLATE);
 
+    auto polarDistSq = [](const PolarDart& a, const PolarDart& b) -> float
+    {
+        float ax = std::cos(a.angle * static_cast<float>(M_PI) / 180.0f) *
+                   a.normalizedRadius * BOARD_RADIUS_PX;
+        float ay = std::sin(a.angle * static_cast<float>(M_PI) / 180.0f) *
+                   a.normalizedRadius * BOARD_RADIUS_PX;
+        float bx = std::cos(b.angle * static_cast<float>(M_PI) / 180.0f) *
+                   b.normalizedRadius * BOARD_RADIUS_PX;
+        float by = std::sin(b.angle * static_cast<float>(M_PI) / 180.0f) *
+                   b.normalizedRadius * BOARD_RADIUS_PX;
+        float dx = ax - bx;
+        float dy = ay - by;
+        return dx * dx + dy * dy;
+    };
+
+    // Mark all existing candidates as unmatched for this frame.
+    std::vector<bool> candidateMatched(m_candidates.size(), false);
+
+    // For each current peak, try to match it to an existing candidate.
     std::vector<PolarDart> newDarts;
     for(const PolarDart& curr : current)
     {
-        float crx = std::cos(curr.angle * M_PI / 180.0f) *
-                    curr.normalizedRadius * BOARD_RADIUS_PX;
-        float cry = std::sin(curr.angle * M_PI / 180.0f) *
-                    curr.normalizedRadius * BOARD_RADIUS_PX;
-
-        bool matched = false;
-        for(const PolarDart& prev : m_prevPeaks)
+        int bestIdx = -1;
+        float bestDist = matchR2;
+        for(size_t ci = 0; ci < m_candidates.size(); ci++)
         {
-            float prx = std::cos(prev.angle * M_PI / 180.0f) *
-                        prev.normalizedRadius * BOARD_RADIUS_PX;
-            float pry = std::sin(prev.angle * M_PI / 180.0f) *
-                        prev.normalizedRadius * BOARD_RADIUS_PX;
-            float ex = crx - prx;
-            float ey = cry - pry;
-            if(ex * ex + ey * ey <= matchR2)
+            if(candidateMatched[ci]) continue;
+            float d2 = polarDistSq(curr, m_candidates[ci].polar);
+            if(d2 < bestDist)
             {
-                matched = true;
-                break;
+                bestDist = d2;
+                bestIdx = static_cast<int>(ci);
             }
         }
 
-        if(!matched)
+        if(bestIdx >= 0)
         {
-            newDarts.push_back(curr);
+            candidateMatched[bestIdx] = true;
+            m_candidates[bestIdx].polar = curr;
+            m_candidates[bestIdx].streak++;
+
+            if(m_candidates[bestIdx].streak >= CONFIRM_FRAMES &&
+               !m_candidates[bestIdx].emitted)
+            {
+                m_candidates[bestIdx].emitted = true;
+                newDarts.push_back(curr);
+            }
+        }
+        else
+        {
+            CandidateDart cd;
+            cd.polar   = curr;
+            cd.streak  = 1;
+            cd.emitted = false;
+            m_candidates.push_back(cd);
+            candidateMatched.push_back(true);
+        }
+    }
+
+    // Remove candidates that weren't matched this frame (peak disappeared).
+    for(int i = static_cast<int>(m_candidates.size()) - 1; i >= 0; i--)
+    {
+        if(!candidateMatched[i])
+        {
+            m_candidates.erase(m_candidates.begin() + i);
         }
     }
 

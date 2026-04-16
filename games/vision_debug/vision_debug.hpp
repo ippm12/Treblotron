@@ -55,9 +55,13 @@ class VisionDebugScreen : public Game
         std::vector<DartPosition>  m_hitPositions;
 
         SDL_Texture*          m_compositeTexture = nullptr;
-        std::vector<uint8_t>  m_compositeBuffer;  // 720*720*3 RGB
         CameraFrame           m_cameraFrames[3];
         bool                  m_lastBoardClear = true;
+
+        // Change-tracking: skip recomputing the composite when neither
+        // the camera frames nor the heatmap have new data.
+        uint64_t              m_lastCompositeFrameId = 0;
+        uint64_t              m_compositeFrameCounter = 0;
 
         FrameTimings          m_timings;
         double                m_lastLogSec = 0.0;
