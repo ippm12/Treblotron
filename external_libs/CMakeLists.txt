@@ -43,7 +43,18 @@ set(WITH_OPENJPEG OFF CACHE BOOL "" FORCE)
 set(WITH_JASPER OFF CACHE BOOL "" FORCE)
 set(WITH_OPENEXR OFF CACHE BOOL "" FORCE)
 set(OPENCV_GENERATE_PKGCONFIG OFF CACHE BOOL "" FORCE)
+# Always build OpenCV in Release mode — Debug mode disables compiler
+# optimizations and NEON auto-vectorization, making cv::remap ~30x slower.
+set(CMAKE_C_FLAGS_SAVED "${CMAKE_C_FLAGS}")
+set(CMAKE_CXX_FLAGS_SAVED "${CMAKE_CXX_FLAGS}")
+set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS_RELEASE}")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS_RELEASE}")
+set(CMAKE_BUILD_TYPE_SAVED "${CMAKE_BUILD_TYPE}")
+set(CMAKE_BUILD_TYPE Release CACHE STRING "" FORCE)
 add_subdirectory(opencv)
+set(CMAKE_BUILD_TYPE "${CMAKE_BUILD_TYPE_SAVED}" CACHE STRING "" FORCE)
+set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS_SAVED}")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS_SAVED}")
 target_link_libraries(${PRJ_NAME} PRIVATE opencv_core opencv_imgproc opencv_calib3d opencv_videoio opencv_imgcodecs)
 # OpenCV's add_subdirectory doesn't propagate include dirs properly — add them explicitly
 target_include_directories(${PRJ_NAME} PRIVATE

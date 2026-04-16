@@ -168,9 +168,9 @@ static void recomputeHomography(uint32_t camIndex)
     // For each destination pixel (u, v) we compute the source coordinate
     //   [sx, sy, w] = H_inv * [u, v, 1]
     //   (sx, sy) /= w
-    // then convertMaps() packs them into the INTER_LINEAR fixed-point format
-    // that cv::remap's NEON path accelerates. This moves the expensive
-    // per-pixel perspective math out of the capture hot loop entirely.
+    // then convertMaps() packs them into fixed-point format for
+    // cv::remap with INTER_NEAREST. This moves the expensive per-pixel
+    // perspective math out of the capture hot loop entirely.
     cv::Mat Hinv = slot.homography.inv();
     const double* H = Hinv.ptr<double>(0);
 
@@ -326,7 +326,7 @@ bool warpCameraFrame(uint32_t camIndex, const cv::Mat& src, cv::Mat& dst)
 
     std::lock_guard<std::mutex> lock(f_warpMutex);
     cv::remap(src, dst, slot.remapXY, slot.remapFrac,
-              cv::INTER_LINEAR, cv::BORDER_CONSTANT, cv::Scalar(0, 0, 0));
+              cv::INTER_NEAREST, cv::BORDER_CONSTANT, cv::Scalar(0, 0, 0));
     return true;
 }
 
