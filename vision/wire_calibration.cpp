@@ -16,7 +16,6 @@
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
-#include <mutex>
 #include <vector>
 
 
@@ -168,9 +167,9 @@ static void recomputeHomography(uint32_t camIndex)
     // For each destination pixel (u, v) we compute the source coordinate
     //   [sx, sy, w] = H_inv * [u, v, 1]
     //   (sx, sy) /= w
-    // then convertMaps() packs them into fixed-point format for
-    // cv::remap with INTER_NEAREST. This moves the expensive per-pixel
-    // perspective math out of the capture hot loop entirely.
+    // then convertMaps() packs them into the INTER_LINEAR fixed-point format
+    // that cv::remap's NEON path accelerates. This moves the expensive
+    // per-pixel perspective math out of the capture hot loop entirely.
     cv::Mat Hinv = slot.homography.inv();
     const double* H = Hinv.ptr<double>(0);
 
@@ -303,17 +302,6 @@ std::string getNextPointLabel(uint32_t camIndex)
 // Warping
 // ============================================================================
 
-// Diagnostic: serialize all warps behind a single mutex so each capture thread
-// sees the uncontended per-warp cost. If the per-camera `warp` timings now
-// cluster tightly near the uncontended floor (instead of fanning out from
-// ~130ms → ~400ms depending on how many other threads are running), then
-// memory-bandwidth contention between parallel warps is the multiplier and
-// the fix is to give each warp exclusive use of cache/DRAM. If the numbers
-// don't change much, the bottleneck is pure compute (carotene HAL probably
-// doesn't accelerate CV_8UC3 INTER_LINEAR remap) and we need the 4-channel
-// conversion trick instead.
-static std::mutex f_warpMutex;
-
 bool warpCameraFrame(uint32_t camIndex, const cv::Mat& src, cv::Mat& dst)
 {
     if(camIndex >= EXPECTED_CAMERA_COUNT) return false;
@@ -324,9 +312,8 @@ bool warpCameraFrame(uint32_t camIndex, const cv::Mat& src, cv::Mat& dst)
         return false;
     }
 
-    std::lock_guard<std::mutex> lock(f_warpMutex);
     cv::remap(src, dst, slot.remapXY, slot.remapFrac,
-              cv::INTER_NEAREST, cv::BORDER_CONSTANT, cv::Scalar(0, 0, 0));
+              cv::INTER_LINEAR, cv::BORDER_CONSTANT, cv::Scalar(0, 0, 0));
     return true;
 }
 
