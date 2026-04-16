@@ -16,6 +16,7 @@
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
+#include <mutex>
 #include <vector>
 
 
@@ -302,6 +303,17 @@ std::string getNextPointLabel(uint32_t camIndex)
 // Warping
 // ============================================================================
 
+// Diagnostic: serialize all warps behind a single mutex so each capture thread
+// sees the uncontended per-warp cost. If the per-camera `warp` timings now
+// cluster tightly near the uncontended floor (instead of fanning out from
+// ~130ms → ~400ms depending on how many other threads are running), then
+// memory-bandwidth contention between parallel warps is the multiplier and
+// the fix is to give each warp exclusive use of cache/DRAM. If the numbers
+// don't change much, the bottleneck is pure compute (carotene HAL probably
+// doesn't accelerate CV_8UC3 INTER_LINEAR remap) and we need the 4-channel
+// conversion trick instead.
+static std::mutex f_warpMutex;
+
 bool warpCameraFrame(uint32_t camIndex, const cv::Mat& src, cv::Mat& dst)
 {
     if(camIndex >= EXPECTED_CAMERA_COUNT) return false;
@@ -312,6 +324,7 @@ bool warpCameraFrame(uint32_t camIndex, const cv::Mat& src, cv::Mat& dst)
         return false;
     }
 
+    std::lock_guard<std::mutex> lock(f_warpMutex);
     cv::remap(src, dst, slot.remapXY, slot.remapFrac,
               cv::INTER_LINEAR, cv::BORDER_CONSTANT, cv::Scalar(0, 0, 0));
     return true;
