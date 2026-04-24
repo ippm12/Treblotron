@@ -1,6 +1,9 @@
 cmake_minimum_required(VERSION 3.22.1)
 
-set(CMAKE_CXX_STANDARD 23)
+# CMAKE_CXX_STANDARD set as a directory variable would leak into OpenCV /
+# SDL subprojects and interact badly with their own compiler-feature
+# checks. We apply cxx_std_23 to our target explicitly via
+# target_compile_features() below instead.
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(PRJ_NAME Dart_Lens)
 
@@ -43,6 +46,8 @@ endif()
 set(MODULES_LIST "debug" "frame" "dart" "players" "game_lib" "games" "vision")
 
 add_executable(${PRJ_NAME} startup.cpp)
+
+target_compile_features(${PRJ_NAME} PRIVATE cxx_std_23)
 
 # Enable warnings and treat them as errors
 target_compile_options(${PRJ_NAME} PRIVATE
