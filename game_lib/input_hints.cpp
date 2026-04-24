@@ -46,6 +46,8 @@ void InputHints::init()
     m_keyboardIcons[SDLK_C]         = loadIcon(KB_BASE, "keyboard_c.png");
     m_keyboardIcons[SDLK_F]         = loadIcon(KB_BASE, "keyboard_f.png");
     m_keyboardIcons[SDLK_R]         = loadIcon(KB_BASE, "keyboard_r.png");
+    m_keyboardIcons[SDLK_LEFTBRACKET]  = loadIcon(KB_BASE, "keyboard_bracket_open.png");
+    m_keyboardIcons[SDLK_RIGHTBRACKET] = loadIcon(KB_BASE, "keyboard_bracket_close.png");
 
     // Xbox colored button icons
     m_gamepadIcons[SDL_GAMEPAD_BUTTON_SOUTH]      = loadIcon(XB_BASE, "xbox_button_color_a.png");
@@ -61,6 +63,7 @@ void InputHints::init()
 
     // Shoulder buttons
     m_gamepadIcons[SDL_GAMEPAD_BUTTON_LEFT_SHOULDER]  = loadIcon(XB_BASE, "xbox_lb.png");
+    m_gamepadIcons[SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER] = loadIcon(XB_BASE, "xbox_rb.png");
 
     // Virtual icon: left stick
     m_gamepadIcons[GAMEPAD_ICON_LEFT_STICK]       = loadIcon(XB_BASE, "xbox_stick_l.png");

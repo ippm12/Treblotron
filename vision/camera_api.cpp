@@ -63,7 +63,10 @@ struct CameraSlot
 {
     cv::VideoCapture capture;
     int              deviceIndex = -1;    // V4L2 device index (e.g. 0, 2, 4)
-    uint32_t         logicalIndex = 0;    // Index into f_cameras[] — used for warpCameraFrame
+    // Index into f_cameras[] — used for warpCameraFrame. Atomic because the
+    // capture thread reads it every frame and swapCameraSlots() can rewrite
+    // it from the render thread without stopping capture.
+    std::atomic<uint32_t> logicalIndex{0};
 
     // Front buffers — written by capture thread under frameMutex, read by any
     // thread that calls get*CameraFrame. cv::Mat shallow-copy-on-assign means
@@ -184,10 +187,14 @@ static void captureLoop(CameraSlot* slot)
             }
 
             bool haveWarp = false;
-            if(isCameraCalibrated(slot->logicalIndex))
+            // Snapshot the logical index once per frame — swapCameraSlots() may
+            // rewrite it between the calibrated check and the warp call, and we
+            // want both to refer to the same slot.
+            uint32_t logical = slot->logicalIndex.load(std::memory_order_acquire);
+            if(isCameraCalibrated(logical))
             {
                 VISION_PROFILE_SCOPE(slot->timings, "warp");
-                haveWarp = warpCameraFrame(slot->logicalIndex, rgb, warped)
+                haveWarp = warpCameraFrame(logical, rgb, warped)
                            && !warped.empty();
             }
 
@@ -313,7 +320,7 @@ Status initializeCameraSystem()
             auto slot = std::make_unique<CameraSlot>();
             slot->capture = std::move(cap);
             slot->deviceIndex = idx;
-            slot->logicalIndex = count;
+            slot->logicalIndex.store(count, std::memory_order_relaxed);
             slot->name = "Camera " + std::to_string(cameraNum);
 
             // Pre-convert first frame so there's something to show immediately
@@ -401,6 +408,29 @@ std::string getCameraName(uint32_t index)
         return "Camera " + std::to_string(index + 1);
     }
     return f_cameras[index]->name;
+}
+
+
+bool swapCameraSlots(uint32_t a, uint32_t b)
+{
+    uint32_t count = f_cameraCount.load(std::memory_order_acquire);
+    if(a == b || a >= count || b >= count) return false;
+
+    // Move the slot pointers — calibration in wire_calibration.cpp is keyed by
+    // logical slot index and stays put, so the camera now sitting at slot `a`
+    // picks up slot `a`'s calibration. logicalIndex is what the capture thread
+    // reads to decide which calibration to apply, so update both atomically.
+    std::swap(f_cameras[a], f_cameras[b]);
+    f_cameras[a]->logicalIndex.store(a, std::memory_order_release);
+    f_cameras[b]->logicalIndex.store(b, std::memory_order_release);
+
+    // Keep the displayed name aligned with the logical slot so "Camera N"
+    // always means the slot using calibration N.
+    f_cameras[a]->name = "Camera " + std::to_string(a + 1);
+    f_cameras[b]->name = "Camera " + std::to_string(b + 1);
+
+    LOG_INFO(VISION_LOG_ID, "Swapped camera slots {} and {}", a, b);
+    return true;
 }
 
 

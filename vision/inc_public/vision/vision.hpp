@@ -163,6 +163,15 @@ bool getCameraFrame(uint32_t index, CameraFrame& outFrame);
 bool getCameraWarpedFrame(uint32_t index, CameraFrame& outFrame);
 
 /**
+ * Swap which physical camera occupies the two given logical slots. Used on
+ * boot enumerations where the OS hands us cameras in a different order than
+ * the saved wire calibrations expect: the calibration data is keyed by logical
+ * slot and stays put, so swapping moves the live feeds to line up with their
+ * calibrations. Returns false on out-of-range index or no-op (a == b).
+ */
+bool swapCameraSlots(uint32_t a, uint32_t b);
+
+/**
  * Save the current frame from every connected camera to the output directory.
  * All images in one capture share the same UUID: {uuid}_cam0.png, {uuid}_cam1.png, ...
  * Creates the output directory if it does not exist.

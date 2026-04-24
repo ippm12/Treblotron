@@ -173,6 +173,8 @@ void CalibrationScreen::render()
         hints.push_back({SDLK_ESCAPE, SDL_GAMEPAD_BUTTON_EAST, "back"});
         hints.push_back({SDLK_RETURN, SDL_GAMEPAD_BUTTON_SOUTH, "calibrate"});
         hints.push_back({SDLK_S, SDL_GAMEPAD_BUTTON_WEST, "save"});
+        hints.push_back({SDLK_LEFTBRACKET,  SDL_GAMEPAD_BUTTON_LEFT_SHOULDER,  "swap left"});
+        hints.push_back({SDLK_RIGHTBRACKET, SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER, "swap right"});
 #ifndef NDEBUG
         hints.push_back({SDLK_F, SDL_GAMEPAD_BUTTON_NORTH, "save frames"});
 #endif
@@ -252,6 +254,40 @@ void CalibrationScreen::onKeyDown(uint32_t keycode)
                 showStatus(IS_STATUS_OK(st) ? "Calibration saved" : "Save failed");
                 break;
             }
+            case SDLK_LEFTBRACKET:
+                if(m_focusedSlot > 0 && swapCameraSlots(m_focusedSlot, m_focusedSlot - 1))
+                {
+                    // The texture at each slot is a snapshot of the previous
+                    // physical camera — drop them so the next render fetches
+                    // the new slot's actual frame.
+                    for(uint32_t i = 0; i < EXPECTED_CAMERA_COUNT; i++)
+                    {
+                        if(m_cameraTextures[i])
+                        {
+                            SDL_DestroyTexture(m_cameraTextures[i]);
+                            m_cameraTextures[i] = nullptr;
+                        }
+                    }
+                    m_focusedSlot--;
+                    showStatus("Swapped");
+                }
+                break;
+            case SDLK_RIGHTBRACKET:
+                if(m_focusedSlot + 1 < m_cameraCount &&
+                   swapCameraSlots(m_focusedSlot, m_focusedSlot + 1))
+                {
+                    for(uint32_t i = 0; i < EXPECTED_CAMERA_COUNT; i++)
+                    {
+                        if(m_cameraTextures[i])
+                        {
+                            SDL_DestroyTexture(m_cameraTextures[i]);
+                            m_cameraTextures[i] = nullptr;
+                        }
+                    }
+                    m_focusedSlot++;
+                    showStatus("Swapped");
+                }
+                break;
 #ifndef NDEBUG
             case SDLK_F:
                 saveFrames();
@@ -291,6 +327,8 @@ void CalibrationScreen::onGamepadButton(uint8_t button, bool pressed)
             case SDL_GAMEPAD_BUTTON_DPAD_LEFT:     onKeyDown(SDLK_LEFT);   break;
             case SDL_GAMEPAD_BUTTON_DPAD_RIGHT:    onKeyDown(SDLK_RIGHT);  break;
             case SDL_GAMEPAD_BUTTON_WEST:          onKeyDown(SDLK_S);      break;
+            case SDL_GAMEPAD_BUTTON_LEFT_SHOULDER:  onKeyDown(SDLK_LEFTBRACKET);  break;
+            case SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER: onKeyDown(SDLK_RIGHTBRACKET); break;
 #ifndef NDEBUG
             case SDL_GAMEPAD_BUTTON_NORTH:         onKeyDown(SDLK_F);      break;
 #endif
