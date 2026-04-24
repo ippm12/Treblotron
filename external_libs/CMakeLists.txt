@@ -29,7 +29,22 @@ target_link_libraries(${PRJ_NAME} PRIVATE SDL3::SDL3)
 # a handful of cuda* modules on top of the base set. Pi / Sim builds keep
 # the lean CPU-only configuration they had before.
 if(DARTLENS_USE_TENSORRT)
-    set(BUILD_LIST "core,imgproc,features2d,flann,calib3d,videoio,imgcodecs,cudaarithm,cudaimgproc,cudawarping" CACHE STRING "" FORCE)
+    # The cuda* modules (and their cudev prerequisite) live in opencv_contrib,
+    # not the main opencv repo — so WITH_CUDA requires OPENCV_EXTRA_MODULES_PATH
+    # to point at an opencv_contrib checkout.
+    set(_opencv_contrib_modules "${CMAKE_CURRENT_SOURCE_DIR}/opencv_contrib/modules")
+    if(NOT EXISTS "${_opencv_contrib_modules}/cudev")
+        message(FATAL_ERROR
+            "opencv_contrib not found at ${_opencv_contrib_modules}. "
+            "Add it as a submodule at the same tag as opencv/ "
+            "(currently 4.12.0): \n"
+            "    git submodule add https://github.com/opencv/opencv_contrib.git external_libs/opencv_contrib\n"
+            "    cd external_libs/opencv_contrib && git checkout 4.12.0\n"
+            "then commit and re-run cmake.")
+    endif()
+    set(OPENCV_EXTRA_MODULES_PATH "${_opencv_contrib_modules}" CACHE PATH "" FORCE)
+
+    set(BUILD_LIST "core,imgproc,features2d,flann,calib3d,videoio,imgcodecs,cudev,cudaarithm,cudaimgproc,cudawarping" CACHE STRING "" FORCE)
     set(WITH_CUDA ON CACHE BOOL "" FORCE)
     set(WITH_CUDNN ON CACHE BOOL "" FORCE)
     set(WITH_CUBLAS ON CACHE BOOL "" FORCE)
