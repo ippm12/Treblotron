@@ -14,6 +14,9 @@
 #ifdef DARTLENS_USE_HAILO
 #include "hailo_vision_source.hpp"
 #endif
+#ifdef DARTLENS_USE_TENSORRT
+#include "tensorrt_vision_source.hpp"
+#endif
 
 #include <memory>
 
@@ -41,6 +44,9 @@ Status initializeVisionModule()
 #endif
 #ifdef DARTLENS_USE_HAILO
     f_visionSource = std::make_shared<HailoVisionSource>();
+#endif
+#ifdef DARTLENS_USE_TENSORRT
+    f_visionSource = std::make_shared<TensorRTVisionSource>();
 #endif
 
     if(f_visionSource)

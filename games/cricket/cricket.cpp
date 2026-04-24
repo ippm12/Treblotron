@@ -273,7 +273,12 @@ void CricketGame::update(float deltaTime)
         auto segment = polarToSegment(pos.angle, pos.normalizedRadius);
         if(!segment.has_value())
         {
+            // Miss — dart landed outside the scoring area. Consume the
+            // throw, record the marker on the surround, no marks awarded.
+            m_throwsRemaining--;
             m_statusText = "Waiting for Throw";
+            m_hitPositions.push_back(pos);
+            if(m_throwsRemaining == 0) m_waitingForCollect = true;
             hasPosition = popDartPosition(pos);
             continue;
         }

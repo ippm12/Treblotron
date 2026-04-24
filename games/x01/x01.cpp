@@ -150,8 +150,14 @@ void X01Game::update(float deltaTime)
         auto segment = polarToSegment(pos.angle, pos.normalizedRadius);
         if(!segment.has_value())
         {
-            LOG_WARNING(GAME_MANAGER_LOG_ID, "X01: Received off-board position");
+            // Miss — dart landed outside the scoring area. Consume the
+            // throw, record the marker on the surround, score unchanged.
+            LOG_INFO(GAME_MANAGER_LOG_ID, "X01: Miss (off-board) for 0 points");
+            m_throwsRemaining--;
             m_statusText = "Waiting for Throw";
+            m_hitPositions.push_back(pos);
+            m_turnScoreProgression.push_back(score);
+            if(m_throwsRemaining == 0) m_waitingForCollect = true;
             hasPosition = popDartPosition(pos);
             continue;
         }

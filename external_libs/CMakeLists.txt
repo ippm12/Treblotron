@@ -24,8 +24,32 @@ target_link_libraries(${PRJ_NAME} PRIVATE SDL3_image::SDL3_image)
 # and GNU ld resolves left-to-right
 target_link_libraries(${PRJ_NAME} PRIVATE SDL3::SDL3)
 
-# OpenCV (minimal build — only core, imgproc, calib3d, videoio, imgcodecs)
-set(BUILD_LIST "core,imgproc,features2d,flann,calib3d,videoio,imgcodecs" CACHE STRING "" FORCE)
+# OpenCV (minimal build — only core, imgproc, calib3d, videoio, imgcodecs).
+# Jetson (DARTLENS_USE_TENSORRT) build opts into CUDA-enabled OpenCV and adds
+# a handful of cuda* modules on top of the base set. Pi / Sim builds keep
+# the lean CPU-only configuration they had before.
+if(DARTLENS_USE_TENSORRT)
+    set(BUILD_LIST "core,imgproc,features2d,flann,calib3d,videoio,imgcodecs,cudaarithm,cudaimgproc,cudawarping" CACHE STRING "" FORCE)
+    set(WITH_CUDA ON CACHE BOOL "" FORCE)
+    set(WITH_CUDNN ON CACHE BOOL "" FORCE)
+    set(WITH_CUBLAS ON CACHE BOOL "" FORCE)
+    set(CUDA_FAST_MATH ON CACHE BOOL "" FORCE)
+    # Single-arch build keeps the binary small and the first-build time
+    # bounded; matches CMAKE_CUDA_ARCHITECTURES set at the project level.
+    set(CUDA_ARCH_BIN "8.7" CACHE STRING "" FORCE)
+    set(CUDA_ARCH_PTX "" CACHE STRING "" FORCE)
+    # NEON FP16 + DotProd are both available on the Orin Nano Super's
+    # Cortex-A78AE cores; baseline them in and keep a dispatch set so
+    # module-level feature detection still works.
+    set(CPU_BASELINE "NEON;FP16" CACHE STRING "" FORCE)
+    set(CPU_DISPATCH "NEON_DOTPROD;NEON_FP16" CACHE STRING "" FORCE)
+    set(WITH_TBB ON CACHE BOOL "" FORCE)
+    set(BUILD_TBB ON CACHE BOOL "" FORCE)
+    set(WITH_OPENMP ON CACHE BOOL "" FORCE)
+else()
+    set(BUILD_LIST "core,imgproc,features2d,flann,calib3d,videoio,imgcodecs" CACHE STRING "" FORCE)
+    set(WITH_CUDA OFF CACHE BOOL "" FORCE)
+endif()
 set(BUILD_SHARED_LIBS_SAVED ${BUILD_SHARED_LIBS})
 set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
 set(BUILD_TESTS OFF CACHE BOOL "" FORCE)
@@ -35,7 +59,6 @@ set(BUILD_opencv_apps OFF CACHE BOOL "" FORCE)
 set(BUILD_DOCS OFF CACHE BOOL "" FORCE)
 set(BUILD_JAVA OFF CACHE BOOL "" FORCE)
 set(BUILD_opencv_python3 OFF CACHE BOOL "" FORCE)
-set(WITH_CUDA OFF CACHE BOOL "" FORCE)
 set(WITH_OPENCL OFF CACHE BOOL "" FORCE)
 set(WITH_TIFF OFF CACHE BOOL "" FORCE)
 set(WITH_WEBP OFF CACHE BOOL "" FORCE)

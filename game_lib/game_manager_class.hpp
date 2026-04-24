@@ -10,6 +10,7 @@
 
 #include <cstdint>
 #include <functional>
+#include <string>
 #include "common_inc.hpp"
 #include "frame/frame.hpp"
 #include "game_lib/game.hpp"
@@ -70,8 +71,9 @@ class GameManager
         FontID m_pauseFontId;
 
         // Pause menu state
-        bool    m_paused = false;
-        uint8_t m_pauseCursor = 0; // 0 = Resume, 1 = Restart, 2 = Main Menu
+        bool        m_paused = false;
+        uint8_t     m_pauseCursor = 0;
+        std::string m_pauseStatus;  // transient feedback line (e.g. "Saved to ./captures/")
 
         // Factory to recreate current game for restart (nullopt = no restart)
         std::function<GamePtr()> m_gameFactory;

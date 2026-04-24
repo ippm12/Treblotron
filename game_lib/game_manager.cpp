@@ -9,6 +9,7 @@
 #include <SDL3/SDL_gamepad.h>
 #include <SDL3_ttf/SDL_ttf.h>
 #include <string>
+#include <vector>
 #include "common_inc.hpp"
 #include "frame/frame.hpp"
 #include "frame/render_queue.hpp"
@@ -157,6 +158,7 @@ Status GameManager::initialize()
         {
             m_paused = true;
             m_pauseCursor = 0;
+            m_pauseStatus.clear();
             return;
         }
 
@@ -183,6 +185,7 @@ Status GameManager::initialize()
         {
             m_paused = true;
             m_pauseCursor = 0;
+            m_pauseStatus.clear();
             return;
         }
 
@@ -290,6 +293,7 @@ Status GameManager::loadGame(GamePtr game, std::function<GamePtr()> restartFacto
     // Reset pause state
     m_paused = false;
     m_pauseCursor = 0;
+    m_pauseStatus.clear();
     m_gameFactory = restartFactory;
 
     // Load new game
@@ -441,11 +445,31 @@ void GameManager::tick()
 // Pause menu
 // ============================================================================
 
+namespace
+{
+
+enum class PauseAction : uint8_t { Resume, Restart, SaveCapture, MainMenu };
+
+struct PauseOption { const char* label; PauseAction action; };
+
+std::vector<PauseOption> buildPauseOptions(bool hasRestart)
+{
+    std::vector<PauseOption> opts;
+    opts.push_back({"Resume", PauseAction::Resume});
+    if(hasRestart) opts.push_back({"Restart", PauseAction::Restart});
+    opts.push_back({"Save Capture", PauseAction::SaveCapture});
+    opts.push_back({"Main Menu", PauseAction::MainMenu});
+    return opts;
+}
+
+}  // namespace
+
+
 void GameManager::handlePauseKey(uint32_t keycode)
 {
-    // Determine how many options to show (hide Restart if no factory)
     bool hasRestart = (m_gameFactory != nullptr);
-    uint8_t optionCount = hasRestart ? 3 : 2;
+    auto options = buildPauseOptions(hasRestart);
+    uint8_t optionCount = static_cast<uint8_t>(options.size());
 
     switch(keycode)
     {
@@ -458,33 +482,36 @@ void GameManager::handlePauseKey(uint32_t keycode)
         case SDLK_RETURN:
         case SDLK_KP_ENTER:
         {
-            // Map cursor index to action depending on whether Restart is available
-            // With restart:    0=Resume, 1=Restart, 2=Main Menu
-            // Without restart: 0=Resume, 1=Main Menu
-            uint8_t action = m_pauseCursor;
-            if(!hasRestart && action >= 1)
+            switch(options[m_pauseCursor].action)
             {
-                action++; // skip restart action
-            }
-
-            if(action == 0)
-            {
-                m_paused = false;
-            }
-            else if(action == 1)
-            {
-                m_paused = false;
-                restartCurrentGame();
-            }
-            else
-            {
-                m_paused = false;
-                loadGame(std::make_shared<MainMenu>());
+                case PauseAction::Resume:
+                    m_paused = false;
+                    m_pauseStatus.clear();
+                    break;
+                case PauseAction::Restart:
+                    m_paused = false;
+                    m_pauseStatus.clear();
+                    restartCurrentGame();
+                    break;
+                case PauseAction::SaveCapture:
+                {
+                    Status stat = saveAllCameraFrames("./captures");
+                    m_pauseStatus = IS_STATUS_OK(stat)
+                        ? "Saved to ./captures/"
+                        : "Failed to save capture";
+                    break;
+                }
+                case PauseAction::MainMenu:
+                    m_paused = false;
+                    m_pauseStatus.clear();
+                    loadGame(std::make_shared<MainMenu>());
+                    break;
             }
             break;
         }
         case SDLK_ESCAPE:
             m_paused = false;
+            m_pauseStatus.clear();
             break;
         default:
             break;
@@ -509,10 +536,12 @@ void GameManager::renderPauseMenu()
 
     // Center panel
     bool hasRestart = (m_gameFactory != nullptr);
-    uint8_t optionCount = hasRestart ? 3 : 2;
+    auto options = buildPauseOptions(hasRestart);
+    uint8_t optionCount = static_cast<uint8_t>(options.size());
     float panelW = 600.0f;
     float rowH   = 75.0f;
-    float panelH = 120.0f + optionCount * rowH + 30.0f;
+    float statusH = m_pauseStatus.empty() ? 0.0f : 50.0f;
+    float panelH = 120.0f + optionCount * rowH + 30.0f + statusH;
     float panelX = (1920.0f - panelW) * 0.5f;
     float panelY = (1080.0f - panelH) * 0.5f;
 
@@ -547,18 +576,6 @@ void GameManager::renderPauseMenu()
     titleText->m_z        = PAUSE_OVERLAY_Z + 2;
     renderQueueAdd(m_frameId, titleText);
 
-    // Menu options
-    const char* allOptions[] = {"Resume", "Restart", "Main Menu"};
-    // Build visible option list
-    const char* visibleOptions[3];
-    int vi = 0;
-    visibleOptions[vi++] = allOptions[0]; // Resume always
-    if(hasRestart)
-    {
-        visibleOptions[vi++] = allOptions[1]; // Restart
-    }
-    visibleOptions[vi++] = allOptions[2]; // Main Menu
-
     float optRowW = 390.0f;
     float optStartY = panelY + 120.0f;
     FontID optFontId = (m_pauseFontId != INVALID_FONT_ID) ? m_pauseFontId : m_barFontId;
@@ -586,11 +603,11 @@ void GameManager::renderPauseMenu()
         int optW = 0, optH = 0;
         if(optFont)
         {
-            TTF_GetStringSize(optFont, visibleOptions[i], 0, &optW, &optH);
+            TTF_GetStringSize(optFont, options[i].label, 0, &optW, &optH);
         }
 
         auto optText = std::make_shared<RenderText>();
-        optText->m_text     = visibleOptions[i];
+        optText->m_text     = options[i].label;
         optText->m_color    = isSelected ? Color{255, 255, 255} : Color{160, 160, 170};
         optText->m_fontId   = optFontId;
         optText->m_rotation = 0.0f;
@@ -600,6 +617,28 @@ void GameManager::renderPauseMenu()
         optText->m_y        = rowY + (rowH - 9.0f - optH) * 0.5f;
         optText->m_z        = PAUSE_OVERLAY_Z + 3;
         renderQueueAdd(m_frameId, optText);
+    }
+
+    // Transient status line (e.g. after a Save Capture action)
+    if(!m_pauseStatus.empty())
+    {
+        int statusW = 0, statusH2 = 0;
+        if(optFont)
+        {
+            TTF_GetStringSize(optFont, m_pauseStatus.c_str(), 0, &statusW, &statusH2);
+        }
+
+        auto statusText = std::make_shared<RenderText>();
+        statusText->m_text     = m_pauseStatus;
+        statusText->m_color    = {200, 220, 200};
+        statusText->m_fontId   = optFontId;
+        statusText->m_rotation = 0.0f;
+        statusText->m_scaleX   = 1.0f;
+        statusText->m_scaleY   = 1.0f;
+        statusText->m_x        = panelX + (panelW - statusW) * 0.5f;
+        statusText->m_y        = optStartY + optionCount * rowH + 10.0f;
+        statusText->m_z        = PAUSE_OVERLAY_Z + 3;
+        renderQueueAdd(m_frameId, statusText);
     }
 }
 

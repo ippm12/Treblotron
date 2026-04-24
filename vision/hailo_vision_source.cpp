@@ -400,7 +400,12 @@ void HailoVisionSource::handleHeatmap(const float* heatmap, uint32_t w, uint32_t
 
         float dist = std::sqrt(dx * dx + dy * dy);
         float normR = dist / BOARD_RADIUS_PX;
-        if(normR > DartBoardGeometry::RADIUS_DOUBLE_OUTER) continue;
+        // Accept peaks out to the catch-ring surround so misses (darts
+        // landing just outside the double wire) can be recorded.
+        // polarToSegment() returns nullopt for normR > 1.0, and games
+        // treat that as a miss: throw consumed, 0 points, marker drawn.
+        constexpr float MAX_DETECT_RADIUS = 1.35f;
+        if(normR > MAX_DETECT_RADIUS) continue;
 
         float angle = static_cast<float>(std::atan2(dy, dx) * 180.0 / M_PI);
 

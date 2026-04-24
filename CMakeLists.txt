@@ -8,10 +8,32 @@ project(${PRJ_NAME})
 
 option(DARTLENS_USE_SIM "Use simulated dart vision source instead of cameras" ON)
 option(DARTLENS_USE_HAILO "Use HAILO-accelerated dart detection (requires HailoRT)" OFF)
+option(DARTLENS_USE_TENSORRT "Use TensorRT-accelerated dart detection (Jetson)" OFF)
 option(DARTLENS_SHOW_FPS "Show framerate counter in the top right" ON)
 
-if(DARTLENS_USE_SIM AND DARTLENS_USE_HAILO)
-    message(FATAL_ERROR "DARTLENS_USE_SIM and DARTLENS_USE_HAILO are mutually exclusive — enable only one vision source.")
+# Count enabled vision-source flags — they're mutually exclusive.
+set(_dartlens_vision_sources 0)
+if(DARTLENS_USE_SIM)
+    math(EXPR _dartlens_vision_sources "${_dartlens_vision_sources} + 1")
+endif()
+if(DARTLENS_USE_HAILO)
+    math(EXPR _dartlens_vision_sources "${_dartlens_vision_sources} + 1")
+endif()
+if(DARTLENS_USE_TENSORRT)
+    math(EXPR _dartlens_vision_sources "${_dartlens_vision_sources} + 1")
+endif()
+if(_dartlens_vision_sources GREATER 1)
+    message(FATAL_ERROR "DARTLENS_USE_SIM, DARTLENS_USE_HAILO, and DARTLENS_USE_TENSORRT are mutually exclusive — enable only one vision source.")
+endif()
+
+# CUDA has to be enabled at project scope (before project()/the exe target)
+# in TRT builds so OpenCV's sub-build can also see it.
+if(DARTLENS_USE_TENSORRT)
+    if(NOT DEFINED CMAKE_CUDA_ARCHITECTURES)
+        # Orin Nano Super: Ampere, compute capability 8.7.
+        set(CMAKE_CUDA_ARCHITECTURES 87)
+    endif()
+    enable_language(CUDA)
 endif()
 
 set(MODULES_LIST "debug" "frame" "dart" "players" "game_lib" "games" "vision")
@@ -63,13 +85,14 @@ foreach(game_dir IN LISTS GAME_SUBDIRS)
     endif()
 endforeach()
 
-# Vision source selection: only one of sim/hailo is compiled in.
-# The other source file is marked header-only so it's skipped by the compiler
-# but still tracked by CMake (keeps the glob-based source list honest).
+# Vision source selection: only one of sim/hailo/tensorrt is compiled in.
+# The other source files are marked header-only so they're skipped by the
+# compiler but still tracked by CMake (keeps the glob-based source list honest).
 if(DARTLENS_USE_SIM)
     target_compile_definitions(${PRJ_NAME} PRIVATE DARTLENS_USE_SIM)
     set_source_files_properties(
         ${PROJECT_SOURCE_DIR}/vision/hailo_vision_source.cpp
+        ${PROJECT_SOURCE_DIR}/vision/tensorrt_vision_source.cpp
         PROPERTIES HEADER_FILE_ONLY TRUE)
 endif()
 
@@ -77,16 +100,61 @@ if(DARTLENS_USE_HAILO)
     target_compile_definitions(${PRJ_NAME} PRIVATE DARTLENS_USE_HAILO)
     set_source_files_properties(
         ${PROJECT_SOURCE_DIR}/vision/sim_vision_source.cpp
+        ${PROJECT_SOURCE_DIR}/vision/tensorrt_vision_source.cpp
         PROPERTIES HEADER_FILE_ONLY TRUE)
 
     find_package(HailoRT REQUIRED)
     target_link_libraries(${PRJ_NAME} PRIVATE HailoRT::libhailort)
 endif()
 
-if(NOT DARTLENS_USE_SIM AND NOT DARTLENS_USE_HAILO)
+if(DARTLENS_USE_TENSORRT)
+    target_compile_definitions(${PRJ_NAME} PRIVATE DARTLENS_USE_TENSORRT)
     set_source_files_properties(
         ${PROJECT_SOURCE_DIR}/vision/sim_vision_source.cpp
         ${PROJECT_SOURCE_DIR}/vision/hailo_vision_source.cpp
+        PROPERTIES HEADER_FILE_ONLY TRUE)
+
+    # CUDA runtime — enable_language(CUDA) above already populates CUDAToolkit_*.
+    find_package(CUDAToolkit REQUIRED)
+
+    # TensorRT headers + libs. JetPack installs them under the standard
+    # /usr/include/aarch64-linux-gnu and /usr/lib/aarch64-linux-gnu paths;
+    # we still search explicitly so a missing install produces a clear
+    # error pointing at the apt package.
+    find_path(TENSORRT_INCLUDE_DIR NvInfer.h
+        HINTS /usr/include/aarch64-linux-gnu /usr/include
+        DOC "TensorRT include directory")
+    find_library(TENSORRT_INFER_LIB       nvinfer
+        HINTS /usr/lib/aarch64-linux-gnu /usr/lib
+        DOC "TensorRT libnvinfer")
+    find_library(TENSORRT_ONNXPARSER_LIB  nvonnxparser
+        HINTS /usr/lib/aarch64-linux-gnu /usr/lib
+        DOC "TensorRT libnvonnxparser")
+    if(NOT TENSORRT_INCLUDE_DIR OR NOT TENSORRT_INFER_LIB OR NOT TENSORRT_ONNXPARSER_LIB)
+        message(FATAL_ERROR
+            "TensorRT not found. On JetPack: sudo apt install tensorrt "
+            "tensorrt-dev libnvonnxparsers-dev libcudnn9-dev")
+    endif()
+
+    target_include_directories(${PRJ_NAME} PRIVATE ${TENSORRT_INCLUDE_DIR})
+    target_link_libraries(${PRJ_NAME} PRIVATE
+        CUDA::cudart
+        ${TENSORRT_INFER_LIB}
+        ${TENSORRT_ONNXPARSER_LIB})
+
+    # Ship the ONNX model next to the executable so the TRT source can find
+    # it on first run (or fall back to the cached .trt).
+    add_custom_command(TARGET ${PRJ_NAME} POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+        ${PROJECT_SOURCE_DIR}/vision/multicam_unet_ar
+        $<TARGET_FILE_DIR:${PRJ_NAME}>/vision/multicam_unet_ar)
+endif()
+
+if(NOT DARTLENS_USE_SIM AND NOT DARTLENS_USE_HAILO AND NOT DARTLENS_USE_TENSORRT)
+    set_source_files_properties(
+        ${PROJECT_SOURCE_DIR}/vision/sim_vision_source.cpp
+        ${PROJECT_SOURCE_DIR}/vision/hailo_vision_source.cpp
+        ${PROJECT_SOURCE_DIR}/vision/tensorrt_vision_source.cpp
         PROPERTIES HEADER_FILE_ONLY TRUE)
 endif()
 
