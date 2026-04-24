@@ -133,6 +133,91 @@ namespace
     TrtLogger g_trtLogger;
 
 
+    // ----------------------------------------------------------------
+    // TRT progress monitor — called by the builder during engine build
+    // so the UI can show something better than a black screen.
+    //
+    // TRT phases are hierarchical (parent phase -> child phases). The
+    // top-level phase's step count is the closest thing to "overall
+    // progress"; we track it and report child phase names as status
+    // text for operator context.
+    // ----------------------------------------------------------------
+    class TrtProgressMonitor : public nvinfer1::IProgressMonitor
+    {
+        public:
+            TrtProgressMonitor(std::atomic<float>& progressOut,
+                               std::mutex& statusMutex,
+                               std::string& statusOut,
+                               std::atomic<bool>& abortFlag)
+                : m_progress(progressOut)
+                , m_statusMutex(statusMutex)
+                , m_status(statusOut)
+                , m_abort(abortFlag)
+            {}
+
+            void phaseStart(char const* phaseName,
+                            char const* parentPhase,
+                            int32_t nbSteps) noexcept override
+            {
+                // Top-level phase = no parent. Use its step count as the
+                // denominator for "overall" progress.
+                const bool topLevel = (parentPhase == nullptr) || (parentPhase[0] == '\0');
+                if(topLevel)
+                {
+                    m_topSteps.store(nbSteps, std::memory_order_release);
+                    m_topStep.store(0, std::memory_order_release);
+                    m_progress.store(0.0f, std::memory_order_release);
+                }
+
+                if(phaseName)
+                {
+                    std::lock_guard<std::mutex> lock(m_statusMutex);
+                    m_status = phaseName;
+                }
+            }
+
+            bool stepComplete(char const* phaseName, int32_t step) noexcept override
+            {
+                (void)phaseName;
+                // We only track top-level progress; sub-phase steps are
+                // noise for the progress bar. But sub-phase NAMES are
+                // still useful status text (set in phaseStart).
+                const int32_t totalSteps = m_topSteps.load(std::memory_order_acquire);
+                if(totalSteps > 0)
+                {
+                    // step indices in TRT are zero-based; nbSteps is total
+                    // count, so fraction is (step+1)/nbSteps when called
+                    // for a top-level step. Phases can nest, so we cap at 1.
+                    const int32_t cur = std::min(step + 1, totalSteps);
+                    m_topStep.store(cur, std::memory_order_release);
+                    m_progress.store(static_cast<float>(cur) / static_cast<float>(totalSteps),
+                                     std::memory_order_release);
+                }
+                return !m_abort.load(std::memory_order_acquire);
+            }
+
+            void phaseFinish(char const* phaseName) noexcept override
+            {
+                (void)phaseName;
+                // Top-level finish → clamp progress to 1.0 so the bar
+                // visibly completes even if nbSteps didn't land exactly.
+                const int32_t totalSteps = m_topSteps.load(std::memory_order_acquire);
+                if(totalSteps > 0 && m_topStep.load() >= totalSteps)
+                {
+                    m_progress.store(1.0f, std::memory_order_release);
+                }
+            }
+
+        private:
+            std::atomic<float>&   m_progress;
+            std::mutex&           m_statusMutex;
+            std::string&          m_status;
+            std::atomic<bool>&    m_abort;
+            std::atomic<int32_t>  m_topSteps{0};
+            std::atomic<int32_t>  m_topStep{0};
+    };
+
+
     // Small RAII helper for CUDA device allocations. Doesn't try to match
     // the full CUDA allocator API — we only need malloc + free here.
     struct CudaBuffer
@@ -270,12 +355,14 @@ namespace
 
     // Build an FP16 engine from the ONNX and serialize it to disk. Logs the
     // (multi-second) build cost so the first-run delay doesn't look like a
-    // hang.
-    std::vector<uint8_t> buildEngineFromOnnx(const std::string& onnxPath)
+    // hang. Optionally accepts a progress monitor so the UI can draw a
+    // progress bar during the build.
+    std::vector<uint8_t> buildEngineFromOnnx(const std::string& onnxPath,
+                                             nvinfer1::IProgressMonitor* monitor)
     {
         LOG_INFO(VISION_LOG_ID,
                  "TensorRTVisionSource: building FP16 engine from {} "
-                 "(this takes 30-90 seconds on first run)",
+                 "(first run only, typically 2-5 minutes on Orin Nano Super)",
                  onnxPath);
 
         std::unique_ptr<nvinfer1::IBuilder> builder(
@@ -314,6 +401,10 @@ namespace
                         "TRT: platform reports no fast FP16 — falling back to FP32");
         }
         config->setMemoryPoolLimit(nvinfer1::MemoryPoolType::kWORKSPACE, TRT_WORKSPACE_BYTES);
+        if(monitor)
+        {
+            config->setProgressMonitor(monitor);
+        }
 
         std::unique_ptr<nvinfer1::IHostMemory> plan(
             builder->buildSerializedNetwork(*network, *config));
@@ -373,132 +464,227 @@ Status TensorRTVisionSource::init()
 {
     try
     {
+    // Start the camera system up front — it takes a moment too, and doing
+    // it on the main thread keeps the threading model simple. The heavy
+    // TRT engine build happens on a background thread below so the UI
+    // stays interactive.
     initializeCameraSystem();
 
     LOG_INFO(VISION_LOG_ID, "TensorRTVisionSource: creating CUDA stream");
     if(cudaStreamCreate(&m_impl->stream) != cudaSuccess)
     {
         LOG_ERROR(VISION_LOG_ID, "cudaStreamCreate failed");
+        m_buildState.store(BuildState::Failed, std::memory_order_release);
         return STATUS_ERROR_GENERIC;
     }
 
-    // Load or build the engine.
-    std::vector<uint8_t> planBytes;
-    bool loadedFromCache = false;
-    if(cachedEngineIsFresh(ENGINE_PATH, ONNX_PATH))
     {
-        if(readFileBytes(ENGINE_PATH, planBytes))
-        {
-            LOG_INFO(VISION_LOG_ID,
-                     "TensorRTVisionSource: loaded cached engine from {} ({} bytes)",
-                     ENGINE_PATH, planBytes.size());
-            loadedFromCache = true;
-        }
+        std::lock_guard<std::mutex> lock(m_buildStatusMutex);
+        m_buildStatus = "Preparing";
     }
+    m_buildProgress.store(0.0f, std::memory_order_release);
+    m_buildState.store(BuildState::Building, std::memory_order_release);
+    m_buildThread = std::thread(&TensorRTVisionSource::buildThreadMain, this);
 
-    m_impl->runtime.reset(nvinfer1::createInferRuntime(g_trtLogger));
-    if(!m_impl->runtime)
-    {
-        LOG_ERROR(VISION_LOG_ID, "createInferRuntime failed");
-        return STATUS_ERROR_GENERIC;
-    }
-
-    if(loadedFromCache)
-    {
-        m_impl->engine.reset(m_impl->runtime->deserializeCudaEngine(
-            planBytes.data(), planBytes.size()));
-        if(!m_impl->engine)
-        {
-            LOG_WARNING(VISION_LOG_ID,
-                        "Cached engine failed to deserialize "
-                        "(likely GPU/TRT version mismatch) — rebuilding");
-            planBytes.clear();
-            loadedFromCache = false;
-        }
-    }
-
-    if(!loadedFromCache)
-    {
-        planBytes = buildEngineFromOnnx(ONNX_PATH);
-        if(planBytes.empty()) return STATUS_ERROR_GENERIC;
-
-        // Cache the freshly built engine for next launch. Non-fatal if the
-        // write fails (e.g. read-only filesystem) — just means we rebuild
-        // next time.
-        std::ofstream f(ENGINE_PATH, std::ios::binary);
-        if(f.write(reinterpret_cast<const char*>(planBytes.data()),
-                   static_cast<std::streamsize>(planBytes.size())))
-        {
-            LOG_INFO(VISION_LOG_ID,
-                     "TensorRTVisionSource: wrote engine cache to {}", ENGINE_PATH);
-        }
-        else
-        {
-            LOG_WARNING(VISION_LOG_ID,
-                        "TensorRTVisionSource: failed to write engine cache to {} "
-                        "(errno={}); will rebuild next run",
-                        ENGINE_PATH, errno);
-        }
-
-        m_impl->engine.reset(m_impl->runtime->deserializeCudaEngine(
-            planBytes.data(), planBytes.size()));
-        if(!m_impl->engine)
-        {
-            LOG_ERROR(VISION_LOG_ID, "deserializeCudaEngine failed on fresh plan");
-            return STATUS_ERROR_GENERIC;
-        }
-    }
-
-    m_impl->context.reset(m_impl->engine->createExecutionContext());
-    if(!m_impl->context)
-    {
-        LOG_ERROR(VISION_LOG_ID, "createExecutionContext failed");
-        return STATUS_ERROR_GENERIC;
-    }
-
-    // Allocate device + pinned buffers for the four tensors.
-    if(!m_impl->dInput.allocate(INPUT_FLOATS * sizeof(float))
-    || !m_impl->dHeatmap.allocate(HEATMAP_FLOATS * sizeof(float))
-    || !m_impl->dOffset.allocate(OFFSET_FLOATS * sizeof(float))
-    || !m_impl->dExist.allocate(sizeof(float))
-    || !m_impl->hInput.allocate(INPUT_FLOATS * sizeof(float))
-    || !m_impl->hHeatmap.allocate(HEATMAP_FLOATS * sizeof(float))
-    || !m_impl->hOffset.allocate(OFFSET_FLOATS * sizeof(float))
-    || !m_impl->hExist.allocate(sizeof(float)))
-    {
-        LOG_ERROR(VISION_LOG_ID, "CUDA buffer allocation failed");
-        return STATUS_ERROR_GENERIC;
-    }
-
-    // Bind tensor addresses — these persist across enqueueV3 calls.
-    m_impl->context->setTensorAddress(INPUT_NAME,  m_impl->dInput.ptr);
-    m_impl->context->setTensorAddress(OUT_HEATMAP, m_impl->dHeatmap.ptr);
-    m_impl->context->setTensorAddress(OUT_OFFSET,  m_impl->dOffset.ptr);
-    m_impl->context->setTensorAddress(OUT_EXIST,   m_impl->dExist.ptr);
-
-    m_running.store(true, std::memory_order_release);
-    m_thread = std::thread(&TensorRTVisionSource::inferenceLoop, this);
-
-    LOG_INFO(VISION_LOG_ID, "TensorRTVisionSource initialized");
+    // The inference thread is spawned inside buildThreadMain() once the
+    // engine is ready. init() returns immediately so the main render
+    // loop can draw a loading screen.
     return STATUS_OK;
     }
     catch(const std::exception& e)
     {
         LOG_ERROR(VISION_LOG_ID, "TensorRTVisionSource::init threw: {}", e.what());
+        m_buildState.store(BuildState::Failed, std::memory_order_release);
         return STATUS_ERROR_GENERIC;
     }
     catch(...)
     {
         LOG_ERROR(VISION_LOG_ID, "TensorRTVisionSource::init threw unknown exception");
+        m_buildState.store(BuildState::Failed, std::memory_order_release);
         return STATUS_ERROR_GENERIC;
     }
 }
 
 
+// Runs on m_buildThread. Owns the full "bring the engine up" sequence:
+// load cached engine (or build + cache it), create context, allocate
+// buffers, bind tensors, and finally launch the inference thread.
+// Publishes progress + status through the atomics for the UI.
+void TensorRTVisionSource::buildThreadMain()
+{
+    auto setStatus = [&](const std::string& s)
+    {
+        std::lock_guard<std::mutex> lock(m_buildStatusMutex);
+        m_buildStatus = s;
+    };
+    auto fail = [&](const char* why)
+    {
+        LOG_ERROR(VISION_LOG_ID, "TensorRTVisionSource build failed: {}", why);
+        setStatus(std::string("Failed: ") + why);
+        m_buildState.store(BuildState::Failed, std::memory_order_release);
+    };
+
+    try
+    {
+        // ---- Load cached engine if present and fresh ------------------
+        setStatus("Checking engine cache");
+        std::vector<uint8_t> planBytes;
+        bool loadedFromCache = false;
+        if(cachedEngineIsFresh(ENGINE_PATH, ONNX_PATH))
+        {
+            if(readFileBytes(ENGINE_PATH, planBytes))
+            {
+                LOG_INFO(VISION_LOG_ID,
+                         "TensorRTVisionSource: loaded cached engine from {} ({} bytes)",
+                         ENGINE_PATH, planBytes.size());
+                loadedFromCache = true;
+                // Cached load is fast — show a near-full bar so it feels
+                // snappy instead of jumping from 0% to 100% instantly.
+                m_buildProgress.store(0.8f, std::memory_order_release);
+                setStatus("Loading cached engine");
+            }
+        }
+
+        m_impl->runtime.reset(nvinfer1::createInferRuntime(g_trtLogger));
+        if(!m_impl->runtime) return fail("createInferRuntime");
+
+        if(loadedFromCache)
+        {
+            m_impl->engine.reset(m_impl->runtime->deserializeCudaEngine(
+                planBytes.data(), planBytes.size()));
+            if(!m_impl->engine)
+            {
+                LOG_WARNING(VISION_LOG_ID,
+                            "Cached engine failed to deserialize "
+                            "(likely GPU/TRT version mismatch) — rebuilding");
+                planBytes.clear();
+                loadedFromCache = false;
+            }
+        }
+
+        // ---- Build from ONNX if there was no cached plan --------------
+        if(!loadedFromCache)
+        {
+            setStatus("Parsing ONNX and timing tactics");
+            m_buildProgress.store(0.0f, std::memory_order_release);
+
+            TrtProgressMonitor monitor(m_buildProgress,
+                                       m_buildStatusMutex,
+                                       m_buildStatus,
+                                       m_buildAbort);
+            planBytes = buildEngineFromOnnx(ONNX_PATH, &monitor);
+            if(planBytes.empty() || m_buildAbort.load(std::memory_order_acquire))
+            {
+                return fail("engine build");
+            }
+
+            // Cache the freshly built engine for next launch. Non-fatal
+            // if the write fails (e.g. read-only fs) — just means we
+            // rebuild next time.
+            setStatus("Caching engine to disk");
+            std::ofstream f(ENGINE_PATH, std::ios::binary);
+            if(f.write(reinterpret_cast<const char*>(planBytes.data()),
+                       static_cast<std::streamsize>(planBytes.size())))
+            {
+                LOG_INFO(VISION_LOG_ID,
+                         "TensorRTVisionSource: wrote engine cache to {}", ENGINE_PATH);
+            }
+            else
+            {
+                LOG_WARNING(VISION_LOG_ID,
+                            "TensorRTVisionSource: failed to write engine cache to {} "
+                            "(errno={}); will rebuild next run",
+                            ENGINE_PATH, errno);
+            }
+
+            m_impl->engine.reset(m_impl->runtime->deserializeCudaEngine(
+                planBytes.data(), planBytes.size()));
+            if(!m_impl->engine) return fail("deserializeCudaEngine on fresh plan");
+        }
+
+        // Bail out early if shutdown was requested mid-build.
+        if(m_buildAbort.load(std::memory_order_acquire))
+        {
+            setStatus("Aborted");
+            m_buildState.store(BuildState::Failed, std::memory_order_release);
+            return;
+        }
+
+        // ---- Context + buffers + bindings ----------------------------
+        setStatus("Allocating GPU buffers");
+        m_buildProgress.store(0.95f, std::memory_order_release);
+
+        m_impl->context.reset(m_impl->engine->createExecutionContext());
+        if(!m_impl->context) return fail("createExecutionContext");
+
+        if(!m_impl->dInput.allocate(INPUT_FLOATS * sizeof(float))
+        || !m_impl->dHeatmap.allocate(HEATMAP_FLOATS * sizeof(float))
+        || !m_impl->dOffset.allocate(OFFSET_FLOATS * sizeof(float))
+        || !m_impl->dExist.allocate(sizeof(float))
+        || !m_impl->hInput.allocate(INPUT_FLOATS * sizeof(float))
+        || !m_impl->hHeatmap.allocate(HEATMAP_FLOATS * sizeof(float))
+        || !m_impl->hOffset.allocate(OFFSET_FLOATS * sizeof(float))
+        || !m_impl->hExist.allocate(sizeof(float)))
+        {
+            return fail("CUDA buffer allocation");
+        }
+
+        m_impl->context->setTensorAddress(INPUT_NAME,  m_impl->dInput.ptr);
+        m_impl->context->setTensorAddress(OUT_HEATMAP, m_impl->dHeatmap.ptr);
+        m_impl->context->setTensorAddress(OUT_OFFSET,  m_impl->dOffset.ptr);
+        m_impl->context->setTensorAddress(OUT_EXIST,   m_impl->dExist.ptr);
+
+        // ---- Launch the inference thread -----------------------------
+        m_running.store(true, std::memory_order_release);
+        m_thread = std::thread(&TensorRTVisionSource::inferenceLoop, this);
+
+        m_buildProgress.store(1.0f, std::memory_order_release);
+        setStatus("Ready");
+        m_buildState.store(BuildState::Ready, std::memory_order_release);
+        LOG_INFO(VISION_LOG_ID, "TensorRTVisionSource initialized");
+    }
+    catch(const std::exception& e)
+    {
+        LOG_ERROR(VISION_LOG_ID, "buildThreadMain threw: {}", e.what());
+        fail("exception");
+    }
+    catch(...)
+    {
+        LOG_ERROR(VISION_LOG_ID, "buildThreadMain threw unknown exception");
+        fail("unknown exception");
+    }
+}
+
+
+bool TensorRTVisionSource::isInitializing() const
+{
+    return m_buildState.load(std::memory_order_acquire) == BuildState::Building;
+}
+
+
+float TensorRTVisionSource::getInitProgress() const
+{
+    return m_buildProgress.load(std::memory_order_acquire);
+}
+
+
+std::string TensorRTVisionSource::getInitStatus() const
+{
+    std::lock_guard<std::mutex> lock(m_buildStatusMutex);
+    return m_buildStatus;
+}
+
+
 void TensorRTVisionSource::shutdown()
 {
+    // If engine build is still running, signal abort via the progress
+    // monitor's continueFlag and wait for the thread to unwind.
+    m_buildAbort.store(true, std::memory_order_release);
+    if(m_buildThread.joinable()) m_buildThread.join();
+    // Build thread may have spawned the inference thread before seeing the
+    // abort — explicitly stop it now.
     m_running.store(false, std::memory_order_release);
-    if(m_thread.joinable()) m_thread.join();
+    if(m_thread.joinable())      m_thread.join();
 
     m_impl->context.reset();
     m_impl->engine.reset();

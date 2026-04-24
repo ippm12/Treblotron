@@ -64,6 +64,46 @@ bool getLatestVisionHeatmap(std::vector<float>& out,
 
 
 // ============================================================================
+// Async-init state (TensorRT engine build, etc.)
+// ============================================================================
+
+/**
+ * True if the active vision source is still initializing (e.g. the
+ * TensorRT source is building its FP16 engine). The main loop should
+ * render a loading screen via presentVisionLoadingFrame() while this
+ * returns true.
+ *
+ * For sources that come up synchronously (sim, hailo) this always
+ * returns false after initializeVisionModule() returns.
+ */
+bool isVisionInitializing();
+
+/** Fractional init progress in [0, 1]. 1.0 when not initializing. */
+float getVisionInitProgress();
+
+/**
+ * Short human-readable phase label for the loading screen
+ * (e.g. "Timing CUDA tactics"). Empty when no source is active.
+ */
+std::string getVisionInitStatus();
+
+/**
+ * Render one frame of the "building model" loading screen to the main
+ * window (the frame created by the game manager). Intended to be called
+ * from a mini-loop between initializeVisionModule() and the normal game
+ * loop when isVisionInitializing() is true.
+ *
+ * Clears the frame, renders the loading UI, flushes the render queue,
+ * and presents the frame — callers should not wrap it in
+ * renderQueueDrawFlush / presentFrame themselves.
+ *
+ * deltaTime drives the spinner animation. Safe to call even when vision
+ * is not actively initializing.
+ */
+void presentVisionLoadingFrame(float deltaTime);
+
+
+// ============================================================================
 // Game connection (via callbacks — vision module knows nothing about Game)
 // ============================================================================
 

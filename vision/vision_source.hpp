@@ -15,6 +15,7 @@
 #include <cstdint>
 #include <functional>
 #include <memory>
+#include <string>
 #include <vector>
 
 class VisionSource
@@ -48,6 +49,30 @@ class VisionSource
             (void)out; (void)width; (void)height;
             return false;
         }
+
+        /**
+         * True if the source is still bringing itself up (e.g. the
+         * TensorRT source is building / loading its FP16 engine). When
+         * true, the main loop should render a loading screen instead of
+         * the normal UI.
+         *
+         * Default: false — sources that come up synchronously never
+         * report an "initializing" state.
+         */
+        virtual bool isInitializing() const { return false; }
+
+        /**
+         * Fractional init progress in [0, 1]. Only meaningful while
+         * isInitializing() is true. Default: 1.0 (ready).
+         */
+        virtual float getInitProgress() const { return 1.0f; }
+
+        /**
+         * Short human-readable status for the loading screen
+         * (e.g. "Timing CUDA tactics"). May change mid-init as
+         * sub-phases start.
+         */
+        virtual std::string getInitStatus() const { return {}; }
 
         /** Set callbacks for dart events. Pass nullptr to disconnect. */
         void setCallbacks(std::function<void()> onDartLanded,

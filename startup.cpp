@@ -4,7 +4,9 @@
  * The main function that runbs on startup
  */
 
+#include <chrono>
 #include <memory>
+#include <thread>
 #include "common_inc.hpp"
 #include "frame/frame.hpp"
 #include "players/players.hpp"
@@ -72,6 +74,40 @@ int main()
     }
 
     LOG_INFO(MAIN_LOG_ID, "Finished Initializing");
+
+    // Some vision sources (TensorRT on Jetson) build their engine on a
+    // background thread during init(). Keep the window alive with a
+    // loading screen until the source reports ready, then fall through
+    // to the normal game loop.
+    {
+        auto lastTick = std::chrono::steady_clock::now();
+        bool quitRequested = false;
+        while(isVisionInitializing())
+        {
+            if(!pollFrames())
+            {
+                quitRequested = true;
+                break;
+            }
+            const auto now = std::chrono::steady_clock::now();
+            const float dt = std::chrono::duration<float>(now - lastTick).count();
+            lastTick = now;
+            presentVisionLoadingFrame(dt);
+            // 60 Hz cap — the loading screen doesn't need anything faster,
+            // and we don't want to starve the build thread for CPU.
+            std::this_thread::sleep_for(std::chrono::milliseconds(16));
+        }
+
+        if(quitRequested)
+        {
+            shutdownVisionModule();
+            shutdownPlayersModule();
+            shutdownGameManager();
+            shutdownFrameModule();
+            shutdownLoggingModule();
+            return 0;
+        }
+    }
 
     while(pollFrames())
     {

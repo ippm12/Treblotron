@@ -42,11 +42,28 @@ class TensorRTVisionSource : public VisionSource
         bool getLatestHeatmap(std::vector<float>& out,
                               uint32_t& width, uint32_t& height) const override;
 
+        // Async engine build — init() returns immediately and the TRT engine
+        // construction runs on m_buildThread. UI polls these to render a
+        // loading screen.
+        bool         isInitializing() const override;
+        float        getInitProgress() const override;
+        std::string  getInitStatus() const override;
+
     private:
         // Forward declaration — full type lives in the .cpp so only that
         // translation unit sees TensorRT / CUDA headers.
         struct Impl;
 
+        // State machine for the async init path.
+        enum class BuildState : uint8_t
+        {
+            Idle,      // before init() has been called
+            Building,  // engine is being loaded from cache or built from ONNX
+            Ready,     // engine + inference thread are live
+            Failed     // init failed — runtime disabled
+        };
+
+        void buildThreadMain();
         void inferenceLoop();
 
         struct PolarDart
@@ -70,6 +87,16 @@ class TensorRTVisionSource : public VisionSource
         std::atomic<bool>       m_running{false};
         std::atomic<bool>       m_resetRequested{false};
         std::atomic<bool>       m_boardClear{true};
+
+        // Async-init state — updated by m_buildThread and the IProgressMonitor
+        // it installs on the TRT builder. The UI reads these via the public
+        // isInitializing / getInitProgress / getInitStatus accessors.
+        std::thread               m_buildThread;
+        std::atomic<BuildState>   m_buildState{BuildState::Idle};
+        std::atomic<float>        m_buildProgress{0.0f};  // 0..1
+        std::atomic<bool>         m_buildAbort{false};    // set by shutdown()
+        mutable std::mutex        m_buildStatusMutex;
+        std::string               m_buildStatus;          // human-readable phase name
 
         // Temporal filter: a candidate peak must appear in CONFIRM_FRAMES
         // consecutive inferences before it's promoted to a confirmed dart
