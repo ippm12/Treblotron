@@ -4,7 +4,21 @@ set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 set(PRJ_NAME Dart_Lens)
 
-project(${PRJ_NAME})
+# DARTLENS_USE_TENSORRT comes in via -D on the cmake command line and is
+# already in the cache at this point — so we can read it before the
+# option() calls below to decide whether to enable CUDA as a project
+# language. Declaring CUDA in project(LANGUAGES ...) is more robust on
+# CMake 3.22 / JetPack than calling enable_language(CUDA) after project().
+set(_DARTLENS_LANGUAGES C CXX)
+if(DARTLENS_USE_TENSORRT)
+    if(NOT DEFINED CMAKE_CUDA_ARCHITECTURES)
+        # Orin Nano Super: Ampere, compute capability 8.7.
+        set(CMAKE_CUDA_ARCHITECTURES 87)
+    endif()
+    list(APPEND _DARTLENS_LANGUAGES CUDA)
+endif()
+
+project(${PRJ_NAME} LANGUAGES ${_DARTLENS_LANGUAGES})
 
 option(DARTLENS_USE_SIM "Use simulated dart vision source instead of cameras" ON)
 option(DARTLENS_USE_HAILO "Use HAILO-accelerated dart detection (requires HailoRT)" OFF)
@@ -24,16 +38,6 @@ if(DARTLENS_USE_TENSORRT)
 endif()
 if(_dartlens_vision_sources GREATER 1)
     message(FATAL_ERROR "DARTLENS_USE_SIM, DARTLENS_USE_HAILO, and DARTLENS_USE_TENSORRT are mutually exclusive — enable only one vision source.")
-endif()
-
-# CUDA has to be enabled at project scope (before project()/the exe target)
-# in TRT builds so OpenCV's sub-build can also see it.
-if(DARTLENS_USE_TENSORRT)
-    if(NOT DEFINED CMAKE_CUDA_ARCHITECTURES)
-        # Orin Nano Super: Ampere, compute capability 8.7.
-        set(CMAKE_CUDA_ARCHITECTURES 87)
-    endif()
-    enable_language(CUDA)
 endif()
 
 set(MODULES_LIST "debug" "frame" "dart" "players" "game_lib" "games" "vision")
