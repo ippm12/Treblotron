@@ -151,20 +151,29 @@ if(DARTLENS_USE_TENSORRT)
         ${TENSORRT_INFER_LIB}
         ${TENSORRT_ONNXPARSER_LIB})
 
-    # Ship the ONNX model next to the executable so the TRT source can find
-    # it on first run (or fall back to the cached .trt).
-    add_custom_command(TARGET ${PRJ_NAME} POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E copy_directory
-        ${PROJECT_SOURCE_DIR}/vision/multicam_unet_ar
-        $<TARGET_FILE_DIR:${PRJ_NAME}>/vision/multicam_unet_ar)
-
-    # Same for the BlazePalm presence detector — the TRT source builds a
-    # second engine from this ONNX on first run and caches the .trt next
-    # to it. See vision/palm_detection/README.md for export instructions.
-    add_custom_command(TARGET ${PRJ_NAME} POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E copy_directory
-        ${PROJECT_SOURCE_DIR}/vision/palm_detection
-        $<TARGET_FILE_DIR:${PRJ_NAME}>/vision/palm_detection)
+    # Ship the ONNX models next to the executable so the TRT source can
+    # find them on first run, or fall back to the cached .trt on later
+    # runs. Uses copy_if_different (not copy_directory) on each ONNX
+    # individually so the source mtime is preserved when content hasn't
+    # changed — that's what keeps the cached .trt next to it valid across
+    # rebuilds. The cache check at runtime invalidates whenever the ONNX
+    # is newer than the .trt, and copy_directory unconditionally bumps
+    # the destination mtime, which would force a multi-minute engine
+    # rebuild on every cmake --build. With copy_if_different, the .trt
+    # cache survives forever until you actually replace the ONNX.
+    set(_dartlens_onnx_assets
+        vision/multicam_unet_ar/multicam_unet_ar.onnx
+        vision/palm_detection/blazepalm.onnx
+    )
+    foreach(_asset IN LISTS _dartlens_onnx_assets)
+        get_filename_component(_asset_dir ${_asset} DIRECTORY)
+        add_custom_command(TARGET ${PRJ_NAME} POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E make_directory
+                $<TARGET_FILE_DIR:${PRJ_NAME}>/${_asset_dir}
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                ${PROJECT_SOURCE_DIR}/${_asset}
+                $<TARGET_FILE_DIR:${PRJ_NAME}>/${_asset})
+    endforeach()
 endif()
 
 if(NOT DARTLENS_USE_SIM AND NOT DARTLENS_USE_HAILO AND NOT DARTLENS_USE_TENSORRT)
