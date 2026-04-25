@@ -76,12 +76,24 @@ class TensorRTVisionSource : public VisionSource
 
         /**
          * Core detection step: decode the TRT output tensors (single argmax
-         * peak + offset, gated by exist_logit), run it through the streak
-         * filter, and queue a dart event on confirmation.
+         * peak + offset, gated by exist_logit), drive the Detecting/Removing
+         * state machine using `handPresent`, and — when in Detecting and
+         * the streak filter confirms — queue a dart event.
          */
-        void handleInferenceOutputs();
+        void handleInferenceOutputs(bool handPresent);
 
         std::unique_ptr<Impl> m_impl;
+
+        // Detection mode — Detecting is the normal autoregressive flow,
+        // Removing freezes dart emission and waits for the board to clear
+        // (no hand AND no heatmap peak above threshold) for several
+        // consecutive cycles. See the long comment in
+        // tensorrt_vision_source.cpp for the full state-machine rules.
+        enum class DetectionMode : uint8_t
+        {
+            Detecting,
+            Removing
+        };
 
         std::thread             m_thread;
         std::atomic<bool>       m_running{false};
@@ -114,8 +126,31 @@ class TensorRTVisionSource : public VisionSource
 
         // Confirmed darts — rasterized into channel 9 of the input tensor
         // each inference so the AR model only hunts for the NEXT dart.
-        // Cleared on resetDarts().
+        // Cleared on resetDarts() and on entry to DetectionMode::Removing.
         std::vector<PolarDart> m_confirmedDarts;
+
+        // ----- Hand-detection / removing-darts state ---------------------
+        //
+        // BlazePalm runs round-robin on one camera per cycle. Per-camera
+        // last-result memory is OR'd into a single "is a hand present"
+        // flag so the system stays robust when a held dart occludes the
+        // hand from one or two cameras. See the explanatory comment in
+        // the .cpp at the use site.
+        DetectionMode m_mode = DetectionMode::Detecting;
+        int           m_handStreak  = 0;   // consecutive cycles handPresent (Detecting only)
+        int           m_clearStreak = 0;   // consecutive clean cycles (Removing only)
+        uint32_t      m_palmFrameCounter = 0;  // round-robin index into the cameras
+        bool          m_palmRecent[EXPECTED_CAMERA_COUNT] = {false, false, false};
+
+        // Cycles of palm-present required before entering Removing. Two
+        // is enough to absorb a single isolated false positive from the
+        // detector.
+        static constexpr int HAND_ENTER_FRAMES = 2;
+
+        // Cycles of (no hand AND no heatmap peak above threshold)
+        // required before declaring the board clear and returning to
+        // Detecting. ~0.33 s at the 30 Hz camera rate.
+        static constexpr int CLEAR_CONFIRM_FRAMES = 10;
 
         // Events produced by the inference thread, consumed by tick() on
         // the main thread which forwards them through m_onDartLanded /

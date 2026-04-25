@@ -157,6 +157,14 @@ if(DARTLENS_USE_TENSORRT)
         COMMAND ${CMAKE_COMMAND} -E copy_directory
         ${PROJECT_SOURCE_DIR}/vision/multicam_unet_ar
         $<TARGET_FILE_DIR:${PRJ_NAME}>/vision/multicam_unet_ar)
+
+    # Same for the BlazePalm presence detector — the TRT source builds a
+    # second engine from this ONNX on first run and caches the .trt next
+    # to it. See vision/palm_detection/README.md for export instructions.
+    add_custom_command(TARGET ${PRJ_NAME} POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+        ${PROJECT_SOURCE_DIR}/vision/palm_detection
+        $<TARGET_FILE_DIR:${PRJ_NAME}>/vision/palm_detection)
 endif()
 
 if(NOT DARTLENS_USE_SIM AND NOT DARTLENS_USE_HAILO AND NOT DARTLENS_USE_TENSORRT)

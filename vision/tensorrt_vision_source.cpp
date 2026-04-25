@@ -97,6 +97,35 @@ namespace
     // above what this network needs and well under the Orin Nano Super's
     // 8 GB unified memory budget.
     constexpr size_t TRT_WORKSPACE_BYTES = 1ULL << 31;
+
+    // ----- BlazePalm (presence-only hand detector) -----
+    //
+    // Round-robin one camera per cycle. Per-camera last-result memory is
+    // OR'd to decide "hand present" so a held dart occluding one or two
+    // camera angles doesn't keep us out of the Removing state. Output
+    // tensor names + shapes match the standard BlazePalm Lite ONNX export
+    // (see vision/palm_detection/README.md for the conversion recipe).
+    constexpr const char* PALM_ONNX_PATH   = "./vision/palm_detection/blazepalm.onnx";
+    constexpr const char* PALM_ENGINE_PATH = "./vision/palm_detection/blazepalm.trt";
+
+    constexpr const char* PALM_INPUT_NAME   = "input";
+    constexpr const char* PALM_OUT_SCORES   = "classificators";
+    constexpr const char* PALM_OUT_BOXES    = "regressors";
+
+    constexpr uint32_t PALM_INPUT_W   = 192;
+    constexpr uint32_t PALM_INPUT_H   = 192;
+    constexpr uint32_t PALM_INPUT_C   = 3;
+    constexpr uint32_t PALM_N_ANCHORS = 2016;
+    constexpr uint32_t PALM_BOX_DIM   = 18;
+
+    constexpr size_t PALM_INPUT_FLOATS  = static_cast<size_t>(PALM_INPUT_C)
+                                        * PALM_INPUT_H * PALM_INPUT_W;
+    constexpr size_t PALM_SCORES_FLOATS = PALM_N_ANCHORS;
+    constexpr size_t PALM_BOXES_FLOATS  = static_cast<size_t>(PALM_N_ANCHORS) * PALM_BOX_DIM;
+
+    // Sigmoid threshold on the max anchor score. 0.5 is the BlazePalm
+    // default — palm detector is well-calibrated, no need to tune.
+    constexpr float PALM_PRESENCE_THRESHOLD = 0.5f;
 }
 
 
@@ -314,6 +343,22 @@ struct TensorRTVisionSource::Impl
 
     // Latest camera frames copied out of the capture system.
     CameraFrame cameraFrames[N_CAMS];
+
+    // ----- BlazePalm (second engine, separate stream so it can overlap) -----
+    std::unique_ptr<nvinfer1::ICudaEngine>       palmEngine;
+    std::unique_ptr<nvinfer1::IExecutionContext> palmContext;
+
+    cudaStream_t palmStream = nullptr;
+
+    CudaBuffer dPalmInput;    // PALM_INPUT_FLOATS  * sizeof(float)
+    CudaBuffer dPalmScores;   // PALM_SCORES_FLOATS * sizeof(float)
+    CudaBuffer dPalmBoxes;    // PALM_BOXES_FLOATS  * sizeof(float) — bound, never read
+
+    PinnedBuffer hPalmInput;
+    PinnedBuffer hPalmScores;
+
+    // Resize destination for the round-robin camera frame (192×192 BGR8).
+    cv::Mat palmWarped;
 };
 
 
@@ -527,7 +572,7 @@ void TensorRTVisionSource::buildThreadMain()
     try
     {
         // ---- Load cached engine if present and fresh ------------------
-        setStatus("Checking engine cache");
+        setStatus("Checking dart-detector cache");
         std::vector<uint8_t> planBytes;
         bool loadedFromCache = false;
         if(cachedEngineIsFresh(ENGINE_PATH, ONNX_PATH))
@@ -541,7 +586,7 @@ void TensorRTVisionSource::buildThreadMain()
                 // Cached load is fast — show a near-full bar so it feels
                 // snappy instead of jumping from 0% to 100% instantly.
                 m_buildProgress.store(0.8f, std::memory_order_release);
-                setStatus("Loading cached engine");
+                setStatus("Loading cached dart detector");
             }
         }
 
@@ -565,7 +610,7 @@ void TensorRTVisionSource::buildThreadMain()
         // ---- Build from ONNX if there was no cached plan --------------
         if(!loadedFromCache)
         {
-            setStatus("Parsing ONNX and timing tactics");
+            setStatus("Building dart detector");
             m_buildProgress.store(0.0f, std::memory_order_release);
 
             TrtProgressMonitor monitor(m_buildProgress,
@@ -634,6 +679,108 @@ void TensorRTVisionSource::buildThreadMain()
         m_impl->context->setTensorAddress(OUT_OFFSET,  m_impl->dOffset.ptr);
         m_impl->context->setTensorAddress(OUT_EXIST,   m_impl->dExist.ptr);
 
+        if(m_buildAbort.load(std::memory_order_acquire))
+        {
+            setStatus("Aborted");
+            m_buildState.store(BuildState::Failed, std::memory_order_release);
+            return;
+        }
+
+        // ---- BlazePalm: same load-or-build flow on a second engine ----
+        // Re-uses the runtime, builder logger, and progress monitor. The
+        // palm engine is small (~5 MB) so the build phase is fast.
+        setStatus("Checking palm-detector cache");
+        std::vector<uint8_t> palmPlanBytes;
+        bool palmFromCache = false;
+        if(cachedEngineIsFresh(PALM_ENGINE_PATH, PALM_ONNX_PATH))
+        {
+            if(readFileBytes(PALM_ENGINE_PATH, palmPlanBytes))
+            {
+                LOG_INFO(VISION_LOG_ID,
+                         "TensorRTVisionSource: loaded cached palm engine from {} "
+                         "({} bytes)",
+                         PALM_ENGINE_PATH, palmPlanBytes.size());
+                palmFromCache = true;
+            }
+        }
+
+        if(palmFromCache)
+        {
+            m_impl->palmEngine.reset(m_impl->runtime->deserializeCudaEngine(
+                palmPlanBytes.data(), palmPlanBytes.size()));
+            if(!m_impl->palmEngine)
+            {
+                LOG_WARNING(VISION_LOG_ID,
+                            "Cached palm engine failed to deserialize "
+                            "(likely GPU/TRT version mismatch) — rebuilding");
+                palmPlanBytes.clear();
+                palmFromCache = false;
+            }
+        }
+
+        if(!palmFromCache)
+        {
+            setStatus("Building palm detector");
+            TrtProgressMonitor palmMonitor(m_buildProgress,
+                                           m_buildStatusMutex,
+                                           m_buildStatus,
+                                           m_buildAbort);
+            palmPlanBytes = buildEngineFromOnnx(PALM_ONNX_PATH, &palmMonitor);
+            if(palmPlanBytes.empty() || m_buildAbort.load(std::memory_order_acquire))
+            {
+                return fail("palm engine build");
+            }
+
+            std::ofstream pf(PALM_ENGINE_PATH, std::ios::binary);
+            if(pf.write(reinterpret_cast<const char*>(palmPlanBytes.data()),
+                        static_cast<std::streamsize>(palmPlanBytes.size())))
+            {
+                LOG_INFO(VISION_LOG_ID,
+                         "TensorRTVisionSource: wrote palm engine cache to {}",
+                         PALM_ENGINE_PATH);
+            }
+            else
+            {
+                LOG_WARNING(VISION_LOG_ID,
+                            "TensorRTVisionSource: failed to write palm engine "
+                            "cache to {} (errno={}); will rebuild next run",
+                            PALM_ENGINE_PATH, errno);
+            }
+
+            m_impl->palmEngine.reset(m_impl->runtime->deserializeCudaEngine(
+                palmPlanBytes.data(), palmPlanBytes.size()));
+            if(!m_impl->palmEngine) return fail("deserializeCudaEngine on fresh palm plan");
+        }
+
+        if(m_buildAbort.load(std::memory_order_acquire))
+        {
+            setStatus("Aborted");
+            m_buildState.store(BuildState::Failed, std::memory_order_release);
+            return;
+        }
+
+        setStatus("Allocating palm-detector buffers");
+        m_impl->palmContext.reset(m_impl->palmEngine->createExecutionContext());
+        if(!m_impl->palmContext) return fail("createExecutionContext (palm)");
+
+        if(!m_impl->dPalmInput.allocate(PALM_INPUT_FLOATS  * sizeof(float))
+        || !m_impl->dPalmScores.allocate(PALM_SCORES_FLOATS * sizeof(float))
+        || !m_impl->dPalmBoxes.allocate(PALM_BOXES_FLOATS  * sizeof(float))
+        || !m_impl->hPalmInput.allocate(PALM_INPUT_FLOATS  * sizeof(float))
+        || !m_impl->hPalmScores.allocate(PALM_SCORES_FLOATS * sizeof(float)))
+        {
+            return fail("CUDA palm-detector buffer allocation");
+        }
+
+        m_impl->palmContext->setTensorAddress(PALM_INPUT_NAME, m_impl->dPalmInput.ptr);
+        m_impl->palmContext->setTensorAddress(PALM_OUT_SCORES, m_impl->dPalmScores.ptr);
+        m_impl->palmContext->setTensorAddress(PALM_OUT_BOXES,  m_impl->dPalmBoxes.ptr);
+
+        if(cudaStreamCreate(&m_impl->palmStream) != cudaSuccess)
+        {
+            return fail("cudaStreamCreate (palm)");
+        }
+
         // ---- Launch the inference thread -----------------------------
         m_running.store(true, std::memory_order_release);
         m_thread = std::thread(&TensorRTVisionSource::inferenceLoop, this);
@@ -686,6 +833,8 @@ void TensorRTVisionSource::shutdown()
     m_running.store(false, std::memory_order_release);
     if(m_thread.joinable())      m_thread.join();
 
+    m_impl->palmContext.reset();
+    m_impl->palmEngine.reset();
     m_impl->context.reset();
     m_impl->engine.reset();
     m_impl->runtime.reset();
@@ -699,10 +848,21 @@ void TensorRTVisionSource::shutdown()
     m_impl->hOffset.free();
     m_impl->hExist.free();
 
+    m_impl->dPalmInput.free();
+    m_impl->dPalmScores.free();
+    m_impl->dPalmBoxes.free();
+    m_impl->hPalmInput.free();
+    m_impl->hPalmScores.free();
+
     if(m_impl->stream)
     {
         cudaStreamDestroy(m_impl->stream);
         m_impl->stream = nullptr;
+    }
+    if(m_impl->palmStream)
+    {
+        cudaStreamDestroy(m_impl->palmStream);
+        m_impl->palmStream = nullptr;
     }
 
     shutdownCameraSystem();
@@ -764,10 +924,12 @@ bool TensorRTVisionSource::getLatestHeatmap(std::vector<float>& out,
 
 void TensorRTVisionSource::inferenceLoop()
 {
-    float* const hInputF   = static_cast<float*>(m_impl->hInput.ptr);
-    float* const hHeatmapF = static_cast<float*>(m_impl->hHeatmap.ptr);
-    float* const hOffsetF  = static_cast<float*>(m_impl->hOffset.ptr);
-    float* const hExistF   = static_cast<float*>(m_impl->hExist.ptr);
+    float* const hInputF      = static_cast<float*>(m_impl->hInput.ptr);
+    float* const hHeatmapF    = static_cast<float*>(m_impl->hHeatmap.ptr);
+    float* const hOffsetF     = static_cast<float*>(m_impl->hOffset.ptr);
+    float* const hExistF      = static_cast<float*>(m_impl->hExist.ptr);
+    float* const hPalmInputF  = static_cast<float*>(m_impl->hPalmInput.ptr);
+    float* const hPalmScoresF = static_cast<float*>(m_impl->hPalmScores.ptr);
 
     while(m_running.load(std::memory_order_acquire))
     {
@@ -775,6 +937,10 @@ void TensorRTVisionSource::inferenceLoop()
         {
             m_candidates.clear();
             m_confirmedDarts.clear();
+            m_mode         = DetectionMode::Detecting;
+            m_handStreak   = 0;
+            m_clearStreak  = 0;
+            for(uint32_t i = 0; i < EXPECTED_CAMERA_COUNT; i++) m_palmRecent[i] = false;
             m_boardClear.store(true, std::memory_order_release);
             {
                 std::lock_guard<std::mutex> lock(m_eventMutex);
@@ -812,7 +978,9 @@ void TensorRTVisionSource::inferenceLoop()
 
         // ----- Build the 10-channel NCHW float input tensor in pinned host memory -----
         // Channels 0..8: camera[c]'s RGB plane (BGR→RGB swap, /255 normalization).
-        // Channel 9:    Gaussian mask over confirmed dart tips.
+        // Channel 9:    Gaussian mask over confirmed dart tips — held all-zero
+        //               while in Removing so the AR model runs unconditioned
+        //               and we can scan the heatmap for any leftover peak.
         //
         // OpenCV camera frames are BGR (the training script does cv2.imread
         // → cv2.cvtColor(BGR2RGB)), so we swap bytes here to match.
@@ -847,15 +1015,61 @@ void TensorRTVisionSource::inferenceLoop()
             }
         }
 
-        // Conditioning mask (channel 9).
+        // Conditioning mask (channel 9). Always start at zero. In Detecting,
+        // rasterize a Gaussian for every confirmed dart so the AR model only
+        // hunts for the next one. In Removing, leave the mask zero so the
+        // model produces an unconditioned heatmap that we can scan for any
+        // remaining dart.
         float* maskPlane = hInputF + 9u * PLANE_FLOATS;
         std::memset(maskPlane, 0, PLANE_FLOATS * sizeof(float));
-        for(const PolarDart& d : m_confirmedDarts)
+        if(m_mode == DetectionMode::Detecting)
         {
-            addGaussianToPlane(maskPlane, d.templateX, d.templateY);
+            for(const PolarDart& d : m_confirmedDarts)
+            {
+                addGaussianToPlane(maskPlane, d.templateX, d.templateY);
+            }
+        }
+
+        // ----- Round-robin palm input pack -----
+        // One camera per cycle. The chosen camera's warped frame is resized
+        // 720→192 with bilinear, BGR→RGB-swapped, and /255-normalized into
+        // the palm input tensor. If the chosen camera has no current frame,
+        // we skip the palm enqueue this cycle and treat its slot as
+        // "no hand here".
+        const uint32_t palmCam = m_palmFrameCounter++ % EXPECTED_CAMERA_COUNT;
+        bool palmRanThisCycle = false;
+        if(palmCam < camCount && !m_impl->warped[palmCam].empty())
+        {
+            cv::resize(m_impl->warped[palmCam], m_impl->palmWarped,
+                       cv::Size(static_cast<int>(PALM_INPUT_W),
+                                static_cast<int>(PALM_INPUT_H)),
+                       0, 0, cv::INTER_LINEAR);
+
+            float* palmR = hPalmInputF + 0u * PALM_INPUT_H * PALM_INPUT_W;
+            float* palmG = hPalmInputF + 1u * PALM_INPUT_H * PALM_INPUT_W;
+            float* palmB = hPalmInputF + 2u * PALM_INPUT_H * PALM_INPUT_W;
+            constexpr float INV_255 = 1.0f / 255.0f;
+            for(uint32_t r = 0; r < PALM_INPUT_H; r++)
+            {
+                const uint8_t* src = m_impl->palmWarped.ptr(r);  // BGR
+                float* rowR = palmR + r * PALM_INPUT_W;
+                float* rowG = palmG + r * PALM_INPUT_W;
+                float* rowB = palmB + r * PALM_INPUT_W;
+                for(uint32_t c = 0; c < PALM_INPUT_W; c++)
+                {
+                    rowB[c] = src[3 * c + 0] * INV_255;
+                    rowG[c] = src[3 * c + 1] * INV_255;
+                    rowR[c] = src[3 * c + 2] * INV_255;
+                }
+            }
+            palmRanThisCycle = true;
         }
 
         // ----- Inference -----
+        // Issue both H2D copies first, then both enqueueV3s, then both D2H
+        // copies. Because the two engines run on independent streams, the
+        // GPU can overlap palm work with the much heavier U-Net. We don't
+        // sync until both pipelines have submitted their D2H.
         if(cudaMemcpyAsync(m_impl->dInput.ptr, hInputF,
                            INPUT_FLOATS * sizeof(float),
                            cudaMemcpyHostToDevice, m_impl->stream) != cudaSuccess)
@@ -864,10 +1078,27 @@ void TensorRTVisionSource::inferenceLoop()
             continue;
         }
 
+        if(palmRanThisCycle)
+        {
+            if(cudaMemcpyAsync(m_impl->dPalmInput.ptr, hPalmInputF,
+                               PALM_INPUT_FLOATS * sizeof(float),
+                               cudaMemcpyHostToDevice, m_impl->palmStream) != cudaSuccess)
+            {
+                LOG_WARNING(VISION_LOG_ID, "cudaMemcpyAsync palm H2D failed");
+                palmRanThisCycle = false;
+            }
+        }
+
         if(!m_impl->context->enqueueV3(m_impl->stream))
         {
             LOG_WARNING(VISION_LOG_ID, "enqueueV3 failed");
             continue;
+        }
+
+        if(palmRanThisCycle && !m_impl->palmContext->enqueueV3(m_impl->palmStream))
+        {
+            LOG_WARNING(VISION_LOG_ID, "enqueueV3 (palm) failed");
+            palmRanThisCycle = false;
         }
 
         cudaMemcpyAsync(hHeatmapF, m_impl->dHeatmap.ptr,
@@ -880,13 +1111,54 @@ void TensorRTVisionSource::inferenceLoop()
                         sizeof(float),
                         cudaMemcpyDeviceToHost, m_impl->stream);
 
+        if(palmRanThisCycle)
+        {
+            cudaMemcpyAsync(hPalmScoresF, m_impl->dPalmScores.ptr,
+                            PALM_SCORES_FLOATS * sizeof(float),
+                            cudaMemcpyDeviceToHost, m_impl->palmStream);
+            // dPalmBoxes is bound but never copied back — we only need
+            // presence, never location.
+        }
+
         if(cudaStreamSynchronize(m_impl->stream) != cudaSuccess)
         {
             LOG_WARNING(VISION_LOG_ID, "cudaStreamSynchronize failed");
             continue;
         }
 
-        handleInferenceOutputs();
+        // ----- Decode palm result and update per-camera memory -----
+        bool palmDetectedThisCycle = false;
+        if(palmRanThisCycle)
+        {
+            if(cudaStreamSynchronize(m_impl->palmStream) != cudaSuccess)
+            {
+                LOG_WARNING(VISION_LOG_ID, "cudaStreamSynchronize (palm) failed");
+            }
+            else
+            {
+                float bestLogit = hPalmScoresF[0];
+                for(uint32_t i = 1; i < PALM_SCORES_FLOATS; i++)
+                {
+                    if(hPalmScoresF[i] > bestLogit) bestLogit = hPalmScoresF[i];
+                }
+                const float bestProb = 1.0f / (1.0f + std::exp(-bestLogit));
+                palmDetectedThisCycle = (bestProb >= PALM_PRESENCE_THRESHOLD);
+            }
+        }
+
+        // Update the per-camera last-result memory. A held dart can occlude
+        // the hand from one or two cameras — keeping per-camera memory and
+        // OR-ing the slots in handleInferenceOutputs makes the state
+        // machine robust against that, which a "consecutive frames" rule
+        // over the raw round-robin output would not be.
+        m_palmRecent[palmCam] = palmDetectedThisCycle;
+        bool handPresent = false;
+        for(uint32_t i = 0; i < EXPECTED_CAMERA_COUNT; i++)
+        {
+            if(m_palmRecent[i]) { handPresent = true; break; }
+        }
+
+        handleInferenceOutputs(handPresent);
     }
 }
 
@@ -895,7 +1167,7 @@ void TensorRTVisionSource::inferenceLoop()
 // Output decode + streak tracking
 // ============================================================================
 
-void TensorRTVisionSource::handleInferenceOutputs()
+void TensorRTVisionSource::handleInferenceOutputs(bool handPresent)
 {
     const float* heatmapLogits = static_cast<const float*>(m_impl->hHeatmap.ptr);
     const float* offset        = static_cast<const float*>(m_impl->hOffset.ptr);
@@ -930,6 +1202,59 @@ void TensorRTVisionSource::handleInferenceOutputs()
     const float bestProb = 1.0f / (1.0f + std::exp(-bestLogit));
     const bool hasDetection = (existLogit >= EXIST_THRESHOLD)
                            && (bestProb   >= HEATMAP_THRESHOLD);
+
+    // The board-clear check used by the Removing state needs only the
+    // sigmoid threshold — exist_logit and the catch-ring radius gate are
+    // skipped so a leftover dart anywhere on the heatmap (even just outside
+    // the wire) blocks the cleared signal.
+    const bool anyPeakAboveThreshold = (bestProb >= HEATMAP_THRESHOLD);
+
+    // ----- State machine: Detecting <-> Removing -----
+    // m_boardClear is driven exclusively from here. While Removing it stays
+    // false; when CLEAR_CONFIRM_FRAMES of clean cycles pass, we flip back
+    // to Detecting and set it true.
+    if(m_mode == DetectionMode::Removing)
+    {
+        const bool clean = !handPresent && !anyPeakAboveThreshold;
+        if(clean)
+        {
+            if(++m_clearStreak >= CLEAR_CONFIRM_FRAMES)
+            {
+                m_mode        = DetectionMode::Detecting;
+                m_handStreak  = 0;
+                m_clearStreak = 0;
+                m_boardClear.store(true, std::memory_order_release);
+            }
+        }
+        else
+        {
+            m_clearStreak = 0;
+        }
+        // No candidate tracking, no dart emission while Removing.
+        return;
+    }
+
+    // ----- Detecting: check for hand entry first ------------------------
+    if(handPresent)
+    {
+        if(++m_handStreak >= HAND_ENTER_FRAMES)
+        {
+            // Enter Removing: drop all dart state so the AR model runs
+            // unconditioned next cycle and we can scan the heatmap for any
+            // remaining dart. m_boardClear stays false until the clear
+            // streak completes.
+            m_mode = DetectionMode::Removing;
+            m_candidates.clear();
+            m_confirmedDarts.clear();
+            m_clearStreak = 0;
+            m_boardClear.store(false, std::memory_order_release);
+            return;
+        }
+    }
+    else
+    {
+        m_handStreak = 0;
+    }
 
     // ----- Decode sub-pixel peak -----
     const uint32_t r = static_cast<uint32_t>(bestIdx / OUTPUT_W);
