@@ -58,12 +58,18 @@ the constants in `tensorrt_vision_source.cpp` (`PALM_INPUT_NAME`,
 
 ### Inputs
 
-- `input`: `float32 [1, 3, 192, 192]` (NCHW, RGB, range **`[-1, 1]`**)
+- `input`: `float32 [1, 192, 192, 3]` (**NHWC**, RGB, range **`[-1, 1]`**)
+  - **NHWC, not NCHW.** The BlazePalm ONNX has the channels in the last
+    position — pixels are interleaved (R, G, B, R, G, B, ...) row by row.
+    The graph starts with a `Transpose` that flips NHWC→NCHW for its
+    internal convs; feeding planar CHW data into the input mangles
+    through that transpose into noise.
   - Caller resizes the *raw* (unwarped) camera frame to 192×192 with
     bilinear interpolation, then normalizes with `(pixel / 127.5) - 1.0`.
   - **Not** the dart model's `/255` convention — BlazePalm's native
-    contract is `[-1, 1]` per Google's model card. Feeding `[0, 1]`
-    silently halves the dynamic range and recall collapses.
+    contract is `[-1, 1]` per Google's model card, and verified in
+    Netron there are no `Mul`/`Sub` ops at the input (normalization
+    is NOT baked into the graph).
   - Channel order is RGB with **no swap** at this stage —
     `camera_api.cpp` already did `BGR→RGB` at capture time.
   - Input is the *raw* frame, not the perspective-warped dart-detection

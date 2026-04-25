@@ -1127,12 +1127,19 @@ void TensorRTVisionSource::inferenceLoop()
         // the board plane and shears anything in front of it, which makes
         // hands unrecognizable to a palm detector trained on natural photos.
         //
-        // BlazePalm's preprocessing contract (per Google's model card):
-        //   - Channel order: RGB. camera_api.cpp:186 already did BGR→RGB at
-        //     capture time, so we pack channels in src order with no swap.
-        //   - Value range: [-1, 1]. The formula is (pixel / 127.5) - 1.0.
-        //     NOT [0, 1] — that's the dart model's convention, different
-        //     model, different contract.
+        // Preprocessing (verified against the actual ONNX graph):
+        //   - Layout: NHWC, i.e. interleaved RGB pixels. The BlazePalm
+        //     ONNX input is [1, 192, 192, 3] — channels last, NOT the
+        //     [1, C, H, W] convention the dart model uses. The graph's
+        //     first op is a Transpose that converts NHWC→NCHW for the
+        //     internal convs; if we feed planar CHW the transpose
+        //     mangles our data into garbage and the network produces
+        //     moderate-confidence noise everywhere.
+        //   - Channel order: RGB. camera_api.cpp:186 already did BGR→RGB
+        //     at capture time, so we pack bytes in src order with no swap.
+        //   - Value range: [-1, 1]. Verified in Netron there are no Mul/Sub
+        //     ops at the input — normalization is NOT baked into the
+        //     graph, so we apply (p / 127.5) - 1.0 here.
         const uint32_t palmCam = m_palmFrameCounter++ % EXPECTED_CAMERA_COUNT;
         bool palmRanThisCycle = false;
         if(palmCam < camCount
@@ -1152,21 +1159,19 @@ void TensorRTVisionSource::inferenceLoop()
                                 static_cast<int>(PALM_INPUT_H)),
                        0, 0, cv::INTER_LINEAR);
 
-            float* palmR = hPalmInputF + 0u * PALM_INPUT_H * PALM_INPUT_W;
-            float* palmG = hPalmInputF + 1u * PALM_INPUT_H * PALM_INPUT_W;
-            float* palmB = hPalmInputF + 2u * PALM_INPUT_H * PALM_INPUT_W;
+            // cv::Mat is already HWC-interleaved (one byte each: R, G, B,
+            // R, G, B, ...). Destination tensor wants the same layout, so
+            // it's a straight per-byte float convert with normalization.
+            // Row-stride-safe in case OpenCV pads rows.
             constexpr float INV_127_5 = 1.0f / 127.5f;
+            const uint32_t bytesPerRow = PALM_INPUT_W * 3u;
             for(uint32_t r = 0; r < PALM_INPUT_H; r++)
             {
                 const uint8_t* src = m_impl->palmResized.ptr(r);  // RGB
-                float* rowR = palmR + r * PALM_INPUT_W;
-                float* rowG = palmG + r * PALM_INPUT_W;
-                float* rowB = palmB + r * PALM_INPUT_W;
-                for(uint32_t c = 0; c < PALM_INPUT_W; c++)
+                float*         dst = hPalmInputF + r * bytesPerRow;
+                for(uint32_t b = 0; b < bytesPerRow; b++)
                 {
-                    rowR[c] = src[3 * c + 0] * INV_127_5 - 1.0f;
-                    rowG[c] = src[3 * c + 1] * INV_127_5 - 1.0f;
-                    rowB[c] = src[3 * c + 2] * INV_127_5 - 1.0f;
+                    dst[b] = src[b] * INV_127_5 - 1.0f;
                 }
             }
             palmRanThisCycle = true;
