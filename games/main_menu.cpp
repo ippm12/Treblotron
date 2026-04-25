@@ -109,7 +109,9 @@ Status MainMenu::init(FrameID frameId)
         return STATUS_ERROR_GENERIC;
     }
 
-    // Build card list: Player Settings first, then one card per registered game
+    // Build card list: Player Settings first, then one card per registered
+    // game, with an Exit card at the end so the cabinet can be shut down
+    // from the menu without a keyboard.
     m_cards.clear();
     m_cards.push_back({CardType::PlayerSettings, 0});
     m_cards.push_back({CardType::Calibration, 0});
@@ -120,6 +122,8 @@ Status MainMenu::init(FrameID frameId)
     {
         m_cards.push_back({CardType::Game, i});
     }
+
+    m_cards.push_back({CardType::Exit, 0});
 
     m_totalCols = columnCount();
     m_cursorCol = 0;
@@ -358,6 +362,15 @@ void MainMenu::openCard()
     {
         loadGame(std::make_shared<VisionDebugScreen>());
     }
+    else if(card.type == CardType::Exit)
+    {
+        // Push a quit event into SDL's queue — pollFrames() in the main
+        // loop returns false on SDL_EVENT_QUIT and the app shuts down
+        // cleanly through its normal teardown sequence in startup.cpp.
+        SDL_Event quit{};
+        quit.type = SDL_EVENT_QUIT;
+        SDL_PushEvent(&quit);
+    }
     else
     {
         m_state = MenuState::GameSettings;
@@ -500,6 +513,11 @@ void MainMenu::renderCardGrid()
             {
                 cardTitle = "Vision Debug";
                 cardDesc  = "AI model output & dart tracking";
+            }
+            else if(card.type == CardType::Exit)
+            {
+                cardTitle = "Exit";
+                cardDesc  = "Quit DartLens";
             }
             else
             {

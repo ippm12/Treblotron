@@ -27,7 +27,8 @@ enum class CardType
     PlayerSettings,
     Calibration,
     VisionDebug,
-    Game
+    Game,
+    Exit
 };
 
 struct MenuCard

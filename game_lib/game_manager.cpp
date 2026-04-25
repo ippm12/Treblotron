@@ -122,6 +122,13 @@ Status GameManager::initialize()
         return stat;
     }
 
+    // On real-camera builds (Hailo / TensorRT) we run on a dedicated cabinet
+    // display, so come up fullscreen. The sim build is used for development
+    // on a desktop where a windowed mode is more useful.
+#ifndef DARTLENS_USE_SIM
+    setFrameFullscreen(m_frameId, true);
+#endif
+
     // Set logical presentation so all game code uses 1920x1080 coordinates.
     // SDL auto-scales to the actual monitor resolution (letterboxed).
     SDL_SetRenderLogicalPresentation(getFrameRenderer(m_frameId),
