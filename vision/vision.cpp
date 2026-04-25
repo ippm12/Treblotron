@@ -226,7 +226,6 @@ void presentVisionLoadingFrame(float deltaTime)
     // of the physical monitor resolution.
     constexpr FrameID FRAME  = 0;
     constexpr float   SCREEN_W = 1920.0f;
-    constexpr float   SCREEN_H = 1080.0f;
     constexpr float   CENTER_X = SCREEN_W * 0.5f;
 
     ensureLoadingFontsLoaded();
