@@ -163,6 +163,14 @@ class TensorRTVisionSource : public VisionSource
         std::atomic<bool>          m_lastHandPresent{false};
         std::atomic<bool>          m_lastPeakAboveThresh{false};
 
+        // Latest BlazePalm max-anchor sigmoid score and best dart-heatmap
+        // sigmoid peak. Surfaced in the detection status so the threshold
+        // constants (PALM_PRESENCE_THRESHOLD, HEATMAP_THRESHOLD) can be
+        // tuned empirically by watching the live values with hand /
+        // dart in and out of frame. -1 means "no value yet this run".
+        std::atomic<float>         m_lastPalmScore{-1.0f};
+        std::atomic<float>         m_lastHeatmapPeak{-1.0f};
+
         uint32_t                   m_palmFrameCounter = 0;  // round-robin index into the cameras
         bool                       m_palmRecent[EXPECTED_CAMERA_COUNT] = {false, false, false};
 

@@ -130,9 +130,15 @@ namespace
     constexpr size_t PALM_SCORES_FLOATS = PALM_N_ANCHORS;
     constexpr size_t PALM_BOXES_FLOATS  = static_cast<size_t>(PALM_N_ANCHORS) * PALM_BOX_DIM;
 
-    // Sigmoid threshold on the max anchor score. 0.5 is the BlazePalm
-    // default — palm detector is well-calibrated, no need to tune.
-    constexpr float PALM_PRESENCE_THRESHOLD = 0.5f;
+    // Sigmoid threshold on the max anchor score. BlazePalm's nominal 0.5
+    // default is calibrated for natural scenes — on a static dartboard it
+    // produces enough single-anchor noise spikes to keep the system stuck
+    // in Removing (false positives reset the 10-frame clear streak).
+    // 0.7 filters those without losing recall on real hands, which
+    // typically score 0.9+. If field testing shows real-hand misses,
+    // either lower this back to 0.6, or switch the aggregation from
+    // max-of-anchors to top-K mean (more robust to single-anchor noise).
+    constexpr float PALM_PRESENCE_THRESHOLD = 0.7f;
 }
 
 
@@ -847,11 +853,28 @@ std::string TensorRTVisionSource::getInitStatus() const
 
 std::string TensorRTVisionSource::getDetectionStatus() const
 {
-    const DetectionMode mode  = m_mode.load(std::memory_order_relaxed);
-    const int handStreak      = m_handStreak.load(std::memory_order_relaxed);
-    const int clearStreak     = m_clearStreak.load(std::memory_order_relaxed);
-    const bool hand           = m_lastHandPresent.load(std::memory_order_relaxed);
-    const bool peak           = m_lastPeakAboveThresh.load(std::memory_order_relaxed);
+    const DetectionMode mode = m_mode.load(std::memory_order_relaxed);
+    const int handStreak     = m_handStreak.load(std::memory_order_relaxed);
+    const int clearStreak    = m_clearStreak.load(std::memory_order_relaxed);
+    const bool hand          = m_lastHandPresent.load(std::memory_order_relaxed);
+    const bool peak          = m_lastPeakAboveThresh.load(std::memory_order_relaxed);
+    const float palmScore    = m_lastPalmScore.load(std::memory_order_relaxed);
+    const float heatmapPeak  = m_lastHeatmapPeak.load(std::memory_order_relaxed);
+
+    auto fmt2 = [](float v) -> std::string {
+        if(v < 0.0f) return "?";
+        char buf[16];
+        std::snprintf(buf, sizeof(buf), "%.2f", v);
+        return std::string(buf);
+    };
+
+    // Always-on tail showing live max-anchor palm sigmoid + best
+    // heatmap sigmoid. Watch these with hand/dart in and out of
+    // frame to pick PALM_PRESENCE_THRESHOLD and HEATMAP_THRESHOLD
+    // empirically — there should be a clear gap between the
+    // hand-out value and the hand-in value.
+    const std::string scores = "  palm=" + fmt2(palmScore)
+                             + " hm="    + fmt2(heatmapPeak);
 
     if(mode == DetectionMode::Removing)
     {
@@ -863,15 +886,15 @@ std::string TensorRTVisionSource::getDetectionStatus() const
         flags += " peak=";  flags += (peak ? "Y" : "N");
         return "Removing (clear " + std::to_string(clearStreak)
              + "/" + std::to_string(CLEAR_CONFIRM_FRAMES) + ")"
-             + flags;
+             + flags + scores;
     }
 
     if(handStreak > 0)
     {
         return "Detecting (entering " + std::to_string(handStreak)
-             + "/" + std::to_string(HAND_ENTER_FRAMES) + ")";
+             + "/" + std::to_string(HAND_ENTER_FRAMES) + ")" + scores;
     }
-    return "Detecting";
+    return "Detecting" + scores;
 }
 
 
@@ -1213,6 +1236,7 @@ void TensorRTVisionSource::inferenceLoop()
                     if(hPalmScoresF[i] > bestLogit) bestLogit = hPalmScoresF[i];
                 }
                 const float bestProb = 1.0f / (1.0f + std::exp(-bestLogit));
+                m_lastPalmScore.store(bestProb, std::memory_order_relaxed);
                 palmDetectedThisCycle = (bestProb >= PALM_PRESENCE_THRESHOLD);
             }
         }
@@ -1272,6 +1296,7 @@ void TensorRTVisionSource::handleInferenceOutputs(bool handPresent)
 
     // ----- Gate on exist_logit and sigmoid(peak) -----
     const float bestProb = 1.0f / (1.0f + std::exp(-bestLogit));
+    m_lastHeatmapPeak.store(bestProb, std::memory_order_relaxed);
     const bool hasDetection = (existLogit >= EXIST_THRESHOLD)
                            && (bestProb   >= HEATMAP_THRESHOLD);
 
