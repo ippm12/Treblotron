@@ -171,6 +171,14 @@ class TensorRTVisionSource : public VisionSource
         std::atomic<float>         m_lastPalmScore{-1.0f};
         std::atomic<float>         m_lastHeatmapPeak{-1.0f};
 
+        // Top-3 raw palm anchor logits (pre-sigmoid). Shows up in the
+        // status string so we can tell whether saturation is a single
+        // noise spike (one big logit, rest normal) or the model
+        // confidently producing nonsense (top-3 all saturated).
+        std::atomic<float>         m_palmTop1{0.0f};
+        std::atomic<float>         m_palmTop2{0.0f};
+        std::atomic<float>         m_palmTop3{0.0f};
+
         uint32_t                   m_palmFrameCounter = 0;  // round-robin index into the cameras
         bool                       m_palmRecent[EXPECTED_CAMERA_COUNT] = {false, false, false};
 

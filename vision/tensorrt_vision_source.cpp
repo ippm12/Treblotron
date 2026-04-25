@@ -867,14 +867,27 @@ std::string TensorRTVisionSource::getDetectionStatus() const
         std::snprintf(buf, sizeof(buf), "%.2f", v);
         return std::string(buf);
     };
+    auto fmtLogit = [](float v) -> std::string {
+        if(v <= -1e29f) return "?";
+        char buf[16];
+        std::snprintf(buf, sizeof(buf), "%.1f", v);
+        return std::string(buf);
+    };
 
     // Always-on tail showing live max-anchor palm sigmoid + best
-    // heatmap sigmoid. Watch these with hand/dart in and out of
-    // frame to pick PALM_PRESENCE_THRESHOLD and HEATMAP_THRESHOLD
-    // empirically — there should be a clear gap between the
-    // hand-out value and the hand-in value.
-    const std::string scores = "  palm=" + fmt2(palmScore)
-                             + " hm="    + fmt2(heatmapPeak);
+    // heatmap sigmoid, plus top-3 raw palm logits. Watch these with
+    // hand/dart in and out of frame to pick PALM_PRESENCE_THRESHOLD
+    // and HEATMAP_THRESHOLD empirically — there should be a clear
+    // gap between the hand-out value and the hand-in value. The top-3
+    // logits help distinguish single-anchor noise spikes (one big,
+    // rest tiny/negative) from a model that's confidently producing
+    // nonsense (top-3 all saturated).
+    const std::string scores
+        = "  palm=" + fmt2(palmScore)
+        + " hm="    + fmt2(heatmapPeak)
+        + " logits=" + fmtLogit(m_palmTop1.load(std::memory_order_relaxed))
+        + "/"        + fmtLogit(m_palmTop2.load(std::memory_order_relaxed))
+        + "/"        + fmtLogit(m_palmTop3.load(std::memory_order_relaxed));
 
     if(mode == DetectionMode::Removing)
     {
@@ -1230,12 +1243,23 @@ void TensorRTVisionSource::inferenceLoop()
             }
             else
             {
-                float bestLogit = hPalmScoresF[0];
-                for(uint32_t i = 1; i < PALM_SCORES_FLOATS; i++)
+                // Track the top-3 logits so we can tell saturation cases
+                // apart in the diagnostic badge. A real hand fires a
+                // cluster of high anchors; an isolated false positive
+                // is one big logit with the rest near -∞.
+                float t1 = -1e30f, t2 = -1e30f, t3 = -1e30f;
+                for(uint32_t i = 0; i < PALM_SCORES_FLOATS; i++)
                 {
-                    if(hPalmScoresF[i] > bestLogit) bestLogit = hPalmScoresF[i];
+                    const float v = hPalmScoresF[i];
+                    if(v > t1)      { t3 = t2; t2 = t1; t1 = v; }
+                    else if(v > t2) { t3 = t2; t2 = v; }
+                    else if(v > t3) { t3 = v; }
                 }
-                const float bestProb = 1.0f / (1.0f + std::exp(-bestLogit));
+                m_palmTop1.store(t1, std::memory_order_relaxed);
+                m_palmTop2.store(t2, std::memory_order_relaxed);
+                m_palmTop3.store(t3, std::memory_order_relaxed);
+
+                const float bestProb = 1.0f / (1.0f + std::exp(-t1));
                 m_lastPalmScore.store(bestProb, std::memory_order_relaxed);
                 palmDetectedThisCycle = (bestProb >= PALM_PRESENCE_THRESHOLD);
             }
