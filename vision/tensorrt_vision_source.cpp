@@ -357,8 +357,13 @@ struct TensorRTVisionSource::Impl
     PinnedBuffer hPalmInput;
     PinnedBuffer hPalmScores;
 
-    // Resize destination for the round-robin camera frame (192×192 BGR8).
-    cv::Mat palmWarped;
+    // Raw frame copy + resize destination for the round-robin camera frame.
+    // BlazePalm needs the *unwarped* image — the perspective warp used for
+    // dart detection flattens the board plane and shears anything in front
+    // of it, which makes hands unrecognizable to a palm detector trained on
+    // natural photos.
+    CameraFrame palmRawFrame;
+    cv::Mat     palmResized;  // 192×192 RGB8
 };
 
 
@@ -977,13 +982,15 @@ void TensorRTVisionSource::inferenceLoop()
         }
 
         // ----- Build the 10-channel NCHW float input tensor in pinned host memory -----
-        // Channels 0..8: camera[c]'s RGB plane (BGR→RGB swap, /255 normalization).
+        // Channels 0..8: camera[c]'s RGB plane (/255 normalization).
         // Channel 9:    Gaussian mask over confirmed dart tips — held all-zero
         //               while in Removing so the AR model runs unconditioned
         //               and we can scan the heatmap for any leftover peak.
         //
-        // OpenCV camera frames are BGR (the training script does cv2.imread
-        // → cv2.cvtColor(BGR2RGB)), so we swap bytes here to match.
+        // Frames arrive in RGB order — camera_api.cpp:186 does BGR→RGB at
+        // capture time before publishing to latestRaw / latestWarped. The
+        // training script matches this (cv2.imread + cv2.cvtColor(BGR2RGB)),
+        // so we pack channels in src order with no swap.
         for(uint32_t cam = 0; cam < N_CAMS; cam++)
         {
             const cv::Mat& w = m_impl->warped[cam];
@@ -1002,15 +1009,15 @@ void TensorRTVisionSource::inferenceLoop()
             constexpr float INV_255 = 1.0f / 255.0f;
             for(uint32_t r = 0; r < INPUT_H; r++)
             {
-                const uint8_t* src = w.ptr(r);        // BGR, 3 bytes/pixel
+                const uint8_t* src = w.ptr(r);        // RGB, 3 bytes/pixel
                 float* rowR = planeR + r * INPUT_W;
                 float* rowG = planeG + r * INPUT_W;
                 float* rowB = planeB + r * INPUT_W;
                 for(uint32_t c = 0; c < INPUT_W; c++)
                 {
-                    rowB[c] = src[3 * c + 0] * INV_255;
+                    rowR[c] = src[3 * c + 0] * INV_255;
                     rowG[c] = src[3 * c + 1] * INV_255;
-                    rowR[c] = src[3 * c + 2] * INV_255;
+                    rowB[c] = src[3 * c + 2] * INV_255;
                 }
             }
         }
@@ -1031,16 +1038,32 @@ void TensorRTVisionSource::inferenceLoop()
         }
 
         // ----- Round-robin palm input pack -----
-        // One camera per cycle. The chosen camera's warped frame is resized
-        // 720→192 with bilinear, BGR→RGB-swapped, and /255-normalized into
-        // the palm input tensor. If the chosen camera has no current frame,
-        // we skip the palm enqueue this cycle and treat its slot as
-        // "no hand here".
+        // One camera per cycle. We grab the *raw* (unwarped) frame for that
+        // camera — the perspective warp used for dart detection flattens
+        // the board plane and shears anything in front of it, which makes
+        // hands unrecognizable to a palm detector trained on natural photos.
+        //
+        // BlazePalm's preprocessing contract (per Google's model card):
+        //   - Channel order: RGB. camera_api.cpp:186 already did BGR→RGB at
+        //     capture time, so we pack channels in src order with no swap.
+        //   - Value range: [-1, 1]. The formula is (pixel / 127.5) - 1.0.
+        //     NOT [0, 1] — that's the dart model's convention, different
+        //     model, different contract.
         const uint32_t palmCam = m_palmFrameCounter++ % EXPECTED_CAMERA_COUNT;
         bool palmRanThisCycle = false;
-        if(palmCam < camCount && !m_impl->warped[palmCam].empty())
+        if(palmCam < camCount
+        && getCameraFrame(palmCam, m_impl->palmRawFrame)
+        && !m_impl->palmRawFrame.pixels.empty()
+        && m_impl->palmRawFrame.width  > 0
+        && m_impl->palmRawFrame.height > 0)
         {
-            cv::resize(m_impl->warped[palmCam], m_impl->palmWarped,
+            cv::Mat raw(m_impl->palmRawFrame.height,
+                        m_impl->palmRawFrame.width,
+                        CV_8UC3,
+                        const_cast<uint8_t*>(m_impl->palmRawFrame.pixels.data()),
+                        m_impl->palmRawFrame.stride);
+
+            cv::resize(raw, m_impl->palmResized,
                        cv::Size(static_cast<int>(PALM_INPUT_W),
                                 static_cast<int>(PALM_INPUT_H)),
                        0, 0, cv::INTER_LINEAR);
@@ -1048,18 +1071,18 @@ void TensorRTVisionSource::inferenceLoop()
             float* palmR = hPalmInputF + 0u * PALM_INPUT_H * PALM_INPUT_W;
             float* palmG = hPalmInputF + 1u * PALM_INPUT_H * PALM_INPUT_W;
             float* palmB = hPalmInputF + 2u * PALM_INPUT_H * PALM_INPUT_W;
-            constexpr float INV_255 = 1.0f / 255.0f;
+            constexpr float INV_127_5 = 1.0f / 127.5f;
             for(uint32_t r = 0; r < PALM_INPUT_H; r++)
             {
-                const uint8_t* src = m_impl->palmWarped.ptr(r);  // BGR
+                const uint8_t* src = m_impl->palmResized.ptr(r);  // RGB
                 float* rowR = palmR + r * PALM_INPUT_W;
                 float* rowG = palmG + r * PALM_INPUT_W;
                 float* rowB = palmB + r * PALM_INPUT_W;
                 for(uint32_t c = 0; c < PALM_INPUT_W; c++)
                 {
-                    rowB[c] = src[3 * c + 0] * INV_255;
-                    rowG[c] = src[3 * c + 1] * INV_255;
-                    rowR[c] = src[3 * c + 2] * INV_255;
+                    rowR[c] = src[3 * c + 0] * INV_127_5 - 1.0f;
+                    rowG[c] = src[3 * c + 1] * INV_127_5 - 1.0f;
+                    rowB[c] = src[3 * c + 2] * INV_127_5 - 1.0f;
                 }
             }
             palmRanThisCycle = true;
