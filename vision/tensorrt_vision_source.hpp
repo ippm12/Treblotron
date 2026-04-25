@@ -46,7 +46,9 @@ class TensorRTVisionSource : public VisionSource
         // construction runs on m_buildThread. UI polls these to render a
         // loading screen.
         bool         isInitializing() const override;
+        bool         isFailed() const override;
         float        getInitProgress() const override;
+        uint64_t     getInitIteration() const override;
         std::string  getInitStatus() const override;
 
         std::string  getDetectionStatus() const override;
@@ -102,15 +104,23 @@ class TensorRTVisionSource : public VisionSource
         std::atomic<bool>       m_resetRequested{false};
         std::atomic<bool>       m_boardClear{true};
 
-        // Async-init state — updated by m_buildThread and the IProgressMonitor
-        // it installs on the TRT builder. The UI reads these via the public
-        // isInitializing / getInitProgress / getInitStatus accessors.
+        // Async-init state — updated by m_buildThread. The UI reads these
+        // via the public isInitializing / getInitProgress / getInitStatus /
+        // getInitIteration accessors.
+        //
+        // m_buildProgress is monotonic: it advances 0 → 1 once across the
+        // whole startup, driven by C++ phase markers in buildThreadMain
+        // (not by TRT's per-phase reporter). m_buildIteration is the raw
+        // TRT step counter, accumulated across every internal phase, shown
+        // on the loading screen as "still doing something" feedback during
+        // long-running phases where the bar doesn't visibly move.
         std::thread               m_buildThread;
         std::atomic<BuildState>   m_buildState{BuildState::Idle};
-        std::atomic<float>        m_buildProgress{0.0f};  // 0..1
-        std::atomic<bool>         m_buildAbort{false};    // set by shutdown()
+        std::atomic<float>        m_buildProgress{0.0f};   // 0..1, monotonic
+        std::atomic<uint64_t>     m_buildIteration{0};     // raw TRT step counter
+        std::atomic<bool>         m_buildAbort{false};     // set by shutdown()
         mutable std::mutex        m_buildStatusMutex;
-        std::string               m_buildStatus;          // human-readable phase name
+        std::string               m_buildStatus;           // human-readable phase / error text
 
         // Temporal filter: a candidate peak must appear in CONFIRM_FRAMES
         // consecutive inferences before it's promoted to a confirmed dart

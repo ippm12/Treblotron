@@ -78,12 +78,30 @@ bool getLatestVisionHeatmap(std::vector<float>& out,
  */
 bool isVisionInitializing();
 
-/** Fractional init progress in [0, 1]. 1.0 when not initializing. */
+/**
+ * True if the vision source's init failed permanently (e.g. the
+ * TensorRT engine couldn't be built, or the ONNX is missing required
+ * tensor names). The main loop should keep the loading screen up while
+ * this is true so the user can see the error before quitting.
+ */
+bool isVisionFailed();
+
+/** Monotonic init progress in [0, 1]. 1.0 when not initializing. */
 float getVisionInitProgress();
 
 /**
+ * "Still doing something" iteration counter — TRT step counter
+ * accumulated across every internal phase. Useful as an activity
+ * indicator on the loading screen during long phases where the bar
+ * doesn't visibly move. 0 when no source is active.
+ */
+uint64_t getVisionInitIteration();
+
+/**
  * Short human-readable phase label for the loading screen
- * (e.g. "Timing CUDA tactics"). Empty when no source is active.
+ * (e.g. "Building dart detector"). On failure this holds the error
+ * message ("Failed: ...") and the loading screen renders it
+ * prominently. Empty when no source is active.
  */
 std::string getVisionInitStatus();
 

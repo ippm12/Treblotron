@@ -38,8 +38,16 @@ print("outputs:", [(o.name, [d.dim_value for d in o.type.tensor_type.shape.dim])
 PY
 ```
 
-Then drop `blazepalm.onnx` here. The build will pick it up on the next
-launch and produce a cached `.trt` engine alongside.
+Then drop `blazepalm.onnx` here. The runtime requires the I/O tensors
+to have these exact names: `input` (input), `classificators` (output,
+`[1, 2016, 1]`), `regressors` (output, `[1, 2016, 18]`). If your
+converter produced generic names like `input_1` / `Identity` /
+`Identity_1`, rename them on the host machine before checking the model
+in — the engine load step asserts on the canonical names and refuses to
+start with a clear error on the loading screen if any are missing.
+
+The build will pick the ONNX up on the next launch and produce a cached
+`.trt` engine alongside.
 
 ## Expected IO contract
 

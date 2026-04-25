@@ -108,6 +108,13 @@ namespace
     constexpr const char* PALM_ONNX_PATH   = "./vision/palm_detection/blazepalm.onnx";
     constexpr const char* PALM_ENGINE_PATH = "./vision/palm_detection/blazepalm.trt";
 
+    // Canonical I/O names. tf2onnx and most community converters spit out
+    // generic names ("input_1" / "Identity" / "Identity_1") that depend on
+    // TFLite output ordering and shift between exports. We rewrite them
+    // to these stable names with vision/palm_detection/rename_io.py — run
+    // it once after each fresh ONNX export. The runtime asserts on
+    // mismatch (see setTensorAddress checks below) so a forgotten rename
+    // can never silent-fail.
     constexpr const char* PALM_INPUT_NAME   = "input";
     constexpr const char* PALM_OUT_SCORES   = "classificators";
     constexpr const char* PALM_OUT_BOXES    = "regressors";
@@ -163,88 +170,56 @@ namespace
 
 
     // ----------------------------------------------------------------
-    // TRT progress monitor — called by the builder during engine build
-    // so the UI can show something better than a black screen.
-    //
-    // TRT phases are hierarchical (parent phase -> child phases). The
-    // top-level phase's step count is the closest thing to "overall
-    // progress"; we track it and report child phase names as status
-    // text for operator context.
+    // TRT progress monitor — does NOT touch the loading-screen progress
+    // bar (that's driven by C++ phase markers in buildThreadMain so it
+    // stays monotonic 0→100% across the whole startup, instead of
+    // bouncing 0→100% multiple times as TRT cycles through internal
+    // top-level phases). The monitor's only job is to bump a global
+    // iteration counter on every step so the UI can show that the build
+    // is still doing work during long-running phases like timing tactics.
     // ----------------------------------------------------------------
     class TrtProgressMonitor : public nvinfer1::IProgressMonitor
     {
         public:
-            TrtProgressMonitor(std::atomic<float>& progressOut,
-                               std::mutex& statusMutex,
-                               std::string& statusOut,
+            TrtProgressMonitor(std::atomic<uint64_t>& iterationOut,
                                std::atomic<bool>& abortFlag)
-                : m_progress(progressOut)
-                , m_statusMutex(statusMutex)
-                , m_status(statusOut)
+                : m_iteration(iterationOut)
                 , m_abort(abortFlag)
             {}
 
-            void phaseStart(char const* phaseName,
-                            char const* parentPhase,
-                            int32_t nbSteps) noexcept override
-            {
-                // Top-level phase = no parent. Use its step count as the
-                // denominator for "overall" progress.
-                const bool topLevel = (parentPhase == nullptr) || (parentPhase[0] == '\0');
-                if(topLevel)
-                {
-                    m_topSteps.store(nbSteps, std::memory_order_release);
-                    m_topStep.store(0, std::memory_order_release);
-                    m_progress.store(0.0f, std::memory_order_release);
-                }
+            void phaseStart(char const* /*phaseName*/,
+                            char const* /*parentPhase*/,
+                            int32_t /*nbSteps*/) noexcept override {}
 
-                if(phaseName)
-                {
-                    std::lock_guard<std::mutex> lock(m_statusMutex);
-                    m_status = phaseName;
-                }
-            }
-
-            bool stepComplete(char const* phaseName, int32_t step) noexcept override
+            bool stepComplete(char const* /*phaseName*/, int32_t /*step*/) noexcept override
             {
-                (void)phaseName;
-                // We only track top-level progress; sub-phase steps are
-                // noise for the progress bar. But sub-phase NAMES are
-                // still useful status text (set in phaseStart).
-                const int32_t totalSteps = m_topSteps.load(std::memory_order_acquire);
-                if(totalSteps > 0)
-                {
-                    // step indices in TRT are zero-based; nbSteps is total
-                    // count, so fraction is (step+1)/nbSteps when called
-                    // for a top-level step. Phases can nest, so we cap at 1.
-                    const int32_t cur = std::min(step + 1, totalSteps);
-                    m_topStep.store(cur, std::memory_order_release);
-                    m_progress.store(static_cast<float>(cur) / static_cast<float>(totalSteps),
-                                     std::memory_order_release);
-                }
+                m_iteration.fetch_add(1, std::memory_order_relaxed);
                 return !m_abort.load(std::memory_order_acquire);
             }
 
-            void phaseFinish(char const* phaseName) noexcept override
-            {
-                (void)phaseName;
-                // Top-level finish → clamp progress to 1.0 so the bar
-                // visibly completes even if nbSteps didn't land exactly.
-                const int32_t totalSteps = m_topSteps.load(std::memory_order_acquire);
-                if(totalSteps > 0 && m_topStep.load() >= totalSteps)
-                {
-                    m_progress.store(1.0f, std::memory_order_release);
-                }
-            }
+            void phaseFinish(char const* /*phaseName*/) noexcept override {}
 
         private:
-            std::atomic<float>&   m_progress;
-            std::mutex&           m_statusMutex;
-            std::string&          m_status;
-            std::atomic<bool>&    m_abort;
-            std::atomic<int32_t>  m_topSteps{0};
-            std::atomic<int32_t>  m_topStep{0};
+            std::atomic<uint64_t>& m_iteration;
+            std::atomic<bool>&     m_abort;
     };
+
+
+    // Returns true iff the engine exposes an I/O tensor with the given name.
+    // Used at engine load time to assert the ONNX has the canonical names
+    // the runtime hardcodes — setTensorAddress silently no-ops on unknown
+    // names, so we have to explicitly check first.
+    bool engineHasIOTensor(nvinfer1::ICudaEngine* engine, const char* name)
+    {
+        if(!engine || !name) return false;
+        const int32_t n = engine->getNbIOTensors();
+        for(int32_t i = 0; i < n; i++)
+        {
+            const char* t = engine->getIOTensorName(i);
+            if(t && std::strcmp(t, name) == 0) return true;
+        }
+        return false;
+    }
 
 
     // Small RAII helper for CUDA device allocations. Doesn't try to match
@@ -559,13 +534,26 @@ Status TensorRTVisionSource::init()
 // Runs on m_buildThread. Owns the full "bring the engine up" sequence:
 // load cached engine (or build + cache it), create context, allocate
 // buffers, bind tensors, and finally launch the inference thread.
-// Publishes progress + status through the atomics for the UI.
+//
+// Progress reporting is monotonic across the whole startup — the bar
+// fills 0 → 100% once total, advanced at the boundaries below. The
+// raw TRT step counter is folded into m_buildIteration so the loading
+// screen can show "still doing something" feedback during the long
+// internal phases (timing tactics etc.) without bouncing the bar back
+// to 0 each time TRT enters a new top-level phase.
 void TensorRTVisionSource::buildThreadMain()
 {
     auto setStatus = [&](const std::string& s)
     {
         std::lock_guard<std::mutex> lock(m_buildStatusMutex);
         m_buildStatus = s;
+    };
+    auto setPhase = [&](float pct, const std::string& s)
+    {
+        // Monotonic — never let a phase regress the bar.
+        const float prev = m_buildProgress.load(std::memory_order_relaxed);
+        if(pct > prev) m_buildProgress.store(pct, std::memory_order_release);
+        setStatus(s);
     };
     auto fail = [&](const char* why)
     {
@@ -576,23 +564,17 @@ void TensorRTVisionSource::buildThreadMain()
 
     try
     {
-        // ---- Load cached engine if present and fresh ------------------
-        setStatus("Checking dart-detector cache");
+        // ---- Dart engine: load from cache or build from ONNX ----------
+        setPhase(0.05f, "Loading dart detector");
         std::vector<uint8_t> planBytes;
         bool loadedFromCache = false;
-        if(cachedEngineIsFresh(ENGINE_PATH, ONNX_PATH))
+        if(cachedEngineIsFresh(ENGINE_PATH, ONNX_PATH)
+        && readFileBytes(ENGINE_PATH, planBytes))
         {
-            if(readFileBytes(ENGINE_PATH, planBytes))
-            {
-                LOG_INFO(VISION_LOG_ID,
-                         "TensorRTVisionSource: loaded cached engine from {} ({} bytes)",
-                         ENGINE_PATH, planBytes.size());
-                loadedFromCache = true;
-                // Cached load is fast — show a near-full bar so it feels
-                // snappy instead of jumping from 0% to 100% instantly.
-                m_buildProgress.store(0.8f, std::memory_order_release);
-                setStatus("Loading cached dart detector");
-            }
+            LOG_INFO(VISION_LOG_ID,
+                     "TensorRTVisionSource: loaded cached dart engine from {} ({} bytes)",
+                     ENGINE_PATH, planBytes.size());
+            loadedFromCache = true;
         }
 
         m_impl->runtime.reset(nvinfer1::createInferRuntime(g_trtLogger));
@@ -605,54 +587,44 @@ void TensorRTVisionSource::buildThreadMain()
             if(!m_impl->engine)
             {
                 LOG_WARNING(VISION_LOG_ID,
-                            "Cached engine failed to deserialize "
+                            "Cached dart engine failed to deserialize "
                             "(likely GPU/TRT version mismatch) — rebuilding");
                 planBytes.clear();
                 loadedFromCache = false;
             }
         }
 
-        // ---- Build from ONNX if there was no cached plan --------------
         if(!loadedFromCache)
         {
-            setStatus("Building dart detector");
-            m_buildProgress.store(0.0f, std::memory_order_release);
-
-            TrtProgressMonitor monitor(m_buildProgress,
-                                       m_buildStatusMutex,
-                                       m_buildStatus,
-                                       m_buildAbort);
+            setPhase(0.05f, "Building dart detector");
+            TrtProgressMonitor monitor(m_buildIteration, m_buildAbort);
             planBytes = buildEngineFromOnnx(ONNX_PATH, &monitor);
             if(planBytes.empty() || m_buildAbort.load(std::memory_order_acquire))
             {
-                return fail("engine build");
+                return fail("dart engine build");
             }
 
-            // Cache the freshly built engine for next launch. Non-fatal
-            // if the write fails (e.g. read-only fs) — just means we
-            // rebuild next time.
-            setStatus("Caching engine to disk");
+            setPhase(0.40f, "Caching dart detector to disk");
             std::ofstream f(ENGINE_PATH, std::ios::binary);
             if(f.write(reinterpret_cast<const char*>(planBytes.data()),
                        static_cast<std::streamsize>(planBytes.size())))
             {
                 LOG_INFO(VISION_LOG_ID,
-                         "TensorRTVisionSource: wrote engine cache to {}", ENGINE_PATH);
+                         "TensorRTVisionSource: wrote dart engine cache to {}", ENGINE_PATH);
             }
             else
             {
                 LOG_WARNING(VISION_LOG_ID,
-                            "TensorRTVisionSource: failed to write engine cache to {} "
+                            "TensorRTVisionSource: failed to write dart engine cache to {} "
                             "(errno={}); will rebuild next run",
                             ENGINE_PATH, errno);
             }
 
             m_impl->engine.reset(m_impl->runtime->deserializeCudaEngine(
                 planBytes.data(), planBytes.size()));
-            if(!m_impl->engine) return fail("deserializeCudaEngine on fresh plan");
+            if(!m_impl->engine) return fail("deserializeCudaEngine on fresh dart plan");
         }
 
-        // Bail out early if shutdown was requested mid-build.
         if(m_buildAbort.load(std::memory_order_acquire))
         {
             setStatus("Aborted");
@@ -660,12 +632,19 @@ void TensorRTVisionSource::buildThreadMain()
             return;
         }
 
-        // ---- Context + buffers + bindings ----------------------------
-        setStatus("Allocating GPU buffers");
-        m_buildProgress.store(0.95f, std::memory_order_release);
+        // ---- Dart engine: validate I/O names + allocate + bind --------
+        setPhase(0.42f, "Binding dart-detector tensors");
+        if(!engineHasIOTensor(m_impl->engine.get(), INPUT_NAME))
+            return fail("dart ONNX has no 'input' tensor — re-export with canonical names");
+        if(!engineHasIOTensor(m_impl->engine.get(), OUT_HEATMAP))
+            return fail("dart ONNX has no 'heatmap' tensor — re-export with canonical names");
+        if(!engineHasIOTensor(m_impl->engine.get(), OUT_OFFSET))
+            return fail("dart ONNX has no 'offset' tensor — re-export with canonical names");
+        if(!engineHasIOTensor(m_impl->engine.get(), OUT_EXIST))
+            return fail("dart ONNX has no 'exist_logit' tensor — re-export with canonical names");
 
         m_impl->context.reset(m_impl->engine->createExecutionContext());
-        if(!m_impl->context) return fail("createExecutionContext");
+        if(!m_impl->context) return fail("createExecutionContext (dart)");
 
         if(!m_impl->dInput.allocate(INPUT_FLOATS * sizeof(float))
         || !m_impl->dHeatmap.allocate(HEATMAP_FLOATS * sizeof(float))
@@ -676,13 +655,17 @@ void TensorRTVisionSource::buildThreadMain()
         || !m_impl->hOffset.allocate(OFFSET_FLOATS * sizeof(float))
         || !m_impl->hExist.allocate(sizeof(float)))
         {
-            return fail("CUDA buffer allocation");
+            return fail("CUDA buffer allocation (dart)");
         }
 
-        m_impl->context->setTensorAddress(INPUT_NAME,  m_impl->dInput.ptr);
-        m_impl->context->setTensorAddress(OUT_HEATMAP, m_impl->dHeatmap.ptr);
-        m_impl->context->setTensorAddress(OUT_OFFSET,  m_impl->dOffset.ptr);
-        m_impl->context->setTensorAddress(OUT_EXIST,   m_impl->dExist.ptr);
+        if(!m_impl->context->setTensorAddress(INPUT_NAME,  m_impl->dInput.ptr))
+            return fail("setTensorAddress (dart input)");
+        if(!m_impl->context->setTensorAddress(OUT_HEATMAP, m_impl->dHeatmap.ptr))
+            return fail("setTensorAddress (dart heatmap)");
+        if(!m_impl->context->setTensorAddress(OUT_OFFSET,  m_impl->dOffset.ptr))
+            return fail("setTensorAddress (dart offset)");
+        if(!m_impl->context->setTensorAddress(OUT_EXIST,   m_impl->dExist.ptr))
+            return fail("setTensorAddress (dart exist_logit)");
 
         if(m_buildAbort.load(std::memory_order_acquire))
         {
@@ -691,22 +674,17 @@ void TensorRTVisionSource::buildThreadMain()
             return;
         }
 
-        // ---- BlazePalm: same load-or-build flow on a second engine ----
-        // Re-uses the runtime, builder logger, and progress monitor. The
-        // palm engine is small (~5 MB) so the build phase is fast.
-        setStatus("Checking palm-detector cache");
+        // ---- Palm engine: same load-or-build flow on a second engine -
+        setPhase(0.50f, "Loading palm detector");
         std::vector<uint8_t> palmPlanBytes;
         bool palmFromCache = false;
-        if(cachedEngineIsFresh(PALM_ENGINE_PATH, PALM_ONNX_PATH))
+        if(cachedEngineIsFresh(PALM_ENGINE_PATH, PALM_ONNX_PATH)
+        && readFileBytes(PALM_ENGINE_PATH, palmPlanBytes))
         {
-            if(readFileBytes(PALM_ENGINE_PATH, palmPlanBytes))
-            {
-                LOG_INFO(VISION_LOG_ID,
-                         "TensorRTVisionSource: loaded cached palm engine from {} "
-                         "({} bytes)",
-                         PALM_ENGINE_PATH, palmPlanBytes.size());
-                palmFromCache = true;
-            }
+            LOG_INFO(VISION_LOG_ID,
+                     "TensorRTVisionSource: loaded cached palm engine from {} ({} bytes)",
+                     PALM_ENGINE_PATH, palmPlanBytes.size());
+            palmFromCache = true;
         }
 
         if(palmFromCache)
@@ -725,17 +703,15 @@ void TensorRTVisionSource::buildThreadMain()
 
         if(!palmFromCache)
         {
-            setStatus("Building palm detector");
-            TrtProgressMonitor palmMonitor(m_buildProgress,
-                                           m_buildStatusMutex,
-                                           m_buildStatus,
-                                           m_buildAbort);
+            setPhase(0.50f, "Building palm detector");
+            TrtProgressMonitor palmMonitor(m_buildIteration, m_buildAbort);
             palmPlanBytes = buildEngineFromOnnx(PALM_ONNX_PATH, &palmMonitor);
             if(palmPlanBytes.empty() || m_buildAbort.load(std::memory_order_acquire))
             {
                 return fail("palm engine build");
             }
 
+            setPhase(0.85f, "Caching palm detector to disk");
             std::ofstream pf(PALM_ENGINE_PATH, std::ios::binary);
             if(pf.write(reinterpret_cast<const char*>(palmPlanBytes.data()),
                         static_cast<std::streamsize>(palmPlanBytes.size())))
@@ -764,7 +740,33 @@ void TensorRTVisionSource::buildThreadMain()
             return;
         }
 
-        setStatus("Allocating palm-detector buffers");
+        // ---- Palm engine: validate I/O names + allocate + bind --------
+        setPhase(0.90f, "Binding palm-detector tensors");
+
+        // Dump the real names + shapes for diagnostic visibility — makes
+        // future name mismatches obvious from the log.
+        const int32_t nbPalmTensors = m_impl->palmEngine->getNbIOTensors();
+        for(int32_t i = 0; i < nbPalmTensors; i++)
+        {
+            const char* name = m_impl->palmEngine->getIOTensorName(i);
+            const auto  dims = m_impl->palmEngine->getTensorShape(name);
+            std::string shape = "[";
+            for(int32_t d = 0; d < dims.nbDims; d++)
+            {
+                if(d) shape += ",";
+                shape += std::to_string(dims.d[d]);
+            }
+            shape += "]";
+            LOG_INFO(VISION_LOG_ID, "palm engine tensor {}: {} {}", i, name, shape);
+        }
+
+        if(!engineHasIOTensor(m_impl->palmEngine.get(), PALM_INPUT_NAME))
+            return fail("palm ONNX has no 'input' tensor — re-export with canonical names");
+        if(!engineHasIOTensor(m_impl->palmEngine.get(), PALM_OUT_SCORES))
+            return fail("palm ONNX has no 'classificators' tensor — re-export with canonical names");
+        if(!engineHasIOTensor(m_impl->palmEngine.get(), PALM_OUT_BOXES))
+            return fail("palm ONNX has no 'regressors' tensor — re-export with canonical names");
+
         m_impl->palmContext.reset(m_impl->palmEngine->createExecutionContext());
         if(!m_impl->palmContext) return fail("createExecutionContext (palm)");
 
@@ -777,9 +779,12 @@ void TensorRTVisionSource::buildThreadMain()
             return fail("CUDA palm-detector buffer allocation");
         }
 
-        m_impl->palmContext->setTensorAddress(PALM_INPUT_NAME, m_impl->dPalmInput.ptr);
-        m_impl->palmContext->setTensorAddress(PALM_OUT_SCORES, m_impl->dPalmScores.ptr);
-        m_impl->palmContext->setTensorAddress(PALM_OUT_BOXES,  m_impl->dPalmBoxes.ptr);
+        if(!m_impl->palmContext->setTensorAddress(PALM_INPUT_NAME,  m_impl->dPalmInput.ptr))
+            return fail("setTensorAddress (palm input)");
+        if(!m_impl->palmContext->setTensorAddress(PALM_OUT_SCORES,  m_impl->dPalmScores.ptr))
+            return fail("setTensorAddress (palm scores)");
+        if(!m_impl->palmContext->setTensorAddress(PALM_OUT_BOXES,   m_impl->dPalmBoxes.ptr))
+            return fail("setTensorAddress (palm boxes)");
 
         if(cudaStreamCreate(&m_impl->palmStream) != cudaSuccess)
         {
@@ -787,6 +792,7 @@ void TensorRTVisionSource::buildThreadMain()
         }
 
         // ---- Launch the inference thread -----------------------------
+        setPhase(0.98f, "Starting inference");
         m_running.store(true, std::memory_order_release);
         m_thread = std::thread(&TensorRTVisionSource::inferenceLoop, this);
 
@@ -798,7 +804,7 @@ void TensorRTVisionSource::buildThreadMain()
     catch(const std::exception& e)
     {
         LOG_ERROR(VISION_LOG_ID, "buildThreadMain threw: {}", e.what());
-        fail("exception");
+        fail(e.what());
     }
     catch(...)
     {
@@ -814,9 +820,21 @@ bool TensorRTVisionSource::isInitializing() const
 }
 
 
+bool TensorRTVisionSource::isFailed() const
+{
+    return m_buildState.load(std::memory_order_acquire) == BuildState::Failed;
+}
+
+
 float TensorRTVisionSource::getInitProgress() const
 {
     return m_buildProgress.load(std::memory_order_acquire);
+}
+
+
+uint64_t TensorRTVisionSource::getInitIteration() const
+{
+    return m_buildIteration.load(std::memory_order_relaxed);
 }
 
 

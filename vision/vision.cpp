@@ -171,10 +171,23 @@ bool isVisionInitializing()
 }
 
 
+bool isVisionFailed()
+{
+    return f_visionSource && f_visionSource->isFailed();
+}
+
+
 float getVisionInitProgress()
 {
     if(!f_visionSource) return 1.0f;
     return f_visionSource->getInitProgress();
+}
+
+
+uint64_t getVisionInitIteration()
+{
+    if(!f_visionSource) return 0;
+    return f_visionSource->getInitIteration();
 }
 
 
@@ -242,12 +255,19 @@ void presentVisionLoadingFrame(float deltaTime)
     // Dark slate background.
     renderQueueClearFrame(FRAME, 18, 22, 32);
 
+    const bool failed = isVisionFailed();
+    const std::string status = getVisionInitStatus();
+
     // ---- Title ---------------------------------------------------------
     if(f_loadingTitleFont != INVALID_FONT_ID)
     {
+        const std::string titleText = failed ? std::string("Vision init failed")
+                                             : std::string("Building vision model");
+        const Color titleColor = failed ? Color{240, 130, 110} : Color{230, 230, 240};
+
         auto title = std::make_shared<RenderText>();
-        title->m_text     = "Building vision model";
-        title->m_color    = {230, 230, 240};
+        title->m_text     = titleText;
+        title->m_color    = titleColor;
         title->m_fontId   = f_loadingTitleFont;
         title->m_rotation = 0.0f;
         title->m_scaleX   = 1.0f;
@@ -259,6 +279,54 @@ void presentVisionLoadingFrame(float deltaTime)
         title->m_y        = 340.0f;
         title->m_z        = 10;
         renderQueueAdd(FRAME, title);
+    }
+
+    if(failed)
+    {
+        // ---- Failure screen: error message + dismiss hint ------------
+        // No progress bar, no spinner. The status string already starts
+        // with "Failed: <reason>" — we strip the prefix for a cleaner
+        // visual since the title above already conveys the failure.
+        if(f_loadingBodyFont != INVALID_FONT_ID && !status.empty())
+        {
+            std::string msg = status;
+            const std::string prefix = "Failed: ";
+            if(msg.compare(0, prefix.size(), prefix) == 0)
+            {
+                msg = msg.substr(prefix.size());
+            }
+
+            auto err = std::make_shared<RenderText>();
+            err->m_text     = msg;
+            err->m_color    = {230, 200, 195};
+            err->m_fontId   = f_loadingBodyFont;
+            err->m_rotation = 0.0f;
+            err->m_scaleX   = 1.0f;
+            err->m_scaleY   = 1.0f;
+            const float approxW = static_cast<float>(msg.size()) * 13.0f;
+            err->m_x        = CENTER_X - approxW * 0.5f;
+            err->m_y        = 460.0f;
+            err->m_z        = 10;
+            renderQueueAdd(FRAME, err);
+
+            const std::string hint = "Close the window to quit.";
+            auto dismiss = std::make_shared<RenderText>();
+            dismiss->m_text     = hint;
+            dismiss->m_color    = {140, 150, 165};
+            dismiss->m_fontId   = f_loadingBodyFont;
+            dismiss->m_rotation = 0.0f;
+            dismiss->m_scaleX   = 1.0f;
+            dismiss->m_scaleY   = 1.0f;
+            const float hintW = static_cast<float>(hint.size()) * 13.0f;
+            dismiss->m_x        = CENTER_X - hintW * 0.5f;
+            dismiss->m_y        = 540.0f;
+            dismiss->m_z        = 10;
+            renderQueueAdd(FRAME, dismiss);
+        }
+
+        renderQueueDrawFlush(FRAME);
+        presentFrame(FRAME);
+        return;
     }
 
     if(f_loadingBodyFont != INVALID_FONT_ID)
@@ -278,6 +346,11 @@ void presentVisionLoadingFrame(float deltaTime)
     }
 
     // ---- Progress bar -------------------------------------------------
+    // Single monotonic 0 → 100% bar that advances at C++ phase markers
+    // in tensorrt_vision_source.cpp::buildThreadMain. The TRT progress
+    // monitor doesn't touch the bar — it only ticks the iteration
+    // counter shown below, so the bar can't bounce backwards as TRT
+    // cycles through internal phases.
     constexpr float BAR_W    = 960.0f;
     constexpr float BAR_H    = 32.0f;
     constexpr float BAR_X    = CENTER_X - BAR_W * 0.5f;
@@ -304,66 +377,52 @@ void presentVisionLoadingFrame(float deltaTime)
     barFg->m_z      = 6;
     renderQueueAdd(FRAME, barFg);
 
-    // ---- Progress percentage + status text ----------------------------
+    // ---- Status text + iteration counter + elapsed time --------------
     if(f_loadingBodyFont != INVALID_FONT_ID)
     {
-        char pctBuf[32];
-        std::snprintf(pctBuf, sizeof(pctBuf), "%d%%",
-                      static_cast<int>(std::round(progress * 100.0f)));
-
-        auto pct = std::make_shared<RenderText>();
-        pct->m_text     = pctBuf;
-        pct->m_color    = {220, 225, 235};
-        pct->m_fontId   = f_loadingBodyFont;
-        pct->m_rotation = 0.0f;
-        pct->m_scaleX   = 1.0f;
-        pct->m_scaleY   = 1.0f;
-        pct->m_x        = CENTER_X - 40.0f;
-        pct->m_y        = BAR_Y + BAR_H + 20.0f;
-        pct->m_z        = 10;
-        renderQueueAdd(FRAME, pct);
-
-        const std::string status = getVisionInitStatus();
         if(!status.empty())
         {
             auto phase = std::make_shared<RenderText>();
             phase->m_text     = status;
-            phase->m_color    = {180, 190, 205};
+            phase->m_color    = {200, 210, 225};
             phase->m_fontId   = f_loadingBodyFont;
             phase->m_rotation = 0.0f;
             phase->m_scaleX   = 1.0f;
             phase->m_scaleY   = 1.0f;
             const float approxW = static_cast<float>(status.size()) * 13.0f;
             phase->m_x        = CENTER_X - approxW * 0.5f;
-            phase->m_y        = BAR_Y + BAR_H + 60.0f;
+            phase->m_y        = BAR_Y + BAR_H + 24.0f;
             phase->m_z        = 10;
             renderQueueAdd(FRAME, phase);
         }
 
-        // Elapsed time (minutes:seconds).
+        const uint64_t iter = getVisionInitIteration();
         const int elapsedSec = static_cast<int>(f_loadingElapsedSec);
-        char elapsedBuf[32];
-        std::snprintf(elapsedBuf, sizeof(elapsedBuf), "%d:%02d elapsed",
+        char activityBuf[64];
+        std::snprintf(activityBuf, sizeof(activityBuf),
+                      "iter %llu  -  %d:%02d elapsed",
+                      static_cast<unsigned long long>(iter),
                       elapsedSec / 60, elapsedSec % 60);
 
-        auto elapsed = std::make_shared<RenderText>();
-        elapsed->m_text     = elapsedBuf;
-        elapsed->m_color    = {120, 130, 145};
-        elapsed->m_fontId   = f_loadingBodyFont;
-        elapsed->m_rotation = 0.0f;
-        elapsed->m_scaleX   = 1.0f;
-        elapsed->m_scaleY   = 1.0f;
-        const float approxW = static_cast<float>(strlen(elapsedBuf)) * 13.0f;
-        elapsed->m_x        = CENTER_X - approxW * 0.5f;
-        elapsed->m_y        = BAR_Y + BAR_H + 100.0f;
-        elapsed->m_z        = 10;
-        renderQueueAdd(FRAME, elapsed);
+        auto activity = std::make_shared<RenderText>();
+        activity->m_text     = activityBuf;
+        activity->m_color    = {130, 140, 155};
+        activity->m_fontId   = f_loadingBodyFont;
+        activity->m_rotation = 0.0f;
+        activity->m_scaleX   = 1.0f;
+        activity->m_scaleY   = 1.0f;
+        const float approxW = static_cast<float>(strlen(activityBuf)) * 13.0f;
+        activity->m_x        = CENTER_X - approxW * 0.5f;
+        activity->m_y        = BAR_Y + BAR_H + 64.0f;
+        activity->m_z        = 10;
+        renderQueueAdd(FRAME, activity);
     }
 
     // ---- Spinner: 8 dots arranged in a ring, one "leading" -----------
     // Leading dot rotates at ~1 revolution per second; trailing dots
-    // fade behind it. Keeps the screen feeling alive even if TRT
-    // progress sits on the same percentage for a while.
+    // fade behind it. Keeps the screen feeling alive even when the
+    // progress bar sits at the same value for a while during a long
+    // internal TRT phase.
     constexpr int   SPINNER_DOTS    = 8;
     constexpr float SPINNER_RADIUS  = 42.0f;
     constexpr float SPINNER_CX      = CENTER_X;

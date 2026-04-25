@@ -79,10 +79,15 @@ int main()
     // background thread during init(). Keep the window alive with a
     // loading screen until the source reports ready, then fall through
     // to the normal game loop.
+    //
+    // If the build fails (e.g. the ONNX is missing required tensor
+    // names), we stay on the loading screen — which will render the
+    // error message — until the user closes the window. We never fall
+    // through to the game loop with a broken vision system.
     {
         auto lastTick = std::chrono::steady_clock::now();
         bool quitRequested = false;
-        while(isVisionInitializing())
+        while(isVisionInitializing() || isVisionFailed())
         {
             if(!pollFrames())
             {

@@ -62,10 +62,32 @@ class VisionSource
         virtual bool isInitializing() const { return false; }
 
         /**
+         * True if the source's init failed permanently. The loading
+         * screen should stay visible in this state and render the error
+         * (from getInitStatus) until the user closes the window.
+         *
+         * Default: false — sources that come up synchronously can't
+         * fail.
+         */
+        virtual bool isFailed() const { return false; }
+
+        /**
          * Fractional init progress in [0, 1]. Only meaningful while
-         * isInitializing() is true. Default: 1.0 (ready).
+         * isInitializing() is true. Monotonic — never moves backward.
+         * Default: 1.0 (ready).
          */
         virtual float getInitProgress() const { return 1.0f; }
+
+        /**
+         * Raw "still doing something" iteration counter. Increments while
+         * a long-running internal step is grinding away (e.g. TRT
+         * timing tactics). Loading screens display it next to the
+         * progress bar so the user can tell the program isn't hung.
+         *
+         * Default: 0 — sources that come up instantly have no
+         * iterations to report.
+         */
+        virtual uint64_t getInitIteration() const { return 0; }
 
         /**
          * Short human-readable status for the loading screen
