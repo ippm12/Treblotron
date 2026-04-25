@@ -74,6 +74,14 @@ class VisionSource
          */
         virtual std::string getInitStatus() const { return {}; }
 
+        /**
+         * Short human-readable runtime status describing the current
+         * detection state — e.g. "Detecting", "Detecting (entering 1/2)",
+         * "Removing (clear 5/10)". Sources that don't have a state
+         * machine return an empty string and the UI hides the line.
+         */
+        virtual std::string getDetectionStatus() const { return {}; }
+
         /** Set callbacks for dart events. Pass nullptr to disconnect. */
         void setCallbacks(std::function<void()> onDartLanded,
                           std::function<void(float, float)> onDartPositionCalculated)

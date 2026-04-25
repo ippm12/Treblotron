@@ -88,6 +88,14 @@ float getVisionInitProgress();
 std::string getVisionInitStatus();
 
 /**
+ * Short human-readable runtime detection status — e.g. "Detecting",
+ * "Detecting (entering 1/2)", "Removing (clear 5/10)". Empty for
+ * sources without a state machine (sim) and when no source is active.
+ * Intended for the vision_debug overlay.
+ */
+std::string getVisionDetectionStatus();
+
+/**
  * Render one frame of the "building model" loading screen to the main
  * window (the frame created by the game manager). Intended to be called
  * from a mini-loop between initializeVisionModule() and the normal game

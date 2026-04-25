@@ -185,6 +185,13 @@ std::string getVisionInitStatus()
 }
 
 
+std::string getVisionDetectionStatus()
+{
+    if(!f_visionSource) return {};
+    return f_visionSource->getDetectionStatus();
+}
+
+
 // Loading-screen state. Fonts are loaded lazily on first use and kept
 // around until shutdownVisionModule(). Elapsed/spinner-phase state lives
 // here too so the loading loop can stay stateless.

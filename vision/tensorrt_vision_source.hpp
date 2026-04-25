@@ -49,6 +49,8 @@ class TensorRTVisionSource : public VisionSource
         float        getInitProgress() const override;
         std::string  getInitStatus() const override;
 
+        std::string  getDetectionStatus() const override;
+
     private:
         // Forward declaration — full type lives in the .cpp so only that
         // translation unit sees TensorRT / CUDA headers.
@@ -136,11 +138,15 @@ class TensorRTVisionSource : public VisionSource
         // flag so the system stays robust when a held dart occludes the
         // hand from one or two cameras. See the explanatory comment in
         // the .cpp at the use site.
-        DetectionMode m_mode = DetectionMode::Detecting;
-        int           m_handStreak  = 0;   // consecutive cycles handPresent (Detecting only)
-        int           m_clearStreak = 0;   // consecutive clean cycles (Removing only)
-        uint32_t      m_palmFrameCounter = 0;  // round-robin index into the cameras
-        bool          m_palmRecent[EXPECTED_CAMERA_COUNT] = {false, false, false};
+        // Atomic so the UI thread can read state for the vision_debug
+        // overlay without a lock. Only the inference thread writes them,
+        // so relaxed ordering is fine — nothing depends on these for
+        // synchronization, only display.
+        std::atomic<DetectionMode> m_mode{DetectionMode::Detecting};
+        std::atomic<int>           m_handStreak{0};   // consecutive cycles handPresent (Detecting only)
+        std::atomic<int>           m_clearStreak{0};  // consecutive clean cycles (Removing only)
+        uint32_t                   m_palmFrameCounter = 0;  // round-robin index into the cameras
+        bool                       m_palmRecent[EXPECTED_CAMERA_COUNT] = {false, false, false};
 
         // Cycles of palm-present required before entering Removing. Two
         // is enough to absorb a single isolated false positive from the

@@ -338,6 +338,32 @@ void VisionDebugScreen::render()
         renderQueueAdd(fid, text);
     }
 
+    // Detection-state badge under the title — colored by current mode so a
+    // glance tells you whether the system is tracking, on the edge of a hand
+    // entry (Detecting + entering streak), or actively in Removing.
+    {
+        std::string status = getVisionDetectionStatus();
+        if(!status.empty())
+        {
+            Color color = {180, 180, 190};                            // unknown
+            if(status.rfind("Detecting (entering", 0) == 0) color = {240, 220, 100};   // yellow
+            else if(status.rfind("Detecting", 0) == 0)     color = {120, 220, 140};   // green
+            else if(status.rfind("Removing", 0) == 0)      color = {240, 130, 90};    // orange-red
+
+            auto text = std::make_shared<RenderText>();
+            text->m_text     = status;
+            text->m_color    = color;
+            text->m_fontId   = m_bodyFontId;
+            text->m_rotation = 0.0f;
+            text->m_scaleX   = 1.0f;
+            text->m_scaleY   = 1.0f;
+            text->m_x        = LEFT_MARGIN;
+            text->m_y        = TITLE_Y + 80.0f;
+            text->m_z        = BASE_Z;
+            renderQueueAdd(fid, text);
+        }
+    }
+
     // Warped composite image (alpha-blended from calibrated cameras)
     if(m_compositeTexture)
     {

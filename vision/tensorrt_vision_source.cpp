@@ -827,6 +827,27 @@ std::string TensorRTVisionSource::getInitStatus() const
 }
 
 
+std::string TensorRTVisionSource::getDetectionStatus() const
+{
+    const DetectionMode mode  = m_mode.load(std::memory_order_relaxed);
+    const int handStreak      = m_handStreak.load(std::memory_order_relaxed);
+    const int clearStreak     = m_clearStreak.load(std::memory_order_relaxed);
+
+    if(mode == DetectionMode::Removing)
+    {
+        return "Removing (clear " + std::to_string(clearStreak)
+             + "/" + std::to_string(CLEAR_CONFIRM_FRAMES) + ")";
+    }
+
+    if(handStreak > 0)
+    {
+        return "Detecting (entering " + std::to_string(handStreak)
+             + "/" + std::to_string(HAND_ENTER_FRAMES) + ")";
+    }
+    return "Detecting";
+}
+
+
 void TensorRTVisionSource::shutdown()
 {
     // If engine build is still running, signal abort via the progress
@@ -942,9 +963,9 @@ void TensorRTVisionSource::inferenceLoop()
         {
             m_candidates.clear();
             m_confirmedDarts.clear();
-            m_mode         = DetectionMode::Detecting;
-            m_handStreak   = 0;
-            m_clearStreak  = 0;
+            m_mode.store(DetectionMode::Detecting, std::memory_order_relaxed);
+            m_handStreak.store(0, std::memory_order_relaxed);
+            m_clearStreak.store(0, std::memory_order_relaxed);
             for(uint32_t i = 0; i < EXPECTED_CAMERA_COUNT; i++) m_palmRecent[i] = false;
             m_boardClear.store(true, std::memory_order_release);
             {
@@ -1029,7 +1050,7 @@ void TensorRTVisionSource::inferenceLoop()
         // remaining dart.
         float* maskPlane = hInputF + 9u * PLANE_FLOATS;
         std::memset(maskPlane, 0, PLANE_FLOATS * sizeof(float));
-        if(m_mode == DetectionMode::Detecting)
+        if(m_mode.load(std::memory_order_relaxed) == DetectionMode::Detecting)
         {
             for(const PolarDart& d : m_confirmedDarts)
             {
@@ -1236,22 +1257,24 @@ void TensorRTVisionSource::handleInferenceOutputs(bool handPresent)
     // m_boardClear is driven exclusively from here. While Removing it stays
     // false; when CLEAR_CONFIRM_FRAMES of clean cycles pass, we flip back
     // to Detecting and set it true.
-    if(m_mode == DetectionMode::Removing)
+    if(m_mode.load(std::memory_order_relaxed) == DetectionMode::Removing)
     {
         const bool clean = !handPresent && !anyPeakAboveThreshold;
         if(clean)
         {
-            if(++m_clearStreak >= CLEAR_CONFIRM_FRAMES)
+            const int newClear = m_clearStreak.load(std::memory_order_relaxed) + 1;
+            m_clearStreak.store(newClear, std::memory_order_relaxed);
+            if(newClear >= CLEAR_CONFIRM_FRAMES)
             {
-                m_mode        = DetectionMode::Detecting;
-                m_handStreak  = 0;
-                m_clearStreak = 0;
+                m_mode.store(DetectionMode::Detecting, std::memory_order_relaxed);
+                m_handStreak.store(0, std::memory_order_relaxed);
+                m_clearStreak.store(0, std::memory_order_relaxed);
                 m_boardClear.store(true, std::memory_order_release);
             }
         }
         else
         {
-            m_clearStreak = 0;
+            m_clearStreak.store(0, std::memory_order_relaxed);
         }
         // No candidate tracking, no dart emission while Removing.
         return;
@@ -1260,23 +1283,25 @@ void TensorRTVisionSource::handleInferenceOutputs(bool handPresent)
     // ----- Detecting: check for hand entry first ------------------------
     if(handPresent)
     {
-        if(++m_handStreak >= HAND_ENTER_FRAMES)
+        const int newHand = m_handStreak.load(std::memory_order_relaxed) + 1;
+        m_handStreak.store(newHand, std::memory_order_relaxed);
+        if(newHand >= HAND_ENTER_FRAMES)
         {
             // Enter Removing: drop all dart state so the AR model runs
             // unconditioned next cycle and we can scan the heatmap for any
             // remaining dart. m_boardClear stays false until the clear
             // streak completes.
-            m_mode = DetectionMode::Removing;
+            m_mode.store(DetectionMode::Removing, std::memory_order_relaxed);
             m_candidates.clear();
             m_confirmedDarts.clear();
-            m_clearStreak = 0;
+            m_clearStreak.store(0, std::memory_order_relaxed);
             m_boardClear.store(false, std::memory_order_release);
             return;
         }
     }
     else
     {
-        m_handStreak = 0;
+        m_handStreak.store(0, std::memory_order_relaxed);
     }
 
     // ----- Decode sub-pixel peak -----
