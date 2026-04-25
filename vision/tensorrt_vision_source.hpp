@@ -155,6 +155,14 @@ class TensorRTVisionSource : public VisionSource
         std::atomic<DetectionMode> m_mode{DetectionMode::Detecting};
         std::atomic<int>           m_handStreak{0};   // consecutive cycles handPresent (Detecting only)
         std::atomic<int>           m_clearStreak{0};  // consecutive clean cycles (Removing only)
+
+        // Snapshot of last cycle's gating flags — exposed in the
+        // detection status string so the vision_debug overlay can show
+        // which condition is keeping the system stuck in Removing
+        // (palm detector firing vs leftover heatmap peak).
+        std::atomic<bool>          m_lastHandPresent{false};
+        std::atomic<bool>          m_lastPeakAboveThresh{false};
+
         uint32_t                   m_palmFrameCounter = 0;  // round-robin index into the cameras
         bool                       m_palmRecent[EXPECTED_CAMERA_COUNT] = {false, false, false};
 

@@ -850,11 +850,20 @@ std::string TensorRTVisionSource::getDetectionStatus() const
     const DetectionMode mode  = m_mode.load(std::memory_order_relaxed);
     const int handStreak      = m_handStreak.load(std::memory_order_relaxed);
     const int clearStreak     = m_clearStreak.load(std::memory_order_relaxed);
+    const bool hand           = m_lastHandPresent.load(std::memory_order_relaxed);
+    const bool peak           = m_lastPeakAboveThresh.load(std::memory_order_relaxed);
 
     if(mode == DetectionMode::Removing)
     {
+        // Show which gate is blocking the clear streak. If we're stuck
+        // at clear=0/N, hand=Y or peak=Y tells you which signal needs
+        // to go quiet for the system to escape Removing.
+        std::string flags;
+        flags += " hand=";  flags += (hand ? "Y" : "N");
+        flags += " peak=";  flags += (peak ? "Y" : "N");
         return "Removing (clear " + std::to_string(clearStreak)
-             + "/" + std::to_string(CLEAR_CONFIRM_FRAMES) + ")";
+             + "/" + std::to_string(CLEAR_CONFIRM_FRAMES) + ")"
+             + flags;
     }
 
     if(handStreak > 0)
@@ -1219,6 +1228,7 @@ void TensorRTVisionSource::inferenceLoop()
         {
             if(m_palmRecent[i]) { handPresent = true; break; }
         }
+        m_lastHandPresent.store(handPresent, std::memory_order_relaxed);
 
         handleInferenceOutputs(handPresent);
     }
@@ -1270,6 +1280,7 @@ void TensorRTVisionSource::handleInferenceOutputs(bool handPresent)
     // skipped so a leftover dart anywhere on the heatmap (even just outside
     // the wire) blocks the cleared signal.
     const bool anyPeakAboveThreshold = (bestProb >= HEATMAP_THRESHOLD);
+    m_lastPeakAboveThresh.store(anyPeakAboveThreshold, std::memory_order_relaxed);
 
     // ----- State machine: Detecting <-> Removing -----
     // m_boardClear is driven exclusively from here. While Removing it stays

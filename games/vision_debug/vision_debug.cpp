@@ -339,60 +339,9 @@ void VisionDebugScreen::render()
         renderQueueAdd(fid, text);
     }
 
-    // Detection-state badge under the title — colored by current mode so a
-    // glance tells you whether the system is tracking, on the edge of a hand
-    // entry (Detecting + entering streak), or actively in Removing.
-    // The text overlaps the top edge of the dartboard composite, so we
-    // draw a dark backdrop panel under it so it's always readable
-    // regardless of segment color or heatmap intensity behind it.
-    {
-        std::string status = getVisionDetectionStatus();
-        if(!status.empty())
-        {
-            Color color = {180, 180, 190};                            // unknown
-            if(status.rfind("Detecting (entering", 0) == 0) color = {240, 220, 100};   // yellow
-            else if(status.rfind("Detecting", 0) == 0)     color = {120, 220, 140};   // green
-            else if(status.rfind("Removing", 0) == 0)      color = {240, 130, 90};    // orange-red
-
-            const float textX = LEFT_MARGIN;
-            const float textY = TITLE_Y + 80.0f;
-
-            // Backdrop sized to the rendered text, with a small pad. If
-            // measurement fails (no font loaded yet) just skip the panel
-            // and rely on the colored text alone.
-            TTF_Font* font = getFont(m_bodyFontId);
-            if(font)
-            {
-                int textW = 0, textH = 0;
-                if(TTF_GetStringSize(font, status.c_str(), 0, &textW, &textH))
-                {
-                    constexpr float padX = 10.0f;
-                    constexpr float padY = 4.0f;
-                    auto bg = std::make_shared<RenderShape>();
-                    bg->m_type   = ShapeType::Box;
-                    bg->m_color  = {20, 24, 32};
-                    bg->m_x      = textX - padX;
-                    bg->m_y      = textY - padY;
-                    bg->m_width  = static_cast<float>(textW) + 2.0f * padX;
-                    bg->m_height = static_cast<float>(textH) + 2.0f * padY;
-                    bg->m_z      = BASE_Z + 9;
-                    renderQueueAdd(fid, bg);
-                }
-            }
-
-            auto text = std::make_shared<RenderText>();
-            text->m_text     = status;
-            text->m_color    = color;
-            text->m_fontId   = m_bodyFontId;
-            text->m_rotation = 0.0f;
-            text->m_scaleX   = 1.0f;
-            text->m_scaleY   = 1.0f;
-            text->m_x        = textX;
-            text->m_y        = textY;
-            text->m_z        = BASE_Z + 10;
-            renderQueueAdd(fid, text);
-        }
-    }
+    // (Status badge is rendered later, after the composite image — see
+    // below. The render queue draws in insertion order, not by m_z, so
+    // the badge has to come AFTER the image to land on top of it.)
 
     // Warped composite image (alpha-blended from calibrated cameras)
     if(m_compositeTexture)
@@ -427,6 +376,58 @@ void VisionDebugScreen::render()
             marker->m_color = {200, 80, 230};  // purple — readable on white/cream segments
             marker->m_z     = BASE_Z + 2;
             renderQueueAdd(fid, marker);
+        }
+    }
+
+    // Detection-state badge — rendered AFTER the composite image so it
+    // lands on top (the render queue draws in insertion order, not by
+    // m_z, so position in the queue is what matters). Colored by mode:
+    // green = idle Detecting, yellow = entering Removing, orange =
+    // currently Removing. Dark backdrop guarantees readability against
+    // any segment color or heatmap intensity behind it.
+    {
+        std::string status = getVisionDetectionStatus();
+        if(!status.empty())
+        {
+            Color color = {180, 180, 190};
+            if(status.rfind("Detecting (entering", 0) == 0) color = {240, 220, 100};
+            else if(status.rfind("Detecting", 0) == 0)     color = {120, 220, 140};
+            else if(status.rfind("Removing", 0) == 0)      color = {240, 130, 90};
+
+            const float textX = LEFT_MARGIN;
+            const float textY = TITLE_Y + 80.0f;
+
+            TTF_Font* font = getFont(m_bodyFontId);
+            if(font)
+            {
+                int textW = 0, textH = 0;
+                if(TTF_GetStringSize(font, status.c_str(), 0, &textW, &textH))
+                {
+                    constexpr float padX = 10.0f;
+                    constexpr float padY = 4.0f;
+                    auto bg = std::make_shared<RenderShape>();
+                    bg->m_type   = ShapeType::Box;
+                    bg->m_color  = {20, 24, 32};
+                    bg->m_x      = textX - padX;
+                    bg->m_y      = textY - padY;
+                    bg->m_width  = static_cast<float>(textW) + 2.0f * padX;
+                    bg->m_height = static_cast<float>(textH) + 2.0f * padY;
+                    bg->m_z      = BASE_Z;
+                    renderQueueAdd(fid, bg);
+                }
+            }
+
+            auto text = std::make_shared<RenderText>();
+            text->m_text     = status;
+            text->m_color    = color;
+            text->m_fontId   = m_bodyFontId;
+            text->m_rotation = 0.0f;
+            text->m_scaleX   = 1.0f;
+            text->m_scaleY   = 1.0f;
+            text->m_x        = textX;
+            text->m_y        = textY;
+            text->m_z        = BASE_Z;
+            renderQueueAdd(fid, text);
         }
     }
 
