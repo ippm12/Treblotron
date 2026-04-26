@@ -1141,7 +1141,8 @@ void TensorRTVisionSource::inferenceLoop()
         // the board plane and shears anything in front of it, which makes
         // hands unrecognizable to a palm detector trained on natural photos.
         //
-        // Preprocessing (verified against the actual ONNX graph):
+        // Preprocessing (verified against the actual ONNX graph + a Python
+        // run of the model on a captured frame):
         //   - Layout: NHWC, i.e. interleaved RGB pixels. The BlazePalm
         //     ONNX input is [1, 192, 192, 3] — channels last, NOT the
         //     [1, C, H, W] convention the dart model uses. The graph's
@@ -1151,9 +1152,13 @@ void TensorRTVisionSource::inferenceLoop()
         //     moderate-confidence noise everywhere.
         //   - Channel order: RGB. camera_api.cpp:186 already did BGR→RGB
         //     at capture time, so we pack bytes in src order with no swap.
-        //   - Value range: [-1, 1]. Verified in Netron there are no Mul/Sub
-        //     ops at the input — normalization is NOT baked into the
-        //     graph, so we apply (p / 127.5) - 1.0 here.
+        //   - Value range: [0, 1] for *full* BlazePalm. The lite model wanted
+        //     [-1, 1] but the full export's training contract is different —
+        //     feeding [-1, 1] produced saturated logits (sigmoid≈1.0) on
+        //     every frame regardless of image content. Verified empirically
+        //     by running the ONNX in onnxruntime with both ranges; only
+        //     [0, 1] gives sane logits on real captures. So we apply
+        //     p / 255.0 here.
         const uint32_t palmCam = m_palmFrameCounter++ % EXPECTED_CAMERA_COUNT;
         bool palmRanThisCycle = false;
         if(palmCam < camCount
@@ -1177,7 +1182,7 @@ void TensorRTVisionSource::inferenceLoop()
             // R, G, B, ...). Destination tensor wants the same layout, so
             // it's a straight per-byte float convert with normalization.
             // Row-stride-safe in case OpenCV pads rows.
-            constexpr float INV_127_5 = 1.0f / 127.5f;
+            constexpr float INV_255 = 1.0f / 255.0f;
             const uint32_t bytesPerRow = PALM_INPUT_W * 3u;
             for(uint32_t r = 0; r < PALM_INPUT_H; r++)
             {
@@ -1185,48 +1190,10 @@ void TensorRTVisionSource::inferenceLoop()
                 float*         dst = hPalmInputF + r * bytesPerRow;
                 for(uint32_t b = 0; b < bytesPerRow; b++)
                 {
-                    dst[b] = src[b] * INV_127_5 - 1.0f;
+                    dst[b] = src[b] * INV_255;
                 }
             }
             palmRanThisCycle = true;
-
-            // ---- Debug: dump palm input stats + image once a second ----
-            // Saves the actual 192×192 RGB the model sees to disk so the
-            // pipeline can be eyeballed end-to-end. The PNG is rewritten
-            // every dump so the file is always "right now". Drop this once
-            // input flow is verified.
-            {
-                static uint32_t s_dumpCounter = 0;
-                if((s_dumpCounter++ % 60) == 0)
-                {
-                    // Stats over the float tensor we're feeding (the actual
-                    // GPU input pre-H2D).
-                    const size_t N = static_cast<size_t>(PALM_INPUT_FLOATS);
-                    double sum = 0.0;
-                    float  fmin = hPalmInputF[0], fmax = hPalmInputF[0];
-                    for(size_t i = 0; i < N; i++)
-                    {
-                        const float v = hPalmInputF[i];
-                        sum += v;
-                        if(v < fmin) fmin = v;
-                        if(v > fmax) fmax = v;
-                    }
-                    LOG_INFO(VISION_LOG_ID,
-                             "palm input stats: cam={} resized={}x{} stride={} "
-                             "tensor min={:.3f} max={:.3f} mean={:.3f} (-1=black, 0=gray, +1=white)",
-                             palmCam,
-                             m_impl->palmResized.cols, m_impl->palmResized.rows,
-                             static_cast<int>(m_impl->palmResized.step[0]),
-                             fmin, fmax, static_cast<float>(sum / N));
-
-                    // Dump the model-input image as a PNG. Note OpenCV expects
-                    // BGR for imwrite, but our buffer is RGB — swap on save so
-                    // the file looks correct in image viewers.
-                    cv::Mat bgr;
-                    cv::cvtColor(m_impl->palmResized, bgr, cv::COLOR_RGB2BGR);
-                    cv::imwrite("./palm_input_debug.png", bgr);
-                }
-            }
         }
 
         // ----- Inference -----
