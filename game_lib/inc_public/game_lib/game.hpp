@@ -109,6 +109,23 @@ class Game
         virtual void onDartLanded();
         virtual void onDartPositionCalculated(float angle, float normalizedRadius);
 
+        /**
+         * The user signalled that a thrown dart should be counted as missed
+         * — bounced out, didn't get detected, etc. The game should consume
+         * one throw without scoring. Default: no-op. Games that play turns
+         * with a throw budget should override.
+         */
+        virtual void onMissedThrow() {}
+
+        /**
+         * The active turn was abandoned mid-throw (e.g. the user reset the
+         * board with their hand before exhausting their throws). Treat any
+         * remaining throws as missed and end the turn. Default impl loops
+         * onMissedThrow() while the bar still says PlayerTurn with throws
+         * remaining — sufficient for most games.
+         */
+        virtual void onTurnSkipped();
+
     protected:
         /**
          * Thread-safe consume helpers for subclasses to call in update().

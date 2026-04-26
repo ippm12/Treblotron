@@ -50,6 +50,7 @@ class CricketGame : public Game
         // Input callbacks from GameManager
         void onKeyDown(uint32_t keycode) override;
         void onGamepadButton(uint8_t button, bool pressed) override;
+        void onMissedThrow() override;
 
     private:
         void renderMarksScoreboard();

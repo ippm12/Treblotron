@@ -81,6 +81,20 @@ bool Game::popDartPosition(DartPosition& out)
 }
 
 
+void Game::onTurnSkipped()
+{
+    // Fire onMissedThrow() until the bar reports we're no longer in PlayerTurn
+    // with throws remaining. Capped at 16 iterations as a safety against a
+    // misbehaving override (e.g. one whose throwsRemaining doesn't decrement).
+    for(int safety = 0; safety < 16; safety++)
+    {
+        GameBarInfo info = getBarInfo();
+        if(info.state != GameState::PlayerTurn || info.throwsRemaining == 0) break;
+        onMissedThrow();
+    }
+}
+
+
 // ============================================================================
 // GameManager class
 // ============================================================================
@@ -169,6 +183,19 @@ Status GameManager::initialize()
             return;
         }
 
+        // Manual missed-throw button — works in any game whose current
+        // turn still has throws remaining. Pass through to the game's
+        // own keyhandler in any other state so games can use 'M' freely.
+        if(keycode == SDLK_M)
+        {
+            const GameBarInfo info = m_currentGame->getBarInfo();
+            if(info.state == GameState::PlayerTurn && info.throwsRemaining > 0)
+            {
+                m_currentGame->onMissedThrow();
+                return;
+            }
+        }
+
         m_currentGame->onKeyDown(keycode);
     });
 
@@ -194,6 +221,19 @@ Status GameManager::initialize()
             m_pauseCursor = 0;
             m_pauseStatus.clear();
             return;
+        }
+
+        // Manual missed-throw button (X on Xbox controller). Same gating
+        // as the keyboard 'M' — only fires during PlayerTurn with throws
+        // left, otherwise passes through.
+        if(button == SDL_GAMEPAD_BUTTON_WEST)
+        {
+            const GameBarInfo info = m_currentGame->getBarInfo();
+            if(info.state == GameState::PlayerTurn && info.throwsRemaining > 0)
+            {
+                m_currentGame->onMissedThrow();
+                return;
+            }
         }
 
         m_currentGame->onGamepadButton(button, pressed);
@@ -422,6 +462,32 @@ void GameManager::tick()
     // Update and render current game
     if(m_currentGame != nullptr)
     {
+        // Detect a turn-skip signal. Two events count:
+        //   1) Board went from not-clear to clear (user pulled darts mid-
+        //      turn, real or sim).
+        //   2) The vision source raised an explicit reset request (sim's
+        //      Collect button — fires even when the board was already
+        //      empty, so the player can still end an unstarted turn).
+        // If either fires while a turn has throws remaining, treat all
+        // remaining throws as misses via Game::onTurnSkipped(). Skip
+        // while paused so a dart-pull during the pause menu is harmless.
+        const bool boardClearNow  = isBoardClear();
+        const bool boardClearEdge = boardClearNow && !m_lastBoardClear;
+        const bool resetRequested = consumeBoardResetRequest();
+
+        if(!m_paused && (boardClearEdge || resetRequested))
+        {
+            const GameBarInfo info = m_currentGame->getBarInfo();
+            if(info.state == GameState::PlayerTurn && info.throwsRemaining > 0)
+            {
+                LOG_INFO(GAME_MANAGER_LOG_ID,
+                         "Board reset signalled with {} throws remaining — "
+                         "treating as turn skip", info.throwsRemaining);
+                m_currentGame->onTurnSkipped();
+            }
+        }
+        m_lastBoardClear = boardClearNow;
+
         if(!m_paused)
         {
             m_currentGame->update(deltaTime);

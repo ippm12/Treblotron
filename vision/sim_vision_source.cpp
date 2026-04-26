@@ -221,6 +221,10 @@ bool SimVisionSource::mapClickToPolar(float mouseX, float mouseY, float& outAngl
 
 void SimVisionSource::onCollectDartsClicked()
 {
+    // Always raise the reset request, even when the board is already
+    // clear. That lets the player end a turn from the sim with no darts
+    // on the board (e.g. they want to skip remaining throws as misses).
+    m_resetRequested = true;
     resetDarts();
 }
 
@@ -239,6 +243,14 @@ void SimVisionSource::resetDarts()
 bool SimVisionSource::isBoardClear() const
 {
     return m_boardClear;
+}
+
+
+bool SimVisionSource::consumeBoardResetRequest()
+{
+    bool was = m_resetRequested;
+    m_resetRequested = false;
+    return was;
 }
 
 

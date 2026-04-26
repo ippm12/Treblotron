@@ -36,6 +36,11 @@ static struct DartfleetRegistrar
             {{"Small"}, {"Default"}, {"Large"}},
             1  // default = Default
         });
+        desc.settings.push_back({
+            "Volley Size",
+            {{"Salvo (ships left)"}, {"3"}, {"2"}, {"1"}},
+            0  // default = Salvo
+        });
 
         desc.createGame = [](const std::vector<size_t>& choices) -> GamePtr {
             bool teamsMode = (choices.size() >= 1 && choices[0] == 1);
@@ -46,10 +51,18 @@ static struct DartfleetRegistrar
                 return FleetSize::Default;
             };
 
-            FleetSize team0Size = (choices.size() >= 2) ? pickSize(choices[1]) : FleetSize::Default;
-            FleetSize team1Size = (choices.size() >= 3) ? pickSize(choices[2]) : FleetSize::Default;
+            auto pickVolley = [](size_t idx) -> VolleySize {
+                if(idx == 1) return VolleySize::Three;
+                if(idx == 2) return VolleySize::Two;
+                if(idx == 3) return VolleySize::One;
+                return VolleySize::Salvo;
+            };
 
-            return std::make_shared<DartfleetGame>(teamsMode, team0Size, team1Size);
+            FleetSize  team0Size  = (choices.size() >= 2) ? pickSize(choices[1])   : FleetSize::Default;
+            FleetSize  team1Size  = (choices.size() >= 3) ? pickSize(choices[2])   : FleetSize::Default;
+            VolleySize volleySize = (choices.size() >= 4) ? pickVolley(choices[3]) : VolleySize::Salvo;
+
+            return std::make_shared<DartfleetGame>(teamsMode, team0Size, team1Size, volleySize);
         };
         registerGame(desc);
     }

@@ -89,9 +89,11 @@ static constexpr Color COLOR_HEADER_DIM  = { 160, 160, 160 };
 // Constructor
 // ============================================================================
 
-DartfleetGame::DartfleetGame(bool teamsMode, FleetSize team0Size, FleetSize team1Size)
+DartfleetGame::DartfleetGame(bool teamsMode, FleetSize team0Size, FleetSize team1Size,
+                             VolleySize volleySize)
     : Game("Dartfleet")
     , m_teamsMode(teamsMode)
+    , m_volleySize(volleySize)
     , m_boardLeft()
     , m_boardRight()
 {
@@ -249,7 +251,8 @@ GameBarInfo DartfleetGame::getBarInfo() const
         {
             throwerIdx = m_attackingTeam;  // 0 or 1
         }
-        return makeBarInfo(false, m_waitingForCollect, throwerIdx, /*throws*/ 1, m_statusText);
+        return makeBarInfo(false, m_waitingForCollect, throwerIdx,
+                           m_throwsRemainingInVolley, m_statusText);
     }
 
     if(m_phase == DartfleetPhase::GameOver)
@@ -368,9 +371,10 @@ void DartfleetGame::update(float deltaTime)
             m_phaseTimer += deltaTime;
             if(m_phaseTimer >= FIRST_TEAM_REVEAL_SECS)
             {
-                m_phase = DartfleetPhase::PlayerTurn;
-                m_phaseTimer = 0.0f;
-                m_statusText = "Waiting for Throw";
+                m_phase                   = DartfleetPhase::PlayerTurn;
+                m_phaseTimer              = 0.0f;
+                m_throwsRemainingInVolley = volleySizeFor(m_attackingTeam);
+                m_statusText              = "Waiting for Throw";
             }
             break;
 
@@ -387,9 +391,14 @@ void DartfleetGame::update(float deltaTime)
 
             while(hasPos)
             {
+                // processDart can switch to GameOver mid-volley if it sinks
+                // the last opposing ship. Bail out so we don't process the
+                // tail of the volley after the game is decided.
+                if(m_phase != DartfleetPhase::PlayerTurn) break;
+
                 if(m_waitingForCollect)
                 {
-                    // Already done with this turn; ignore extra darts until collection.
+                    // Volley finished; ignore any extra darts until collection.
                     hasPos = popDartPosition(pos);
                     continue;
                 }
@@ -397,18 +406,12 @@ void DartfleetGame::update(float deltaTime)
                 hasPos = popDartPosition(pos);
             }
 
-            if(m_waitingForCollect && isBoardClear())
+            // Volley ended cleanly (no game-over) — wait for darts to be
+            // collected, then hand off to the other team.
+            if(m_phase == DartfleetPhase::PlayerTurn
+            && m_waitingForCollect && isBoardClear())
             {
-                if(currentDefenderAllSunk())
-                {
-                    m_winnerTeamIdx  = m_attackingTeam;
-                    m_gameOverCursor = 0;
-                    m_phase          = DartfleetPhase::GameOver;
-                }
-                else
-                {
-                    advanceTurn();
-                }
+                advanceTurn();
             }
             break;
         }
@@ -862,9 +865,50 @@ void DartfleetGame::processDart(const DartPosition& pos)
         dst.misses.push_back(miss);
     }
 
-    // One throw per turn — waiting for collection now.
+    // Consume one dart from the active volley.
+    if(m_throwsRemainingInVolley > 0) m_throwsRemainingInVolley--;
+
+    // Sinking the defender's last ship ends the game immediately, even if
+    // the attacker still has darts left in the volley — those remaining
+    // darts are dropped on the floor.
+    if(currentDefenderAllSunk())
+    {
+        m_winnerTeamIdx     = m_attackingTeam;
+        m_gameOverCursor    = 0;
+        m_phase             = DartfleetPhase::GameOver;
+        m_waitingForCollect = false;
+        m_statusText        = "";
+        return;
+    }
+
+    // Volley not done — keep throwing.
+    if(m_throwsRemainingInVolley > 0)
+    {
+        m_statusText = "Waiting for Throw";
+        return;
+    }
+
+    // Volley finished — wait for the player to collect their darts before
+    // the next team takes over.
     m_waitingForCollect = true;
     m_statusText        = "Waiting for Throw";
+}
+
+
+void DartfleetGame::onMissedThrow()
+{
+    // Mark one dart in the volley as missed: just decrement the counter.
+    // No miss-X overlay since we don't know where the dart actually went.
+    if(m_phase != DartfleetPhase::PlayerTurn) return;
+    if(m_waitingForCollect)                   return;
+    if(m_throwsRemainingInVolley == 0)        return;
+
+    m_throwsRemainingInVolley--;
+    if(m_throwsRemainingInVolley == 0)
+    {
+        m_waitingForCollect = true;
+    }
+    m_statusText = "Waiting for Throw";
 }
 
 
@@ -876,7 +920,8 @@ void DartfleetGame::advanceTurn()
     {
         m_turnTracker.advance();
     }
-    m_statusText = "Waiting for Throw";
+    m_throwsRemainingInVolley = volleySizeFor(m_attackingTeam);
+    m_statusText              = "Waiting for Throw";
 }
 
 
@@ -888,6 +933,31 @@ bool DartfleetGame::currentDefenderAllSunk() const
         if(!ship.sunk) return false;
     }
     return true;
+}
+
+
+uint8_t DartfleetGame::volleySizeFor(uint8_t attackerIdx) const
+{
+    switch(m_volleySize)
+    {
+        case VolleySize::Salvo:
+        {
+            // Number of the attacker's own ships still afloat. Floor at 1
+            // so a defeated team always gets at least one dart per turn —
+            // even though that floor case shouldn't actually happen
+            // (game ends before any team hits zero ships).
+            uint8_t alive = 0;
+            for(const auto& s : m_teams[attackerIdx].ships)
+            {
+                if(!s.sunk) alive++;
+            }
+            return alive == 0 ? 1 : alive;
+        }
+        case VolleySize::Three: return 3;
+        case VolleySize::Two:   return 2;
+        case VolleySize::One:   return 1;
+    }
+    return 1;
 }
 
 

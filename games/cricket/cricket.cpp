@@ -707,6 +707,19 @@ void CricketGame::onGamepadButton(uint8_t button, bool pressed)
 }
 
 
+void CricketGame::onMissedThrow()
+{
+    // Consume one throw without scoring. Same end-of-turn handling as a
+    // detected non-scoring dart: the board-clear path in update() handles
+    // the player rotation once darts are off the board.
+    if(m_gameOver || m_waitingForCollect || m_throwsRemaining == 0) return;
+
+    m_throwsRemaining--;
+    m_statusText = "Waiting for Throw";
+    if(m_throwsRemaining == 0) m_waitingForCollect = true;
+}
+
+
 void CricketGame::renderGameOver()
 {
     std::string winnerName = m_teamsMode

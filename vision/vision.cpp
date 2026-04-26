@@ -137,6 +137,13 @@ void resetVisionDarts()
 }
 
 
+bool consumeBoardResetRequest()
+{
+    if(!f_visionSource) return false;
+    return f_visionSource->consumeBoardResetRequest();
+}
+
+
 bool getLatestVisionHeatmap(std::vector<float>& out, uint32_t& width, uint32_t& height)
 {
     if(!f_visionSource) return false;

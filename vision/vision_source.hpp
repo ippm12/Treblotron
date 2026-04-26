@@ -39,6 +39,17 @@ class VisionSource
         virtual void resetDarts() = 0;
 
         /**
+         * Returns true once if the user has explicitly asked the board to
+         * be reset since the last call (e.g. clicked the sim's Collect
+         * Darts button). Distinct from isBoardClear() — fires even when
+         * the board was already clear. Default: never. Sources that don't
+         * have an explicit reset signal (real cameras) leave it as the
+         * default; the manager's isBoardClear() transition still catches
+         * the natural hand-clear case for them.
+         */
+        virtual bool consumeBoardResetRequest() { return false; }
+
+        /**
          * Copy the latest inference heatmap (row-major, values in [0, 1]) out
          * of the vision source. Returns false if the source doesn't produce a
          * heatmap (e.g. the sim) or no inference has run yet.

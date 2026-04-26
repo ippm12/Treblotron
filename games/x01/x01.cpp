@@ -616,6 +616,23 @@ void X01Game::onGamepadButton(uint8_t button, bool pressed)
 }
 
 
+void X01Game::onMissedThrow()
+{
+    // A user-flagged miss is treated identically to an off-board dart:
+    // throw consumed, score unchanged, score progression gets a no-op
+    // entry so the per-dart breakdown still shows what happened.
+    if(m_gameOver || m_waitingForCollect || m_throwsRemaining == 0) return;
+
+    m_throwsRemaining--;
+    m_statusText = "Waiting for Throw";
+    if(m_currentPlayerIndex < m_playerScores.size())
+    {
+        m_turnScoreProgression.push_back(m_playerScores[m_currentPlayerIndex]);
+    }
+    if(m_throwsRemaining == 0) m_waitingForCollect = true;
+}
+
+
 void X01Game::renderGameOver()
 {
     PlayerID winnerId = getPlayerByIndex(m_winnerIndex);

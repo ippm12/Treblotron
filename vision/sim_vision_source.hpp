@@ -30,6 +30,7 @@ class SimVisionSource : public VisionSource
         void shutdown() override;
         bool isBoardClear() const override;
         void resetDarts() override;
+        bool consumeBoardResetRequest() override;
 
         /** Set the delay (in seconds) between dart detection and position callback. */
         void setPositionDelay(float seconds) { m_positionDelay = seconds; }
@@ -81,6 +82,13 @@ class SimVisionSource : public VisionSource
 
         // Board state
         bool m_boardClear = true;
+
+        // One-shot flag set when the user clicks the Collect Darts button.
+        // Read-and-cleared by consumeBoardResetRequest() on the main thread.
+        // Lets the GameManager treat a Collect click as a turn-end signal
+        // even when the board was already empty (no isBoardClear transition
+        // would otherwise fire).
+        bool m_resetRequested = false;
 
         // Configuration
         float m_positionDelay = 0.050f; // 50ms default

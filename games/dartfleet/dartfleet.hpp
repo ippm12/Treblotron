@@ -30,6 +30,21 @@ enum class FleetSize : uint8_t
 };
 
 
+/**
+ * Number of darts an attacker throws per volley.
+ *  - Salvo: equal to the attacker's own surviving ship count (floored at 1).
+ *           Creates a death-spiral: losing teams throw fewer darts per turn.
+ *  - Three / Two / One: a fixed dart count regardless of board state.
+ */
+enum class VolleySize : uint8_t
+{
+    Salvo,
+    Three,
+    Two,
+    One
+};
+
+
 /** Phases of a Dartfleet match. */
 enum class DartfleetPhase : uint8_t
 {
@@ -86,7 +101,8 @@ struct DartfleetTeamState
 class DartfleetGame : public Game
 {
     public:
-        DartfleetGame(bool teamsMode, FleetSize team0Size, FleetSize team1Size);
+        DartfleetGame(bool teamsMode, FleetSize team0Size, FleetSize team1Size,
+                      VolleySize volleySize);
         ~DartfleetGame() override = default;
 
         Status init(FrameID frameId) override;
@@ -99,6 +115,7 @@ class DartfleetGame : public Game
 
         void onKeyDown(uint32_t keycode) override;
         void onGamepadButton(uint8_t button, bool pressed) override;
+        void onMissedThrow() override;
 
     private:
         // ── Setup ──────────────────────────────────────────────────────
@@ -119,6 +136,7 @@ class DartfleetGame : public Game
         void processDart(const DartPosition& pos);
         void advanceTurn();
         bool currentDefenderAllSunk() const;
+        uint8_t volleySizeFor(uint8_t attackerIdx) const;
 
         // ── Coordinate helpers ─────────────────────────────────────────
         float boardCenterX(uint8_t teamIdx) const;  // teamIdx's own board
@@ -150,8 +168,9 @@ class DartfleetGame : public Game
         const std::string& teamName(uint8_t teamIdx) const;
 
         // ── Static config ──────────────────────────────────────────────
-        bool      m_teamsMode;
-        FleetSize m_teamFleetSize[2];
+        bool       m_teamsMode;
+        FleetSize  m_teamFleetSize[2];
+        VolleySize m_volleySize;
 
         // ── Resources ──────────────────────────────────────────────────
         FontID     m_fontId      = INVALID_FONT_ID;
@@ -179,6 +198,11 @@ class DartfleetGame : public Game
         bool           m_waitingForCollect = false;
         bool           m_pulseOn           = true;
         float          m_pulseTimer        = 0.0f;
+        // Darts left in the active team's volley. Set at the start of each
+        // turn from volleySizeFor(attacker) and decremented per dart in
+        // processDart(). When it hits zero, m_waitingForCollect flips on
+        // and the turn ends after the board clears.
+        uint8_t        m_throwsRemainingInVolley = 0;
         std::string    m_statusText        = "Place your fleet";
 
         // ── Game over ──────────────────────────────────────────────────

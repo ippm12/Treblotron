@@ -54,6 +54,14 @@ bool isBoardClear();
 void resetVisionDarts();
 
 /**
+ * Returns true once if the user explicitly asked for the board to be
+ * reset (e.g. clicked the sim's Collect Darts button) since the last
+ * call. Distinct from isBoardClear() — fires for an already-clear board
+ * too, so a turn can be force-ended even when no darts ever landed.
+ */
+bool consumeBoardResetRequest();
+
+/**
  * Copy the latest dart-detection heatmap out of the active vision source.
  * Returns false when the source doesn't produce a heatmap (e.g. the sim) or
  * no inference has run yet. On success `out` holds width*height floats in
