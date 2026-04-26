@@ -34,6 +34,7 @@
 #include <filesystem>
 #include <fstream>
 #include <string>
+#include <vector>
 
 
 // ============================================================================
@@ -44,8 +45,11 @@ namespace
 {
     // Paths relative to the executable — the ONNX ships alongside the cached
     // .trt engine. Engine is rebuilt automatically when the ONNX is newer.
+    // Cache path includes "_fp32exist" so any old engine built without the
+    // exist-head precision pin (which produced NaN for the exist_logit due
+    // to FP16 overflow in GlobalAveragePool) is ignored.
     constexpr const char* ONNX_PATH   = "./vision/multicam_unet_ar/multicam_unet_ar.onnx";
-    constexpr const char* ENGINE_PATH = "./vision/multicam_unet_ar/multicam_unet_ar.trt";
+    constexpr const char* ENGINE_PATH = "./vision/multicam_unet_ar/multicam_unet_ar_fp32exist.trt";
 
     // Tensor names — must match the ONNX export in
     // DartModelTraining/export.py:190-194.
@@ -391,11 +395,18 @@ namespace
     // (multi-second) build cost so the first-run delay doesn't look like a
     // hang. `useFp16` controls precision — networks with deep activation
     // chains (e.g. the full BlazePalm) overflow FP16's ±65504 range and
-    // produce NaN outputs, so they need FP32. Optionally accepts a
-    // progress monitor so the UI can draw a progress bar during the build.
-    std::vector<uint8_t> buildEngineFromOnnx(const std::string& onnxPath,
-                                             nvinfer1::IProgressMonitor* monitor,
-                                             bool useFp16 = true)
+    // produce NaN outputs, so they need FP32. `fp32LayerNames` selectively
+    // pins specific layers to FP32 (exact ONNX node-name match) while the
+    // rest of the engine stays at the requested precision — used to fix
+    // individual unstable layers (e.g. the dart model's GlobalAveragePool
+    // that overflows when summing 129k FP16 activations into the
+    // exist_logit head). Optionally accepts a progress monitor so the UI
+    // can draw a progress bar during the build.
+    std::vector<uint8_t> buildEngineFromOnnx(
+        const std::string& onnxPath,
+        nvinfer1::IProgressMonitor* monitor,
+        bool useFp16 = true,
+        const std::vector<std::string>& fp32LayerNames = {})
     {
         const char* precisionLabel = useFp16 ? "FP16" : "FP32";
         LOG_INFO(VISION_LOG_ID,
@@ -441,6 +452,55 @@ namespace
                             "TRT: platform reports no fast FP16 — falling back to FP32");
             }
         }
+
+        // Selectively pin per-layer precision. With the OBEY flag set TRT is
+        // required to honor the constraint or fail the build — the alternative
+        // (PREFER) silently falls back to FP16, which would re-introduce the
+        // overflow we're trying to escape. Names match the exact ONNX node
+        // name (e.g. "/m/Squeeze") so we don't accidentally catch something
+        // like "/m/Squeeze_1" — that bit us once already.
+        if(!fp32LayerNames.empty())
+        {
+            config->setFlag(nvinfer1::BuilderFlag::kOBEY_PRECISION_CONSTRAINTS);
+
+            const int32_t nbLayers = network->getNbLayers();
+            std::vector<bool> matched(fp32LayerNames.size(), false);
+            for(int32_t i = 0; i < nbLayers; i++)
+            {
+                nvinfer1::ILayer* layer = network->getLayer(i);
+                if(!layer) continue;
+                const char* lname = layer->getName();
+                if(!lname) continue;
+
+                int matchIdx = -1;
+                for(size_t k = 0; k < fp32LayerNames.size(); k++)
+                {
+                    if(fp32LayerNames[k] == lname) { matchIdx = static_cast<int>(k); break; }
+                }
+                if(matchIdx < 0) continue;
+
+                layer->setPrecision(nvinfer1::DataType::kFLOAT);
+                const int32_t nbOuts = layer->getNbOutputs();
+                for(int32_t o = 0; o < nbOuts; o++)
+                {
+                    layer->setOutputType(o, nvinfer1::DataType::kFLOAT);
+                }
+                LOG_INFO(VISION_LOG_ID, "TRT: pinned layer {} to FP32", lname);
+                matched[matchIdx] = true;
+            }
+
+            for(size_t k = 0; k < fp32LayerNames.size(); k++)
+            {
+                if(!matched[k])
+                {
+                    LOG_WARNING(VISION_LOG_ID,
+                                "TRT: requested FP32 pin for layer {} not found in network "
+                                "— check the ONNX node names",
+                                fp32LayerNames[k]);
+                }
+            }
+        }
+
         config->setMemoryPoolLimit(nvinfer1::MemoryPoolType::kWORKSPACE, TRT_WORKSPACE_BYTES);
         if(monitor)
         {
@@ -614,7 +674,22 @@ void TensorRTVisionSource::buildThreadMain()
         {
             setPhase(0.05f, "Building dart detector");
             TrtProgressMonitor monitor(m_buildIteration, m_buildAbort);
-            planBytes = buildEngineFromOnnx(ONNX_PATH, &monitor);
+
+            // Pin the exist_logit head's four exist-only layers to FP32. Their
+            // GlobalAveragePool sums 360×360 = 129,600 FP16 activations into a
+            // single scalar, which can overflow FP16's ±65504 range and
+            // poison the rest of that head with Inf/NaN. The heatmap and
+            // offset heads branch off earlier (at /m/up1/conv/conv.8/Relu)
+            // and don't have a global-sum step, so they stay FP16.
+            const std::vector<std::string> dartFp32Layers = {
+                "/m/GlobalAveragePool",
+                "/m/Flatten",
+                "/m/exist_head/Gemm",
+                "/m/Squeeze",
+            };
+            planBytes = buildEngineFromOnnx(ONNX_PATH, &monitor,
+                                            /*useFp16*/ true,
+                                            dartFp32Layers);
             if(planBytes.empty() || m_buildAbort.load(std::memory_order_acquire))
             {
                 return fail("dart engine build");
