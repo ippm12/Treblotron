@@ -171,6 +171,15 @@ class TensorRTVisionSource : public VisionSource
         std::atomic<float>         m_lastPalmScore{-1.0f};
         std::atomic<float>         m_lastHeatmapPeak{-1.0f};
 
+        // Latest dart-existence logit from the U-Net's exist_logit head and
+        // the size of the candidate streak. Surfaced in the detection status
+        // so we can see why a hot heatmap isn't producing a confirmed dart:
+        // existLogit < 0 fails the hasDetection gate, and a stuck streak
+        // size < CONFIRM_FRAMES means the candidate isn't accumulating.
+        // -1e30 means "no value yet this run".
+        std::atomic<float>         m_lastExistLogit{-1e30f};
+        std::atomic<int>           m_lastCandidateStreak{0};
+
         // Top-3 raw palm anchor logits (pre-sigmoid). Shows up in the
         // status string so we can tell whether saturation is a single
         // noise spike (one big logit, rest normal) or the model

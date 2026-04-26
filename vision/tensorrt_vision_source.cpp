@@ -24,7 +24,6 @@
 
 #include <opencv2/core.hpp>
 #include <opencv2/imgproc.hpp>
-#include <opencv2/imgcodecs.hpp>
 
 #include <algorithm>
 #include <cerrno>
@@ -896,9 +895,20 @@ std::string TensorRTVisionSource::getDetectionStatus() const
     // logits help distinguish single-anchor noise spikes (one big,
     // rest tiny/negative) from a model that's confidently producing
     // nonsense (top-3 all saturated).
+    const float existLogit_ = m_lastExistLogit.load(std::memory_order_relaxed);
+    const int   streakNow   = m_lastCandidateStreak.load(std::memory_order_relaxed);
+    auto fmtExist = [](float v) -> std::string {
+        if(v <= -1e29f) return "?";
+        char buf[16];
+        std::snprintf(buf, sizeof(buf), "%+.2f", v);
+        return std::string(buf);
+    };
+
     const std::string scores
         = "  palm=" + fmt2(palmScore)
         + " hm="    + fmt2(heatmapPeak)
+        + " exist=" + fmtExist(existLogit_)
+        + " streak=" + std::to_string(streakNow) + "/" + std::to_string(CONFIRM_FRAMES)
         + " logits=" + fmtLogit(m_palmTop1.load(std::memory_order_relaxed))
         + "/"        + fmtLogit(m_palmTop2.load(std::memory_order_relaxed))
         + "/"        + fmtLogit(m_palmTop3.load(std::memory_order_relaxed));
@@ -1345,6 +1355,7 @@ void TensorRTVisionSource::handleInferenceOutputs(bool handPresent)
     // ----- Gate on exist_logit and sigmoid(peak) -----
     const float bestProb = 1.0f / (1.0f + std::exp(-bestLogit));
     m_lastHeatmapPeak.store(bestProb, std::memory_order_relaxed);
+    m_lastExistLogit.store(existLogit, std::memory_order_relaxed);
     const bool hasDetection = (existLogit >= EXIST_THRESHOLD)
                            && (bestProb   >= HEATMAP_THRESHOLD);
 
@@ -1511,4 +1522,16 @@ void TensorRTVisionSource::handleInferenceOutputs(bool handPresent)
         std::lock_guard<std::mutex> lock(m_eventMutex);
         m_newDartEvents.emplace(emitted.angle, emitted.normalizedRadius);
     }
+
+    // Surface the largest candidate streak so the debug badge can show
+    // whether we're accumulating frames toward a confirmation. If the
+    // heatmap is hot but this stays stuck below CONFIRM_FRAMES, we know
+    // the streak isn't completing (e.g. position wobble or transient gate
+    // failures) rather than the gates being unreachable.
+    int maxStreak = 0;
+    for(const auto& c : m_candidates)
+    {
+        if(c.streak > maxStreak) maxStreak = c.streak;
+    }
+    m_lastCandidateStreak.store(maxStreak, std::memory_order_relaxed);
 }
