@@ -121,6 +121,51 @@ static Status renderBox(FrameID id, float x, float y, float w, float h, uint8_t 
 }
 
 
+// Renders a filled rectangle rotated around its geometric centre. The box
+// is positioned so that its *unrotated* top-left would be at (x, y) — the
+// same convention as renderBox(), so callers can swap rotation in/out
+// without shifting the box's anchor.
+static Status renderRotatedBox(FrameID id, float x, float y, float w, float h,
+                                float rotation,
+                                uint8_t r, uint8_t g, uint8_t b)
+{
+    SDL_Renderer* rend = getFrameRenderer(id);
+    if(!rend)
+    {
+        LOG_ERROR(FRAME_LOG_ID, "No renderer for frame {}", id);
+        return STATUS_ERROR_INVALID_PARAM;
+    }
+
+    float cx = x + w * 0.5f;
+    float cy = y + h * 0.5f;
+    float c  = std::cos(rotation);
+    float s  = std::sin(rotation);
+    float hw = w * 0.5f;
+    float hh = h * 0.5f;
+
+    const float lx[4] = { -hw,  hw,  hw, -hw };
+    const float ly[4] = { -hh, -hh,  hh,  hh };
+
+    SDL_Vertex verts[4];
+    SDL_FColor col = { r / 255.0f, g / 255.0f, b / 255.0f, 1.0f };
+    for(int i = 0; i < 4; i++)
+    {
+        verts[i].position.x = cx + lx[i] * c - ly[i] * s;
+        verts[i].position.y = cy + lx[i] * s + ly[i] * c;
+        verts[i].color      = col;
+        verts[i].tex_coord  = { 0.0f, 0.0f };
+    }
+    const int indices[6] = { 0, 1, 2, 0, 2, 3 };
+
+    if(!SDL_RenderGeometry(rend, nullptr, verts, 4, indices, 6))
+    {
+        LOG_ERROR(FRAME_LOG_ID, "SDL failed to render rotated box: {}", SDL_GetError());
+        return STATUS_ERROR_LIB_CALL;
+    }
+    return STATUS_OK;
+}
+
+
 static constexpr int CIRCLE_SEGMENTS = 32;
 
 static Status renderCircle(FrameID id, float cx, float cy, float radius, uint8_t r, uint8_t g, uint8_t b)
@@ -185,8 +230,14 @@ Status RenderShape::render(FrameID frameId) const
     switch(m_type)
     {
         case ShapeType::Box:
-            return renderBox(frameId,
-                m_x, m_y, m_width, m_height,
+            if(m_rotation == 0.0f)
+            {
+                return renderBox(frameId,
+                    m_x, m_y, m_width, m_height,
+                    m_color.r, m_color.g, m_color.b);
+            }
+            return renderRotatedBox(frameId,
+                m_x, m_y, m_width, m_height, m_rotation,
                 m_color.r, m_color.g, m_color.b);
 
         case ShapeType::Circle:

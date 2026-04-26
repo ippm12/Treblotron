@@ -46,6 +46,12 @@ void InputHints::init()
     m_keyboardIcons[SDLK_C]         = loadIcon(KB_BASE, "keyboard_c.png");
     m_keyboardIcons[SDLK_F]         = loadIcon(KB_BASE, "keyboard_f.png");
     m_keyboardIcons[SDLK_R]         = loadIcon(KB_BASE, "keyboard_r.png");
+    m_keyboardIcons[SDLK_W]         = loadIcon(KB_BASE, "keyboard_w.png");
+    m_keyboardIcons[SDLK_A]         = loadIcon(KB_BASE, "keyboard_a.png");
+    m_keyboardIcons[SDLK_D]         = loadIcon(KB_BASE, "keyboard_d.png");
+    m_keyboardIcons[SDLK_Q]         = loadIcon(KB_BASE, "keyboard_q.png");
+    m_keyboardIcons[SDLK_E]         = loadIcon(KB_BASE, "keyboard_e.png");
+    m_keyboardIcons[SDLK_SPACE]     = loadIcon(KB_BASE, "keyboard_space.png");
     m_keyboardIcons[SDLK_LEFTBRACKET]  = loadIcon(KB_BASE, "keyboard_bracket_open.png");
     m_keyboardIcons[SDLK_RIGHTBRACKET] = loadIcon(KB_BASE, "keyboard_bracket_close.png");
 

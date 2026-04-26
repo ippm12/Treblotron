@@ -50,6 +50,11 @@ class VisionDebugScreen : public Game
         FontID       m_bodyFontId;
         InputHints   m_inputHints;
 
+        // Disabled in simulation builds — there are no cameras and no
+        // heatmap, so the screen just shows a friendly message instead of
+        // the empty composite + spinning timings.
+        bool         m_simMode = false;
+
         DartBoard    m_board;
         std::vector<TrackedDart>   m_trackedDarts;
         std::vector<DartPosition>  m_hitPositions;

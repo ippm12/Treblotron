@@ -527,15 +527,22 @@ bool pollFrames()
             }
             case SDL_EVENT_GAMEPAD_AXIS_MOTION:
             {
-                f_lastInputDevice = InputDevice::Gamepad;
                 FrameID fid = 0;
+                uint8_t axis  = evt.gaxis.axis;
+                int16_t value = evt.gaxis.value;
+
+                // Only attribute the input device to Gamepad when the axis is
+                // outside the deadzone, otherwise idle-stick noise would flip
+                // last-device away from the keyboard the user is typing on.
+                if(value > STICK_DEADZONE || value < -STICK_DEADZONE)
+                {
+                    f_lastInputDevice = InputDevice::Gamepad;
+                }
+
                 if(!f_frames[fid].active || !f_gamepadButtonHandlers[fid])
                 {
                     break;
                 }
-
-                uint8_t axis  = evt.gaxis.axis;
-                int16_t value = evt.gaxis.value;
 
                 if(axis == SDL_GAMEPAD_AXIS_LEFTX)
                 {
@@ -677,4 +684,32 @@ void unregisterFrameGamepadButtonHandler(FrameID frameId)
 InputDevice getLastInputDevice()
 {
     return f_lastInputDevice;
+}
+
+
+float getGamepadAxis(uint8_t axis)
+{
+    for(int i = 0; i < MAX_GAMEPADS; i++)
+    {
+        if(f_gamepads[i])
+        {
+            int16_t v = SDL_GetGamepadAxis(f_gamepads[i], static_cast<SDL_GamepadAxis>(axis));
+            return static_cast<float>(v) / 32767.0f;
+        }
+    }
+    return 0.0f;
+}
+
+
+bool isGamepadButtonHeld(uint8_t button)
+{
+    for(int i = 0; i < MAX_GAMEPADS; i++)
+    {
+        if(f_gamepads[i] &&
+           SDL_GetGamepadButton(f_gamepads[i], static_cast<SDL_GamepadButton>(button)))
+        {
+            return true;
+        }
+    }
+    return false;
 }

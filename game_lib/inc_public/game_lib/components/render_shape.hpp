@@ -33,6 +33,10 @@ class RenderShape : public RenderObject
         float     m_height;     // Box: height. Circle: ignored.   Arc: starting radius.
         float     m_startAngle; // Arc only (degrees)
         float     m_endAngle;   // Arc only (degrees)
+        // Box only: rotation in radians (CCW). The box rotates around its
+        // own geometric centre. m_x/m_y is always the top-left corner of
+        // the *unrotated* box — consistent with the m_rotation == 0 case.
+        float     m_rotation = 0.0f;
 };
 
 #endif // RENDER_SHAPE_HPP

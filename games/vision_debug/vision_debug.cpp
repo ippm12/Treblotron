@@ -111,6 +111,14 @@ Status VisionDebugScreen::init(FrameID frameId)
 
     m_inputHints.init();
 
+#ifdef DARTLENS_USE_SIM
+    // In sim builds there are no cameras or heatmap to debug — the screen
+    // is meaningless. Skip the heavy resource setup and let render() show a
+    // "not available" message that any input dismisses.
+    m_simMode = true;
+    return STATUS_OK;
+#endif
+
     // Create dartboard on right side
     m_board = DartBoard::create(m_world, BOARD_CENTER_X, BOARD_CENTER_Y,
                                 BOARD_SCALE, m_bodyFontId, BASE_Z);
@@ -263,6 +271,8 @@ void VisionDebugScreen::update(float deltaTime)
 {
     (void)deltaTime;
 
+    if(m_simMode) return;
+
     {
         VISION_PROFILE_SCOPE(m_timings, "update");
 
@@ -337,6 +347,37 @@ void VisionDebugScreen::render()
         text->m_y        = TITLE_Y;
         text->m_z        = BASE_Z;
         renderQueueAdd(fid, text);
+    }
+
+    if(m_simMode)
+    {
+        TTF_Font* font = getFont(m_bodyFontId);
+
+        auto centerLine = [&](const std::string& s, float y, Color c) {
+            int w = 0, h = 0;
+            if(font) TTF_GetStringSize(font, s.c_str(), 0, &w, &h);
+            auto text = std::make_shared<RenderText>();
+            text->m_text     = s;
+            text->m_color    = c;
+            text->m_fontId   = m_bodyFontId;
+            text->m_rotation = 0.0f;
+            text->m_scaleX   = 1.0f;
+            text->m_scaleY   = 1.0f;
+            text->m_x        = (WINDOW_W - static_cast<float>(w)) * 0.5f;
+            text->m_y        = y;
+            text->m_z        = BASE_Z;
+            renderQueueAdd(fid, text);
+        };
+
+        centerLine("Vision Debug is not available in simulation mode.",
+                   WINDOW_H * 0.5f - 30.0f, {220, 220, 230});
+        centerLine("Run a build with real cameras to use this screen.",
+                   WINDOW_H * 0.5f + 10.0f, {150, 150, 160});
+
+        std::vector<InputHint> hints;
+        hints.push_back({SDLK_ESCAPE, SDL_GAMEPAD_BUTTON_EAST, "back"});
+        m_inputHints.render(fid, m_bodyFontId, LEFT_MARGIN, HINTS_Y, BASE_Z, hints);
+        return;
     }
 
     // (Status badge is rendered later, after the composite image — see
@@ -566,6 +607,14 @@ bool VisionDebugScreen::isPauseable() const
 
 void VisionDebugScreen::onKeyDown(uint32_t keycode)
 {
+    if(m_simMode)
+    {
+        // Any key dismisses the unavailable-message screen.
+        (void)keycode;
+        loadGame(std::make_shared<MainMenu>());
+        return;
+    }
+
     switch(keycode)
     {
         case SDLK_ESCAPE:
@@ -583,6 +632,14 @@ void VisionDebugScreen::onKeyDown(uint32_t keycode)
 void VisionDebugScreen::onGamepadButton(uint8_t button, bool pressed)
 {
     if(!pressed) return;
+
+    if(m_simMode)
+    {
+        // Any button dismisses the unavailable-message screen.
+        (void)button;
+        loadGame(std::make_shared<MainMenu>());
+        return;
+    }
 
     switch(button)
     {

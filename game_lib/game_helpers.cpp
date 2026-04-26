@@ -302,7 +302,21 @@ void renderAnnouncementBanner(FrameID frameId, FontID largeFontId,
 {
     TTF_Font* font = getFont(largeFontId);
 
-    float panelW = 450.0f;
+    // Size the panel to whichever line of text is wider, with padding and
+    // a sensible minimum so short messages don't look cramped.
+    constexpr float MIN_PANEL_W = 450.0f;
+    constexpr float HORIZ_PAD   = 80.0f;  // total: 40 each side
+
+    int headW = 0, headH = 0;
+    if(font && !heading.empty()) TTF_GetStringSize(font, heading.c_str(), 0, &headW, &headH);
+    int msgW = 0, msgH = 0;
+    if(font && !message.empty()) TTF_GetStringSize(font, message.c_str(), 0, &msgW, &msgH);
+
+    float scaledHeadW = static_cast<float>(headW) * 0.5f;  // heading drawn at 0.5 scale
+    float scaledMsgW  = static_cast<float>(msgW);          // message drawn at full scale
+    float contentW    = std::max(scaledHeadW, scaledMsgW);
+
+    float panelW = std::max(MIN_PANEL_W, contentW + HORIZ_PAD);
     float panelH = 180.0f;
     float panelX = GameLayout::BOARD_CENTER_X - panelW * 0.5f;
     float panelY = GameLayout::BOARD_CENTER_Y - panelH * 0.5f;

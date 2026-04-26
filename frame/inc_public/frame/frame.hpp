@@ -148,6 +148,23 @@ enum class InputDevice { Keyboard, Gamepad };
 InputDevice getLastInputDevice();
 
 /**
+ * Direct-poll APIs for gamepad state. These query SDL's current state of
+ * the (first) connected gamepad rather than relying on edge-triggered
+ * events, which is what callers need for continuous-action input
+ * (analogue stick movement, holding buttons during a frame, etc).
+ *
+ * `axis` is an SDL_GamepadAxis (e.g. SDL_GAMEPAD_AXIS_LEFTX). Returns a
+ * value in [-1.0, 1.0]. Returns 0 if no gamepad is connected.
+ */
+float getGamepadAxis(uint8_t axis);
+
+/**
+ * `button` is an SDL_GamepadButton (e.g. SDL_GAMEPAD_BUTTON_DPAD_LEFT).
+ * Returns true if the button is currently held on any connected gamepad.
+ */
+bool isGamepadButtonHeld(uint8_t button);
+
+/**
  * Load a TrueType font from a file at a given point size.
  * Returns the FontID handle, or INVALID_FONT_ID on failure.
  */
