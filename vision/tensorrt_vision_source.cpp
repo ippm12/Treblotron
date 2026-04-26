@@ -1188,6 +1188,44 @@ void TensorRTVisionSource::inferenceLoop()
                 }
             }
             palmRanThisCycle = true;
+
+            // ---- Debug: dump palm input stats + image once a second ----
+            // Saves the actual 192×192 RGB the model sees to disk so the
+            // pipeline can be eyeballed end-to-end. The PNG is rewritten
+            // every dump so the file is always "right now". Drop this once
+            // input flow is verified.
+            {
+                static uint32_t s_dumpCounter = 0;
+                if((s_dumpCounter++ % 60) == 0)
+                {
+                    // Stats over the float tensor we're feeding (the actual
+                    // GPU input pre-H2D).
+                    const size_t N = static_cast<size_t>(PALM_INPUT_FLOATS);
+                    double sum = 0.0;
+                    float  fmin = hPalmInputF[0], fmax = hPalmInputF[0];
+                    for(size_t i = 0; i < N; i++)
+                    {
+                        const float v = hPalmInputF[i];
+                        sum += v;
+                        if(v < fmin) fmin = v;
+                        if(v > fmax) fmax = v;
+                    }
+                    LOG_INFO(VISION_LOG_ID,
+                             "palm input stats: cam={} resized={}x{} stride={} "
+                             "tensor min={:.3f} max={:.3f} mean={:.3f} (-1=black, 0=gray, +1=white)",
+                             palmCam,
+                             m_impl->palmResized.cols, m_impl->palmResized.rows,
+                             static_cast<int>(m_impl->palmResized.step[0]),
+                             fmin, fmax, static_cast<float>(sum / N));
+
+                    // Dump the model-input image as a PNG. Note OpenCV expects
+                    // BGR for imwrite, but our buffer is RGB — swap on save so
+                    // the file looks correct in image viewers.
+                    cv::Mat bgr;
+                    cv::cvtColor(m_impl->palmResized, bgr, cv::COLOR_RGB2BGR);
+                    cv::imwrite("./palm_input_debug.png", bgr);
+                }
+            }
         }
 
         // ----- Inference -----
