@@ -106,7 +106,10 @@ namespace
     // tensor names + shapes match the standard BlazePalm Lite ONNX export
     // (see vision/palm_detection/README.md for the conversion recipe).
     constexpr const char* PALM_ONNX_PATH   = "./vision/palm_detection/blazepalm.onnx";
-    constexpr const char* PALM_ENGINE_PATH = "./vision/palm_detection/blazepalm.trt";
+    // FP32 cache path: the full BlazePalm overflows FP16 and produces NaN, so
+    // the palm engine has to be built in FP32. The new path makes any stale
+    // FP16 cache from a prior build irrelevant — it'll just be ignored.
+    constexpr const char* PALM_ENGINE_PATH = "./vision/palm_detection/blazepalm_fp32.trt";
 
     // Canonical I/O names. tf2onnx and most community converters spit out
     // generic names ("input_1" / "Identity" / "Identity_1") that depend on
@@ -384,17 +387,21 @@ namespace
     }
 
 
-    // Build an FP16 engine from the ONNX and serialize it to disk. Logs the
+    // Build an engine from the ONNX and serialize it to disk. Logs the
     // (multi-second) build cost so the first-run delay doesn't look like a
-    // hang. Optionally accepts a progress monitor so the UI can draw a
-    // progress bar during the build.
+    // hang. `useFp16` controls precision — networks with deep activation
+    // chains (e.g. the full BlazePalm) overflow FP16's ±65504 range and
+    // produce NaN outputs, so they need FP32. Optionally accepts a
+    // progress monitor so the UI can draw a progress bar during the build.
     std::vector<uint8_t> buildEngineFromOnnx(const std::string& onnxPath,
-                                             nvinfer1::IProgressMonitor* monitor)
+                                             nvinfer1::IProgressMonitor* monitor,
+                                             bool useFp16 = true)
     {
+        const char* precisionLabel = useFp16 ? "FP16" : "FP32";
         LOG_INFO(VISION_LOG_ID,
-                 "TensorRTVisionSource: building FP16 engine from {} "
+                 "TensorRTVisionSource: building {} engine from {} "
                  "(first run only, typically 2-5 minutes on Orin Nano Super)",
-                 onnxPath);
+                 precisionLabel, onnxPath);
 
         std::unique_ptr<nvinfer1::IBuilder> builder(
             nvinfer1::createInferBuilder(g_trtLogger));
@@ -422,14 +429,17 @@ namespace
         std::unique_ptr<nvinfer1::IBuilderConfig> config(builder->createBuilderConfig());
         if(!config) { LOG_ERROR(VISION_LOG_ID, "createBuilderConfig failed"); return {}; }
 
-        if(builder->platformHasFastFp16())
+        if(useFp16)
         {
-            config->setFlag(nvinfer1::BuilderFlag::kFP16);
-        }
-        else
-        {
-            LOG_WARNING(VISION_LOG_ID,
-                        "TRT: platform reports no fast FP16 — falling back to FP32");
+            if(builder->platformHasFastFp16())
+            {
+                config->setFlag(nvinfer1::BuilderFlag::kFP16);
+            }
+            else
+            {
+                LOG_WARNING(VISION_LOG_ID,
+                            "TRT: platform reports no fast FP16 — falling back to FP32");
+            }
         }
         config->setMemoryPoolLimit(nvinfer1::MemoryPoolType::kWORKSPACE, TRT_WORKSPACE_BYTES);
         if(monitor)
@@ -711,7 +721,10 @@ void TensorRTVisionSource::buildThreadMain()
         {
             setPhase(0.50f, "Building palm detector");
             TrtProgressMonitor palmMonitor(m_buildIteration, m_buildAbort);
-            palmPlanBytes = buildEngineFromOnnx(PALM_ONNX_PATH, &palmMonitor);
+            // Force FP32 — full BlazePalm's deeper activation chain
+            // overflows FP16, producing NaN scores. See buildEngineFromOnnx.
+            palmPlanBytes = buildEngineFromOnnx(PALM_ONNX_PATH, &palmMonitor,
+                                                /*useFp16*/ false);
             if(palmPlanBytes.empty() || m_buildAbort.load(std::memory_order_acquire))
             {
                 return fail("palm engine build");
