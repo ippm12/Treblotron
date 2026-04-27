@@ -164,6 +164,7 @@ if(DARTLENS_USE_TENSORRT)
     set(_dartlens_onnx_assets
         vision/multicam_unet_ar/multicam_unet_ar.onnx
         vision/palm_detection/blazepalm.onnx
+        vision/palm_detection/hand_landmark.onnx
     )
     foreach(_asset IN LISTS _dartlens_onnx_assets)
         get_filename_component(_asset_dir ${_asset} DIRECTORY)

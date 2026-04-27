@@ -171,6 +171,12 @@ class TensorRTVisionSource : public VisionSource
         std::atomic<float>         m_lastPalmScore{-1.0f};
         std::atomic<float>         m_lastHeatmapPeak{-1.0f};
 
+        // Latest hand-landmark presence sigmoid (the FP filter score).
+        // Only updated when the palm stage already passed its threshold
+        // (otherwise the landmark stage is skipped). -1 means "no value
+        // yet", -2 means "skipped this cycle because palm rejected".
+        std::atomic<float>         m_lastLandmarkPresence{-1.0f};
+
         // Latest dart-existence logit from the U-Net's exist_logit head and
         // the size of the candidate streak. Surfaced in the detection status
         // so we can see why a hot heatmap isn't producing a confirmed dart:

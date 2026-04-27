@@ -16,6 +16,7 @@
 #include "tensorrt_vision_source.hpp"
 #include "vision/vision.hpp"
 #include "vision/wire_calibration.hpp"
+#include "vision/palm_detection/blazepalm_anchors.hpp"
 #include "dart/dart_board_geometry.hpp"
 
 #include <NvInfer.h>
@@ -146,6 +147,62 @@ namespace
     // either lower this back to 0.6, or switch the aggregation from
     // max-of-anchors to top-K mean (more robust to single-anchor noise).
     constexpr float PALM_PRESENCE_THRESHOLD = 0.7f;
+
+    // ----- MediaPipe hand-landmark detector (FP filter for BlazePalm) -----
+    //
+    // BlazePalm produces high-confidence false positives on dart shapes
+    // sitting in the bullseye region — close enough in score to real hands
+    // that no single threshold separates them. The MediaPipe landmark stage
+    // exists exactly for this: it tries to fit 21 hand keypoints to the
+    // palm-detected ROI and emits a `presence` score that collapses to ~0
+    // when no plausible hand skeleton fits. We run it conditionally
+    // (only when palm already passes its own threshold) and AND the two
+    // results before driving the Removing-state transition.
+    //
+    // Empirical reference (verify_landmark_filter.py on a no-hand
+    // dartboard): landmark presence = 0.030 vs ~0.95+ for a real hand —
+    // huge separation, so 0.5 is a safe initial threshold with room to
+    // raise it if real-hand misses ever appear.
+    constexpr const char* LANDMARK_ONNX_PATH   = "./vision/palm_detection/hand_landmark.onnx";
+    constexpr const char* LANDMARK_ENGINE_PATH = "./vision/palm_detection/hand_landmark_fp32.trt";
+
+    // Canonical I/O names — applied by vision/palm_detection/rename_io_landmark.py
+    // after the tf2onnx export. Only `presence` is read back at runtime;
+    // `landmarks` / `handedness` / `world_landmarks` are bound to satisfy
+    // TRT's I/O requirement but never copied D2H.
+    constexpr const char* LANDMARK_INPUT_NAME      = "input";
+    constexpr const char* LANDMARK_OUT_LANDMARKS   = "landmarks";
+    constexpr const char* LANDMARK_OUT_PRESENCE    = "presence";
+    constexpr const char* LANDMARK_OUT_HANDEDNESS  = "handedness";
+    constexpr const char* LANDMARK_OUT_WORLD       = "world_landmarks";
+
+    constexpr uint32_t LANDMARK_INPUT_W   = 224;
+    constexpr uint32_t LANDMARK_INPUT_H   = 224;
+    constexpr uint32_t LANDMARK_INPUT_C   = 3;
+
+    constexpr size_t LANDMARK_INPUT_FLOATS  = static_cast<size_t>(LANDMARK_INPUT_C)
+                                            * LANDMARK_INPUT_H * LANDMARK_INPUT_W;
+    constexpr size_t LANDMARK_LANDMARKS_FLOATS = 63;  // 21 keypoints × (x,y,z)
+    constexpr size_t LANDMARK_PRESENCE_FLOATS  = 1;
+    constexpr size_t LANDMARK_HANDEDNESS_FLOATS = 1;
+    constexpr size_t LANDMARK_WORLD_FLOATS     = 63;
+
+    constexpr float LANDMARK_PRESENCE_THRESHOLD = 0.5f;
+
+    // BlazePalm regressor decoding constants. The 18-float per-anchor
+    // regression layout — verified against MediaPipe's
+    // tflite_tensors_to_detections_calculator + verify_landmark_filter.py:
+    //   [0..1] : (dx, dy)  bbox center offset from anchor (input pixels)
+    //   [2..3] : (w,  h)   bbox size                       (input pixels)
+    //   [4..17]: 7 keypoints × (x, y) anchor-center-relative (input pixels)
+    constexpr uint32_t PALM_KP_WRIST   = 0;  // wrist center
+    constexpr uint32_t PALM_KP_MIDDLE  = 2;  // middle-finger MCP
+
+    // Landmark crop: rotate so wrist→middle-finger axis points up, then
+    // expand the long side of the palm bbox by this factor. Matches
+    // MediaPipe's hand_detection_to_roi config (scale_x=2.6, scale_y=2.6).
+    constexpr float LANDMARK_CROP_EXPANSION = 2.6f;
+    constexpr float LANDMARK_CROP_SHIFT_Y   = -0.5f;
 }
 
 
@@ -344,6 +401,7 @@ struct TensorRTVisionSource::Impl
 
     PinnedBuffer hPalmInput;
     PinnedBuffer hPalmScores;
+    PinnedBuffer hPalmBoxes;   // now read back — needed for landmark crop ROI
 
     // Raw frame copy + resize destination for the round-robin camera frame.
     // BlazePalm needs the *unwarped* image — the perspective warp used for
@@ -352,6 +410,23 @@ struct TensorRTVisionSource::Impl
     // natural photos.
     CameraFrame palmRawFrame;
     cv::Mat     palmResized;  // 192×192 RGB8
+
+    // ----- Hand landmark (second-stage FP filter) -----
+    std::unique_ptr<nvinfer1::ICudaEngine>       landmarkEngine;
+    std::unique_ptr<nvinfer1::IExecutionContext> landmarkContext;
+
+    cudaStream_t landmarkStream = nullptr;
+
+    CudaBuffer dLandmarkInput;       // LANDMARK_INPUT_FLOATS  * sizeof(float)
+    CudaBuffer dLandmarkLandmarks;   // 63 * sizeof(float)  — bound, never read
+    CudaBuffer dLandmarkPresence;    //  1 * sizeof(float)  — only this comes back
+    CudaBuffer dLandmarkHandedness;  //  1 * sizeof(float)  — bound, never read
+    CudaBuffer dLandmarkWorld;       // 63 * sizeof(float)  — bound, never read
+
+    PinnedBuffer hLandmarkInput;
+    PinnedBuffer hLandmarkPresence;
+
+    cv::Mat     landmarkCropRgb;     // 224×224 RGB8 destination of warpAffine
 };
 
 
@@ -885,6 +960,143 @@ void TensorRTVisionSource::buildThreadMain()
             return fail("cudaStreamCreate (palm)");
         }
 
+        // Allocate the (now-read-back) palm regressors host buffer. The
+        // landmark stage decodes the top anchor's 18 regressor floats to
+        // place its oriented crop, so we need them on the host each cycle.
+        if(!m_impl->hPalmBoxes.allocate(PALM_BOXES_FLOATS * sizeof(float)))
+        {
+            return fail("CUDA palm-regressor host buffer allocation");
+        }
+
+        // ---- Hand landmark engine: same load-or-build flow ------------
+        setPhase(0.92f, "Loading hand-landmark detector");
+        std::vector<uint8_t> lmPlanBytes;
+        bool lmFromCache = false;
+        if(cachedEngineIsFresh(LANDMARK_ENGINE_PATH, LANDMARK_ONNX_PATH)
+        && readFileBytes(LANDMARK_ENGINE_PATH, lmPlanBytes))
+        {
+            LOG_INFO(VISION_LOG_ID,
+                     "TensorRTVisionSource: loaded cached landmark engine from {} ({} bytes)",
+                     LANDMARK_ENGINE_PATH, lmPlanBytes.size());
+            lmFromCache = true;
+        }
+
+        if(lmFromCache)
+        {
+            m_impl->landmarkEngine.reset(m_impl->runtime->deserializeCudaEngine(
+                lmPlanBytes.data(), lmPlanBytes.size()));
+            if(!m_impl->landmarkEngine)
+            {
+                LOG_WARNING(VISION_LOG_ID,
+                            "Cached landmark engine failed to deserialize "
+                            "(likely GPU/TRT version mismatch) — rebuilding");
+                lmPlanBytes.clear();
+                lmFromCache = false;
+            }
+        }
+
+        if(!lmFromCache)
+        {
+            setPhase(0.92f, "Building hand-landmark detector");
+            TrtProgressMonitor lmMonitor(m_buildIteration, m_buildAbort);
+            // FP32 to match the palm engine's caution against FP16 overflow.
+            // The landmark net is small (~5 MB) so the build is fast and
+            // the perf cost over FP16 is negligible relative to the
+            // (much heavier) U-Net dart pipeline.
+            lmPlanBytes = buildEngineFromOnnx(LANDMARK_ONNX_PATH, &lmMonitor,
+                                              /*useFp16*/ false);
+            if(lmPlanBytes.empty() || m_buildAbort.load(std::memory_order_acquire))
+            {
+                return fail("landmark engine build");
+            }
+
+            setPhase(0.95f, "Caching hand-landmark detector to disk");
+            std::ofstream lf(LANDMARK_ENGINE_PATH, std::ios::binary);
+            if(lf.write(reinterpret_cast<const char*>(lmPlanBytes.data()),
+                        static_cast<std::streamsize>(lmPlanBytes.size())))
+            {
+                LOG_INFO(VISION_LOG_ID,
+                         "TensorRTVisionSource: wrote landmark engine cache to {}",
+                         LANDMARK_ENGINE_PATH);
+            }
+            else
+            {
+                LOG_WARNING(VISION_LOG_ID,
+                            "TensorRTVisionSource: failed to write landmark engine "
+                            "cache to {} (errno={}); will rebuild next run",
+                            LANDMARK_ENGINE_PATH, errno);
+            }
+
+            m_impl->landmarkEngine.reset(m_impl->runtime->deserializeCudaEngine(
+                lmPlanBytes.data(), lmPlanBytes.size()));
+            if(!m_impl->landmarkEngine) return fail("deserializeCudaEngine on fresh landmark plan");
+        }
+
+        if(m_buildAbort.load(std::memory_order_acquire))
+        {
+            setStatus("Aborted");
+            m_buildState.store(BuildState::Failed, std::memory_order_release);
+            return;
+        }
+
+        setPhase(0.96f, "Binding hand-landmark tensors");
+
+        const int32_t nbLmTensors = m_impl->landmarkEngine->getNbIOTensors();
+        for(int32_t i = 0; i < nbLmTensors; i++)
+        {
+            const char* name = m_impl->landmarkEngine->getIOTensorName(i);
+            const auto  dims = m_impl->landmarkEngine->getTensorShape(name);
+            std::string shape = "[";
+            for(int32_t d = 0; d < dims.nbDims; d++)
+            {
+                if(d) shape += ",";
+                shape += std::to_string(dims.d[d]);
+            }
+            shape += "]";
+            LOG_INFO(VISION_LOG_ID, "landmark engine tensor {}: {} {}", i, name, shape);
+        }
+
+        if(!engineHasIOTensor(m_impl->landmarkEngine.get(), LANDMARK_INPUT_NAME))
+            return fail("landmark ONNX has no 'input' tensor — re-export with canonical names");
+        if(!engineHasIOTensor(m_impl->landmarkEngine.get(), LANDMARK_OUT_LANDMARKS))
+            return fail("landmark ONNX has no 'landmarks' tensor — re-export with canonical names");
+        if(!engineHasIOTensor(m_impl->landmarkEngine.get(), LANDMARK_OUT_PRESENCE))
+            return fail("landmark ONNX has no 'presence' tensor — re-export with canonical names");
+        if(!engineHasIOTensor(m_impl->landmarkEngine.get(), LANDMARK_OUT_HANDEDNESS))
+            return fail("landmark ONNX has no 'handedness' tensor — re-export with canonical names");
+        if(!engineHasIOTensor(m_impl->landmarkEngine.get(), LANDMARK_OUT_WORLD))
+            return fail("landmark ONNX has no 'world_landmarks' tensor — re-export with canonical names");
+
+        m_impl->landmarkContext.reset(m_impl->landmarkEngine->createExecutionContext());
+        if(!m_impl->landmarkContext) return fail("createExecutionContext (landmark)");
+
+        if(!m_impl->dLandmarkInput.allocate(LANDMARK_INPUT_FLOATS      * sizeof(float))
+        || !m_impl->dLandmarkLandmarks.allocate(LANDMARK_LANDMARKS_FLOATS  * sizeof(float))
+        || !m_impl->dLandmarkPresence.allocate(LANDMARK_PRESENCE_FLOATS    * sizeof(float))
+        || !m_impl->dLandmarkHandedness.allocate(LANDMARK_HANDEDNESS_FLOATS* sizeof(float))
+        || !m_impl->dLandmarkWorld.allocate(LANDMARK_WORLD_FLOATS          * sizeof(float))
+        || !m_impl->hLandmarkInput.allocate(LANDMARK_INPUT_FLOATS          * sizeof(float))
+        || !m_impl->hLandmarkPresence.allocate(LANDMARK_PRESENCE_FLOATS    * sizeof(float)))
+        {
+            return fail("CUDA landmark buffer allocation");
+        }
+
+        if(!m_impl->landmarkContext->setTensorAddress(LANDMARK_INPUT_NAME,     m_impl->dLandmarkInput.ptr))
+            return fail("setTensorAddress (landmark input)");
+        if(!m_impl->landmarkContext->setTensorAddress(LANDMARK_OUT_LANDMARKS,  m_impl->dLandmarkLandmarks.ptr))
+            return fail("setTensorAddress (landmark landmarks)");
+        if(!m_impl->landmarkContext->setTensorAddress(LANDMARK_OUT_PRESENCE,   m_impl->dLandmarkPresence.ptr))
+            return fail("setTensorAddress (landmark presence)");
+        if(!m_impl->landmarkContext->setTensorAddress(LANDMARK_OUT_HANDEDNESS, m_impl->dLandmarkHandedness.ptr))
+            return fail("setTensorAddress (landmark handedness)");
+        if(!m_impl->landmarkContext->setTensorAddress(LANDMARK_OUT_WORLD,      m_impl->dLandmarkWorld.ptr))
+            return fail("setTensorAddress (landmark world)");
+
+        if(cudaStreamCreate(&m_impl->landmarkStream) != cudaSuccess)
+        {
+            return fail("cudaStreamCreate (landmark)");
+        }
+
         // ---- Launch the inference thread -----------------------------
         setPhase(0.98f, "Starting inference");
         m_running.store(true, std::memory_order_release);
@@ -1021,6 +1233,8 @@ void TensorRTVisionSource::shutdown()
     m_running.store(false, std::memory_order_release);
     if(m_thread.joinable())      m_thread.join();
 
+    m_impl->landmarkContext.reset();
+    m_impl->landmarkEngine.reset();
     m_impl->palmContext.reset();
     m_impl->palmEngine.reset();
     m_impl->context.reset();
@@ -1041,6 +1255,15 @@ void TensorRTVisionSource::shutdown()
     m_impl->dPalmBoxes.free();
     m_impl->hPalmInput.free();
     m_impl->hPalmScores.free();
+    m_impl->hPalmBoxes.free();
+
+    m_impl->dLandmarkInput.free();
+    m_impl->dLandmarkLandmarks.free();
+    m_impl->dLandmarkPresence.free();
+    m_impl->dLandmarkHandedness.free();
+    m_impl->dLandmarkWorld.free();
+    m_impl->hLandmarkInput.free();
+    m_impl->hLandmarkPresence.free();
 
     if(m_impl->stream)
     {
@@ -1051,6 +1274,11 @@ void TensorRTVisionSource::shutdown()
     {
         cudaStreamDestroy(m_impl->palmStream);
         m_impl->palmStream = nullptr;
+    }
+    if(m_impl->landmarkStream)
+    {
+        cudaStreamDestroy(m_impl->landmarkStream);
+        m_impl->landmarkStream = nullptr;
     }
 
     shutdownCameraSystem();
@@ -1117,6 +1345,9 @@ void TensorRTVisionSource::inferenceLoop()
     float* const hOffsetF     = static_cast<float*>(m_impl->hOffset.ptr);
     float* const hExistF      = static_cast<float*>(m_impl->hExist.ptr);
     float* const hPalmInputF  = static_cast<float*>(m_impl->hPalmInput.ptr);
+    float* const hPalmBoxesF  = static_cast<float*>(m_impl->hPalmBoxes.ptr);
+    float* const hLandmarkInputF    = static_cast<float*>(m_impl->hLandmarkInput.ptr);
+    float* const hLandmarkPresenceF = static_cast<float*>(m_impl->hLandmarkPresence.ptr);
     float* const hPalmScoresF = static_cast<float*>(m_impl->hPalmScores.ptr);
 
     while(m_running.load(std::memory_order_acquire))
@@ -1332,8 +1563,12 @@ void TensorRTVisionSource::inferenceLoop()
             cudaMemcpyAsync(hPalmScoresF, m_impl->dPalmScores.ptr,
                             PALM_SCORES_FLOATS * sizeof(float),
                             cudaMemcpyDeviceToHost, m_impl->palmStream);
-            // dPalmBoxes is bound but never copied back — we only need
-            // presence, never location.
+            // Regressors are now needed: when the palm passes its
+            // threshold we decode the winning anchor's 18-float
+            // regression to place the landmark stage's oriented crop.
+            cudaMemcpyAsync(hPalmBoxesF, m_impl->dPalmBoxes.ptr,
+                            PALM_BOXES_FLOATS * sizeof(float),
+                            cudaMemcpyDeviceToHost, m_impl->palmStream);
         }
 
         if(cudaStreamSynchronize(m_impl->stream) != cudaSuccess)
@@ -1357,10 +1592,11 @@ void TensorRTVisionSource::inferenceLoop()
                 // cluster of high anchors; an isolated false positive
                 // is one big logit with the rest near -∞.
                 float t1 = -1e30f, t2 = -1e30f, t3 = -1e30f;
+                uint32_t topIdx = 0;
                 for(uint32_t i = 0; i < PALM_SCORES_FLOATS; i++)
                 {
                     const float v = hPalmScoresF[i];
-                    if(v > t1)      { t3 = t2; t2 = t1; t1 = v; }
+                    if(v > t1)      { t3 = t2; t2 = t1; t1 = v; topIdx = i; }
                     else if(v > t2) { t3 = t2; t2 = v; }
                     else if(v > t3) { t3 = v; }
                 }
@@ -1370,7 +1606,148 @@ void TensorRTVisionSource::inferenceLoop()
 
                 const float bestProb = 1.0f / (1.0f + std::exp(-t1));
                 m_lastPalmScore.store(bestProb, std::memory_order_relaxed);
-                palmDetectedThisCycle = (bestProb >= PALM_PRESENCE_THRESHOLD);
+                const bool palmStagePass = (bestProb >= PALM_PRESENCE_THRESHOLD);
+
+                // ----- Stage 2: hand-landmark FP filter -----
+                //
+                // Only run when palm already passed its own threshold —
+                // saves the entire landmark inference cost in the common
+                // "no hand in view" case. When we run it, the result
+                // ANDs with the palm result so a real hand requires both
+                // a palm spike AND a plausible 21-keypoint skeleton fit.
+                bool landmarkStagePass = false;
+                float landmarkPresence = -1.0f;
+                if(palmStagePass)
+                {
+                    // Decode the winning anchor's 18 regressor floats.
+                    // BlazePalm regressor layout (verified in
+                    // verify_landmark_filter.py): values are in 192-pixel
+                    // input space, anchor-center-relative for centers and
+                    // keypoints, absolute pixels for box w/h.
+                    const float* reg = hPalmBoxesF + topIdx * PALM_BOX_DIM;
+                    const float  acx = kBlazePalmAnchorsCxCy[2 * topIdx + 0];
+                    const float  acy = kBlazePalmAnchorsCxCy[2 * topIdx + 1];
+
+                    const float bw = reg[2];
+                    const float bh = reg[3];
+
+                    const float kp0x = reg[4 + 2 * PALM_KP_WRIST    + 0] + acx;
+                    const float kp0y = reg[4 + 2 * PALM_KP_WRIST    + 1] + acy;
+                    const float kp2x = reg[4 + 2 * PALM_KP_MIDDLE   + 0] + acx;
+                    const float kp2y = reg[4 + 2 * PALM_KP_MIDDLE   + 1] + acy;
+                    const float bcx  = reg[0] + acx;
+                    const float bcy  = reg[1] + acy;
+
+                    // Map 192-space coords to raw-frame pixels.
+                    const int rawW = static_cast<int>(m_impl->palmRawFrame.width);
+                    const int rawH = static_cast<int>(m_impl->palmRawFrame.height);
+                    const float sx = static_cast<float>(rawW) /
+                                     static_cast<float>(PALM_INPUT_W);
+                    const float sy = static_cast<float>(rawH) /
+                                     static_cast<float>(PALM_INPUT_H);
+
+                    const float cxR  = bcx  * sx;
+                    const float cyR  = bcy  * sy;
+                    const float wR   = bw   * sx;
+                    const float hR   = bh   * sy;
+                    const float k0xR = kp0x * sx;
+                    const float k0yR = kp0y * sy;
+                    const float k2xR = kp2x * sx;
+                    const float k2yR = kp2y * sy;
+
+                    // Wrist→middle-finger MCP angle. Target is to point
+                    // the fingers up in the destination crop, i.e. rotate
+                    // by (-π/2 - angle).
+                    const float angle = std::atan2(k2yR - k0yR, k2xR - k0xR);
+                    const float rot   = -static_cast<float>(M_PI) / 2.0f - angle;
+
+                    // Shift the crop center along the wrist→middle axis
+                    // by SHIFT_Y * longSide, mirroring MediaPipe's
+                    // detection-to-roi config (centers the box on the
+                    // palm proper rather than the wrist).
+                    const float longSide = std::max(wR, hR);
+                    const float side     = longSide * LANDMARK_CROP_EXPANSION;
+                    const float perpAng  = angle + static_cast<float>(M_PI) / 2.0f;
+                    const float cxS = cxR + LANDMARK_CROP_SHIFT_Y * longSide * std::cos(perpAng);
+                    const float cyS = cyR + LANDMARK_CROP_SHIFT_Y * longSide * std::sin(perpAng);
+
+                    // Build the 2×3 affine mapping src→dst:
+                    //   dst = R(rot) * (src - center) * (target/side) + target/2
+                    const float cosR  = std::cos(rot);
+                    const float sinR  = std::sin(rot);
+                    const float scale = static_cast<float>(LANDMARK_INPUT_W) / side;
+                    const float halfT = static_cast<float>(LANDMARK_INPUT_W) / 2.0f;
+
+                    cv::Mat M(2, 3, CV_32F);
+                    M.at<float>(0, 0) =  cosR * scale;
+                    M.at<float>(0, 1) = -sinR * scale;
+                    M.at<float>(0, 2) =  halfT - scale * (cosR * cxS - sinR * cyS);
+                    M.at<float>(1, 0) =  sinR * scale;
+                    M.at<float>(1, 1) =  cosR * scale;
+                    M.at<float>(1, 2) =  halfT - scale * (sinR * cxS + cosR * cyS);
+
+                    cv::Mat raw(rawH, rawW, CV_8UC3,
+                                const_cast<uint8_t*>(m_impl->palmRawFrame.pixels.data()),
+                                m_impl->palmRawFrame.stride);
+
+                    cv::warpAffine(raw, m_impl->landmarkCropRgb, M,
+                                   cv::Size(static_cast<int>(LANDMARK_INPUT_W),
+                                            static_cast<int>(LANDMARK_INPUT_H)),
+                                   cv::INTER_LINEAR, cv::BORDER_CONSTANT,
+                                   cv::Scalar(0, 0, 0));
+
+                    // Pack 224×224 RGB8 → NHWC float32 [0, 1].
+                    constexpr float INV_255 = 1.0f / 255.0f;
+                    const uint32_t lmBytesPerRow = LANDMARK_INPUT_W * 3u;
+                    for(uint32_t r = 0; r < LANDMARK_INPUT_H; r++)
+                    {
+                        const uint8_t* src = m_impl->landmarkCropRgb.ptr(r);
+                        float*         dst = hLandmarkInputF + r * lmBytesPerRow;
+                        for(uint32_t b = 0; b < lmBytesPerRow; b++)
+                        {
+                            dst[b] = src[b] * INV_255;
+                        }
+                    }
+
+                    // H2D + enqueue + D2H of presence only — the other
+                    // outputs are bound to satisfy TRT's I/O requirement
+                    // but we don't need landmark/handedness/world here.
+                    if(cudaMemcpyAsync(m_impl->dLandmarkInput.ptr, hLandmarkInputF,
+                                       LANDMARK_INPUT_FLOATS * sizeof(float),
+                                       cudaMemcpyHostToDevice,
+                                       m_impl->landmarkStream) != cudaSuccess)
+                    {
+                        LOG_WARNING(VISION_LOG_ID, "cudaMemcpyAsync landmark H2D failed");
+                    }
+                    else if(!m_impl->landmarkContext->enqueueV3(m_impl->landmarkStream))
+                    {
+                        LOG_WARNING(VISION_LOG_ID, "enqueueV3 (landmark) failed");
+                    }
+                    else
+                    {
+                        cudaMemcpyAsync(hLandmarkPresenceF,
+                                        m_impl->dLandmarkPresence.ptr,
+                                        LANDMARK_PRESENCE_FLOATS * sizeof(float),
+                                        cudaMemcpyDeviceToHost,
+                                        m_impl->landmarkStream);
+                        if(cudaStreamSynchronize(m_impl->landmarkStream) == cudaSuccess)
+                        {
+                            // The model already applies sigmoid internally,
+                            // so the output is in [0, 1] — no transform.
+                            landmarkPresence  = hLandmarkPresenceF[0];
+                            landmarkStagePass = (landmarkPresence >= LANDMARK_PRESENCE_THRESHOLD);
+                        }
+                        else
+                        {
+                            LOG_WARNING(VISION_LOG_ID,
+                                        "cudaStreamSynchronize (landmark) failed");
+                        }
+                    }
+                }
+                m_lastLandmarkPresence.store(landmarkPresence, std::memory_order_relaxed);
+
+                // Final gate: both stages must pass.
+                palmDetectedThisCycle = palmStagePass && landmarkStagePass;
             }
         }
 
