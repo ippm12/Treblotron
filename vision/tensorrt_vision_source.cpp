@@ -16,7 +16,7 @@
 #include "tensorrt_vision_source.hpp"
 #include "vision/vision.hpp"
 #include "vision/wire_calibration.hpp"
-#include "vision/palm_detection/blazepalm_anchors.hpp"
+#include "palm_detection/blazepalm_anchors.hpp"
 #include "dart/dart_board_geometry.hpp"
 
 #include <NvInfer.h>
