@@ -1,12 +1,18 @@
 /**
  * tensorrt_vision_source.cpp
  *
- * TensorRT-backed dart detection for Jetson. Grabs the latest pre-warped
- * frame from each camera every inference, packs them into a 10-channel
- * float NCHW tensor (3 cameras × 3 RGB + 1 conditioning mask), runs the
- * autoregressive multicam_unet_ar model via TensorRT FP16, and decodes the
- * (heatmap, offset, exist_logit) outputs into a single dart event per
- * inference.
+ * TensorRT-backed dart detection for Jetson. Per inference cycle:
+ *   1. Grab the latest raw 1280x720 RGB frame from each of the 3 cameras.
+ *   2. Run the dart_seg_unet segmentation engine (FP16, batch=3) to
+ *      produce a per-camera foreground mask at 360x640.
+ *   3. Threshold (sigmoid > 0.5), upsample to native, multiply with the
+ *      raw RGB to zero out background, then warp the masked image into
+ *      the 720x720 canonical view via the cached per-camera homography.
+ *   4. Pack the 3 masked-warped frames + a conditioning mask of already-
+ *      placed darts into a 10-channel NCHW tensor.
+ *   5. Run the multicam_unet_ar AR detector (FP16 with the exist-logit
+ *      head pinned to FP32) and decode (heatmap, offset, exist_logit)
+ *      into a single dart event per inference.
  *
  * This file is only compiled when DARTLENS_USE_TENSORRT is enabled; the
  * Windows sim and Raspberry Pi (Hailo) builds skip it entirely so TensorRT
@@ -94,6 +100,35 @@ namespace
     constexpr size_t INPUT_FLOATS    = static_cast<size_t>(INPUT_C) * INPUT_H * INPUT_W;
     constexpr size_t HEATMAP_FLOATS  = static_cast<size_t>(OUTPUT_H) * OUTPUT_W;
     constexpr size_t OFFSET_FLOATS   = 2u * OUTPUT_H * OUTPUT_W;
+
+    // ----- Dart segmentation U-Net (pre-stage to the AR detector) -----
+    //
+    // Runs once per inference cycle on a batch of all 3 cameras' raw
+    // 1280x720 frames downscaled to 640x360. Output is a per-camera
+    // foreground logit map at 360x640. We threshold (sigmoid > 0.5,
+    // equivalent to logit > 0), upsample to native, multiply with the
+    // raw RGB to zero out background, and only then warp the masked
+    // image into the 720x720 canonical view fed to the AR detector.
+    // See vision/multicam_unet_ar/README_seg.md for the contract.
+    constexpr const char* SEG_ONNX_PATH   = "./vision/multicam_unet_ar/dart_seg_unet.onnx";
+    constexpr const char* SEG_ENGINE_PATH = "./vision/multicam_unet_ar/dart_seg_unet_fp16.trt";
+
+    constexpr const char* SEG_INPUT_NAME  = "input";
+    constexpr const char* SEG_OUTPUT_NAME = "logits";
+
+    constexpr uint32_t SEG_BATCH = N_CAMS;  // ONNX is fixed batch=3
+    constexpr uint32_t SEG_C     = 3;
+    constexpr uint32_t SEG_H     = 360;
+    constexpr uint32_t SEG_W     = 640;
+
+    constexpr size_t SEG_PLANE_FLOATS  = static_cast<size_t>(SEG_H) * SEG_W;
+    constexpr size_t SEG_INPUT_FLOATS  = static_cast<size_t>(SEG_BATCH) * SEG_C * SEG_PLANE_FLOATS;
+    constexpr size_t SEG_OUTPUT_FLOATS = static_cast<size_t>(SEG_BATCH) * SEG_PLANE_FLOATS;
+
+    // Native camera resolution — must match what camera_api publishes
+    // for latestRaw. Used as the warp source size after masking.
+    constexpr uint32_t NATIVE_W = 1280;
+    constexpr uint32_t NATIVE_H = 720;
 
     // Plane strides inside the NCHW input tensor (one plane = 720×720 floats).
     constexpr size_t PLANE_FLOATS    = static_cast<size_t>(INPUT_H) * INPUT_W;
@@ -383,11 +418,29 @@ struct TensorRTVisionSource::Impl
     PinnedBuffer hOffset;
     PinnedBuffer hExist;
 
-    // Warp destinations for each camera (720×720 BGR8, recycled each frame).
+    // Warp destinations for each camera (720×720 RGB8, recycled each frame).
+    // These now hold the *masked* warped frames — populated on the inference
+    // thread after the seg pass, not by the capture-thread warp.
     cv::Mat warped[N_CAMS];
 
     // Latest camera frames copied out of the capture system.
     CameraFrame cameraFrames[N_CAMS];
+
+    // ----- Dart segmentation engine (runs on the same stream as the AR
+    // detector — sequential pipeline, AR consumes seg output) -----
+    std::unique_ptr<nvinfer1::ICudaEngine>       segEngine;
+    std::unique_ptr<nvinfer1::IExecutionContext> segContext;
+
+    CudaBuffer   dSegInput;    // SEG_INPUT_FLOATS  * sizeof(float)
+    CudaBuffer   dSegOutput;   // SEG_OUTPUT_FLOATS * sizeof(float)
+    PinnedBuffer hSegInput;
+    PinnedBuffer hSegOutput;
+
+    // Per-camera scratch buffers for the seg → mask → warp pipeline,
+    // recycled each frame so we don't reallocate.
+    cv::Mat segResized[N_CAMS];   // 640×360 RGB8 (seg input source)
+    cv::Mat maskNative[N_CAMS];   // 1280×720  CV_8UC1 binary mask
+    cv::Mat masked[N_CAMS];       // 1280×720  RGB8, raw masked by mask
 
     // ----- BlazePalm (second engine, separate stream so it can overlap) -----
     std::unique_ptr<nvinfer1::ICudaEngine>       palmEngine;
@@ -840,6 +893,99 @@ void TensorRTVisionSource::buildThreadMain()
             return;
         }
 
+        // ---- Seg engine: load from cache or build from ONNX -----------
+        // FP16 throughout — the seg U-Net's output is a per-pixel logit
+        // that we threshold immediately, so FP16 quantization noise can't
+        // poison anything downstream the way it did with the dart exist
+        // head's GlobalAveragePool. Same load-or-build flow as the dart
+        // engine; runs on the dart engine's stream because seg → AR is
+        // sequential (AR input depends on the seg output).
+        setPhase(0.43f, "Loading dart segmentation");
+        std::vector<uint8_t> segPlanBytes;
+        bool segFromCache = false;
+        if(cachedEngineIsFresh(SEG_ENGINE_PATH, SEG_ONNX_PATH)
+        && readFileBytes(SEG_ENGINE_PATH, segPlanBytes))
+        {
+            LOG_INFO(VISION_LOG_ID,
+                     "TensorRTVisionSource: loaded cached seg engine from {} ({} bytes)",
+                     SEG_ENGINE_PATH, segPlanBytes.size());
+            segFromCache = true;
+        }
+
+        if(segFromCache)
+        {
+            m_impl->segEngine.reset(m_impl->runtime->deserializeCudaEngine(
+                segPlanBytes.data(), segPlanBytes.size()));
+            if(!m_impl->segEngine)
+            {
+                LOG_WARNING(VISION_LOG_ID,
+                            "Cached seg engine failed to deserialize "
+                            "(likely GPU/TRT version mismatch) — rebuilding");
+                segPlanBytes.clear();
+                segFromCache = false;
+            }
+        }
+
+        if(!segFromCache)
+        {
+            setPhase(0.43f, "Building dart segmentation");
+            TrtProgressMonitor segMonitor(m_buildIteration, m_buildAbort);
+            segPlanBytes = buildEngineFromOnnx(SEG_ONNX_PATH, &segMonitor,
+                                               /*useFp16*/ true);
+            if(segPlanBytes.empty() || m_buildAbort.load(std::memory_order_acquire))
+            {
+                return fail("seg engine build");
+            }
+
+            setPhase(0.48f, "Caching dart segmentation to disk");
+            std::ofstream sf(SEG_ENGINE_PATH, std::ios::binary);
+            if(sf.write(reinterpret_cast<const char*>(segPlanBytes.data()),
+                        static_cast<std::streamsize>(segPlanBytes.size())))
+            {
+                LOG_INFO(VISION_LOG_ID,
+                         "TensorRTVisionSource: wrote seg engine cache to {}", SEG_ENGINE_PATH);
+            }
+            else
+            {
+                LOG_WARNING(VISION_LOG_ID,
+                            "TensorRTVisionSource: failed to write seg engine cache to {} "
+                            "(errno={}); will rebuild next run",
+                            SEG_ENGINE_PATH, errno);
+            }
+
+            m_impl->segEngine.reset(m_impl->runtime->deserializeCudaEngine(
+                segPlanBytes.data(), segPlanBytes.size()));
+            if(!m_impl->segEngine) return fail("deserializeCudaEngine on fresh seg plan");
+        }
+
+        if(m_buildAbort.load(std::memory_order_acquire))
+        {
+            setStatus("Aborted");
+            m_buildState.store(BuildState::Failed, std::memory_order_release);
+            return;
+        }
+
+        if(!engineHasIOTensor(m_impl->segEngine.get(), SEG_INPUT_NAME))
+            return fail("seg ONNX has no 'input' tensor — re-export with canonical names");
+        if(!engineHasIOTensor(m_impl->segEngine.get(), SEG_OUTPUT_NAME))
+            return fail("seg ONNX has no 'logits' tensor — re-export with canonical names");
+
+        m_impl->segContext.reset(m_impl->segEngine->createExecutionContext());
+        if(!m_impl->segContext) return fail("createExecutionContext (seg)");
+
+        if(!m_impl->dSegInput.allocate(SEG_INPUT_FLOATS  * sizeof(float))
+        || !m_impl->dSegOutput.allocate(SEG_OUTPUT_FLOATS * sizeof(float))
+        || !m_impl->hSegInput.allocate(SEG_INPUT_FLOATS  * sizeof(float))
+        || !m_impl->hSegOutput.allocate(SEG_OUTPUT_FLOATS * sizeof(float)))
+        {
+            return fail("CUDA buffer allocation (seg)");
+        }
+
+        if(!m_impl->segContext->setTensorAddress(SEG_INPUT_NAME,  m_impl->dSegInput.ptr))
+            return fail("setTensorAddress (seg input)");
+        if(!m_impl->segContext->setTensorAddress(SEG_OUTPUT_NAME, m_impl->dSegOutput.ptr))
+            return fail("setTensorAddress (seg logits)");
+
         // ---- Palm engine: same load-or-build flow on a second engine -
         setPhase(0.50f, "Loading palm detector");
         std::vector<uint8_t> palmPlanBytes;
@@ -1237,6 +1383,8 @@ void TensorRTVisionSource::shutdown()
     m_impl->landmarkEngine.reset();
     m_impl->palmContext.reset();
     m_impl->palmEngine.reset();
+    m_impl->segContext.reset();
+    m_impl->segEngine.reset();
     m_impl->context.reset();
     m_impl->engine.reset();
     m_impl->runtime.reset();
@@ -1264,6 +1412,11 @@ void TensorRTVisionSource::shutdown()
     m_impl->dLandmarkWorld.free();
     m_impl->hLandmarkInput.free();
     m_impl->hLandmarkPresence.free();
+
+    m_impl->dSegInput.free();
+    m_impl->dSegOutput.free();
+    m_impl->hSegInput.free();
+    m_impl->hSegOutput.free();
 
     if(m_impl->stream)
     {
@@ -1349,6 +1502,8 @@ void TensorRTVisionSource::inferenceLoop()
     float* const hLandmarkInputF    = static_cast<float*>(m_impl->hLandmarkInput.ptr);
     float* const hLandmarkPresenceF = static_cast<float*>(m_impl->hLandmarkPresence.ptr);
     float* const hPalmScoresF = static_cast<float*>(m_impl->hPalmScores.ptr);
+    float* const hSegInputF    = static_cast<float*>(m_impl->hSegInput.ptr);
+    float* const hSegOutputF   = static_cast<float*>(m_impl->hSegOutput.ptr);
 
     while(m_running.load(std::memory_order_acquire))
     {
@@ -1368,31 +1523,150 @@ void TensorRTVisionSource::inferenceLoop()
             }
         }
 
-        // Pull pre-warped frames from the camera capture threads (same as
-        // the Hailo source — warp happens once per camera, then this loop
-        // just copies bytes).
+        // Pull *raw* (unwarped) native-resolution frames from the camera
+        // capture threads. The capture-thread warp is no longer used by
+        // this pipeline — we run segmentation on the raw image first and
+        // warp the masked output below.
         uint32_t camCount = getCameraCount();
         uint32_t contributing = 0;
+        cv::Mat rawMats[N_CAMS];
         for(uint32_t i = 0; i < N_CAMS; i++)
         {
             m_impl->warped[i] = cv::Mat();
             if(i >= camCount) continue;
-            if(!getCameraWarpedFrame(i, m_impl->cameraFrames[i])) continue;
+            if(!isCameraCalibrated(i)) continue;
+            if(!getCameraFrame(i, m_impl->cameraFrames[i])) continue;
 
             const CameraFrame& cf = m_impl->cameraFrames[i];
             if(cf.pixels.empty()) continue;
 
-            m_impl->warped[i] = cv::Mat(cf.height, cf.width, CV_8UC3,
-                                        const_cast<uint8_t*>(cf.pixels.data()),
-                                        cf.stride);
+            rawMats[i] = cv::Mat(cf.height, cf.width, CV_8UC3,
+                                 const_cast<uint8_t*>(cf.pixels.data()),
+                                 cf.stride);
             contributing++;
         }
 
         if(contributing == 0)
         {
-            // Cameras not ready yet — idle briefly.
+            // Cameras not ready yet (or none calibrated) — idle briefly.
             std::this_thread::sleep_for(std::chrono::milliseconds(50));
             continue;
+        }
+
+        // ----- Seg pre-stage: pack 3 raw frames into a (3,3,360,640) NCHW
+        // FP32 tensor. Per the seg ONNX contract: bilinear resize to
+        // 640×360, /255, channel order matches camera_api (RGB at capture
+        // time). For any missing/uncalibrated camera we feed a zero plane
+        // (the seg engine has fixed batch=3, so we have to fill all 3).
+        constexpr float INV_255 = 1.0f / 255.0f;
+        for(uint32_t cam = 0; cam < N_CAMS; cam++)
+        {
+            float* planeR = hSegInputF + (cam * SEG_C + 0u) * SEG_PLANE_FLOATS;
+            float* planeG = hSegInputF + (cam * SEG_C + 1u) * SEG_PLANE_FLOATS;
+            float* planeB = hSegInputF + (cam * SEG_C + 2u) * SEG_PLANE_FLOATS;
+
+            if(rawMats[cam].empty())
+            {
+                std::memset(planeR, 0, SEG_PLANE_FLOATS * sizeof(float));
+                std::memset(planeG, 0, SEG_PLANE_FLOATS * sizeof(float));
+                std::memset(planeB, 0, SEG_PLANE_FLOATS * sizeof(float));
+                continue;
+            }
+
+            cv::resize(rawMats[cam], m_impl->segResized[cam],
+                       cv::Size(static_cast<int>(SEG_W), static_cast<int>(SEG_H)),
+                       0, 0, cv::INTER_LINEAR);
+
+            for(uint32_t r = 0; r < SEG_H; r++)
+            {
+                const uint8_t* src = m_impl->segResized[cam].ptr(r);  // RGB
+                float* rowR = planeR + r * SEG_W;
+                float* rowG = planeG + r * SEG_W;
+                float* rowB = planeB + r * SEG_W;
+                for(uint32_t c = 0; c < SEG_W; c++)
+                {
+                    rowR[c] = src[3 * c + 0] * INV_255;
+                    rowG[c] = src[3 * c + 1] * INV_255;
+                    rowB[c] = src[3 * c + 2] * INV_255;
+                }
+            }
+        }
+
+        // ----- Seg inference: H2D, enqueue, D2H, sync. Sequential with
+        // the AR pass (same stream) because the AR input depends on
+        // the seg output and the GPU has no other useful work in
+        // between (palm runs on a separate stream and overlaps either
+        // way).
+        if(cudaMemcpyAsync(m_impl->dSegInput.ptr, hSegInputF,
+                           SEG_INPUT_FLOATS * sizeof(float),
+                           cudaMemcpyHostToDevice, m_impl->stream) != cudaSuccess)
+        {
+            LOG_WARNING(VISION_LOG_ID, "cudaMemcpyAsync seg H2D failed");
+            continue;
+        }
+        if(!m_impl->segContext->enqueueV3(m_impl->stream))
+        {
+            LOG_WARNING(VISION_LOG_ID, "enqueueV3 (seg) failed");
+            continue;
+        }
+        if(cudaMemcpyAsync(hSegOutputF, m_impl->dSegOutput.ptr,
+                           SEG_OUTPUT_FLOATS * sizeof(float),
+                           cudaMemcpyDeviceToHost, m_impl->stream) != cudaSuccess)
+        {
+            LOG_WARNING(VISION_LOG_ID, "cudaMemcpyAsync seg D2H failed");
+            continue;
+        }
+        if(cudaStreamSynchronize(m_impl->stream) != cudaSuccess)
+        {
+            LOG_WARNING(VISION_LOG_ID, "cudaStreamSynchronize (seg) failed");
+            continue;
+        }
+
+        // ----- Per-camera mask → masked RGB → warp. The mask is the
+        // sigmoid > 0.5 threshold on the seg logits, equivalent to a
+        // direct logit > 0 test (sigmoid is monotonic) — saves a per-
+        // pixel exp(). copyTo(dst, mask) zeroes non-mask pixels in dst,
+        // which is the same result as RGB×binary without building a
+        // 3-channel mask. Then we warp via the cached per-camera
+        // homography lookup table (same call the capture thread used to
+        // make).
+        for(uint32_t cam = 0; cam < N_CAMS; cam++)
+        {
+            if(rawMats[cam].empty()) continue;
+
+            // Wrap the cam-th seg output plane (360×640 FP32 logits) as
+            // a cv::Mat with no copy.
+            cv::Mat logits360(static_cast<int>(SEG_H), static_cast<int>(SEG_W),
+                              CV_32FC1,
+                              hSegOutputF + cam * SEG_PLANE_FLOATS);
+
+            // Threshold (sigmoid > 0.5  ⇔  logit > 0). cv::compare emits
+            // CV_8UC1 directly with 255 where true, 0 elsewhere, which is
+            // exactly the mask format copyTo() wants. Then upsample to
+            // native (nearest is fine for a binary mask, matches the seg
+            // README's recipe).
+            cv::Mat mask360u8;
+            cv::compare(logits360, 0.0, mask360u8, cv::CMP_GT);
+            cv::resize(mask360u8, m_impl->maskNative[cam],
+                       cv::Size(static_cast<int>(NATIVE_W), static_cast<int>(NATIVE_H)),
+                       0, 0, cv::INTER_NEAREST);
+
+            // Zero out non-mask pixels in a fresh masked copy of the raw
+            // frame. setTo(0) first so previously masked-in pixels from a
+            // prior frame don't leak through if the masked Mat is reused.
+            m_impl->masked[cam].create(rawMats[cam].size(), rawMats[cam].type());
+            m_impl->masked[cam].setTo(cv::Scalar::all(0));
+            rawMats[cam].copyTo(m_impl->masked[cam], m_impl->maskNative[cam]);
+
+            // Warp the masked frame into the 720×720 canonical view that
+            // feeds AR channels 0..8. If warp fails (shouldn't, since we
+            // gated on isCameraCalibrated above) we leave m_impl->warped
+            // empty and the AR input builder will zero that slot.
+            if(!warpCameraFrame(cam, m_impl->masked[cam], m_impl->warped[cam])
+            || m_impl->warped[cam].empty())
+            {
+                m_impl->warped[cam] = cv::Mat();
+            }
         }
 
         // ----- Build the 10-channel NCHW float input tensor in pinned host memory -----
