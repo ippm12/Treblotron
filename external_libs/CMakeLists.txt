@@ -11,6 +11,12 @@ add_subdirectory(SDL)
 add_subdirectory(flecs)
 target_link_libraries(${PRJ_NAME} PRIVATE flecs::flecs_static)
 
+# Box2D (v3, C API). PROJECT_IS_TOP_LEVEL is false here so the BOX2D_SAMPLES
+# / BOX2D_UNIT_TESTS / BOX2D_VALIDATE option blocks are skipped automatically
+# — no manual cache overrides needed.
+add_subdirectory(box2d)
+target_link_libraries(${PRJ_NAME} PRIVATE box2d)
+
 # SDL_ttf (TrueType font rendering)
 set(SDLTTF_VENDORED ON CACHE BOOL "Use vendored freetype/harfbuzz" FORCE)
 add_subdirectory(SDL_ttf)
