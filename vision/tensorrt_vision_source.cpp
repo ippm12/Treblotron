@@ -30,6 +30,7 @@
 #include <cuda_runtime.h>
 
 #include <opencv2/core.hpp>
+#include <opencv2/dnn.hpp>
 #include <opencv2/imgproc.hpp>
 
 #include <algorithm>
@@ -438,9 +439,9 @@ struct TensorRTVisionSource::Impl
 
     // Per-camera scratch buffers for the seg → mask → warp pipeline,
     // recycled each frame so we don't reallocate.
-    cv::Mat segResized[N_CAMS];   // 640×360 RGB8 (seg input source)
     cv::Mat maskNative[N_CAMS];   // 1280×720  CV_8UC1 binary mask
     cv::Mat masked[N_CAMS];       // 1280×720  RGB8, raw masked by mask
+    cv::Mat arBlob[N_CAMS];       // (1, 3, 720, 720) CV_32F — blobFromImage dst
 
     // ----- BlazePalm (second engine, separate stream so it can overlap) -----
     std::unique_ptr<nvinfer1::ICudaEngine>       palmEngine;
@@ -1553,42 +1554,20 @@ void TensorRTVisionSource::inferenceLoop()
             continue;
         }
 
-        // ----- Seg pre-stage: pack 3 raw frames into a (3,3,360,640) NCHW
-        // FP32 tensor. Per the seg ONNX contract: bilinear resize to
-        // 640×360, /255, channel order matches camera_api (RGB at capture
-        // time). For any missing/uncalibrated camera we feed a zero plane
-        // (the seg engine has fixed batch=3, so we have to fill all 3).
-        constexpr float INV_255 = 1.0f / 255.0f;
+        // ----- Seg pre-stage: collect per-camera prepped NCHW planes from
+        // the capture threads. Each capture thread already produced a
+        // 1×(3*360*640) CV_32F plane via blobFromImage in parallel with the
+        // others, so we just memcpy three contiguous chunks straight into
+        // the pinned seg input buffer. For any missing camera we feed a
+        // zero plane (the seg engine has fixed batch=3).
+        constexpr size_t SEG_PER_CAM_FLOATS = static_cast<size_t>(SEG_C) * SEG_PLANE_FLOATS;
         for(uint32_t cam = 0; cam < N_CAMS; cam++)
         {
-            float* planeR = hSegInputF + (cam * SEG_C + 0u) * SEG_PLANE_FLOATS;
-            float* planeG = hSegInputF + (cam * SEG_C + 1u) * SEG_PLANE_FLOATS;
-            float* planeB = hSegInputF + (cam * SEG_C + 2u) * SEG_PLANE_FLOATS;
-
-            if(rawMats[cam].empty())
+            float* dst = hSegInputF + cam * SEG_PER_CAM_FLOATS;
+            if(rawMats[cam].empty()
+            || !getCameraSegPlane(cam, dst, SEG_PER_CAM_FLOATS))
             {
-                std::memset(planeR, 0, SEG_PLANE_FLOATS * sizeof(float));
-                std::memset(planeG, 0, SEG_PLANE_FLOATS * sizeof(float));
-                std::memset(planeB, 0, SEG_PLANE_FLOATS * sizeof(float));
-                continue;
-            }
-
-            cv::resize(rawMats[cam], m_impl->segResized[cam],
-                       cv::Size(static_cast<int>(SEG_W), static_cast<int>(SEG_H)),
-                       0, 0, cv::INTER_LINEAR);
-
-            for(uint32_t r = 0; r < SEG_H; r++)
-            {
-                const uint8_t* src = m_impl->segResized[cam].ptr(r);  // RGB
-                float* rowR = planeR + r * SEG_W;
-                float* rowG = planeG + r * SEG_W;
-                float* rowB = planeB + r * SEG_W;
-                for(uint32_t c = 0; c < SEG_W; c++)
-                {
-                    rowR[c] = src[3 * c + 0] * INV_255;
-                    rowG[c] = src[3 * c + 1] * INV_255;
-                    rowB[c] = src[3 * c + 2] * INV_255;
-                }
+                std::memset(dst, 0, SEG_PER_CAM_FLOATS * sizeof(float));
             }
         }
 
@@ -1667,6 +1646,15 @@ void TensorRTVisionSource::inferenceLoop()
             {
                 m_impl->warped[cam] = cv::Mat();
             }
+            else
+            {
+                // Hand the warped masked frame back to the camera system so
+                // vision_debug (which still calls getCameraWarpedFrame) gets
+                // a usable preview without us paying for a second warp.
+                const cv::Mat& w = m_impl->warped[cam];
+                publishCameraWarpedFrame(cam, w.ptr(), w.cols, w.rows,
+                                         static_cast<int>(w.step[0]));
+            }
         }
 
         // ----- Build the 10-channel NCHW float input tensor in pinned host memory -----
@@ -1679,35 +1667,30 @@ void TensorRTVisionSource::inferenceLoop()
         // capture time before publishing to latestRaw / latestWarped. The
         // training script matches this (cv2.imread + cv2.cvtColor(BGR2RGB)),
         // so we pack channels in src order with no swap.
+        // SIMD-vectorized convert to NCHW float32 via blobFromImage. Output
+        // is a tightly-packed (1, 3, 720, 720) CV_32F blob; memcpy all three
+        // planes at once into the camera's slot in the input tensor. Vastly
+        // faster than the prior scalar loop.
         for(uint32_t cam = 0; cam < N_CAMS; cam++)
         {
             const cv::Mat& w = m_impl->warped[cam];
-            float* planeR = hInputF + (3u * cam + 0u) * PLANE_FLOATS;  // ONNX R
-            float* planeG = hInputF + (3u * cam + 1u) * PLANE_FLOATS;  // ONNX G
-            float* planeB = hInputF + (3u * cam + 2u) * PLANE_FLOATS;  // ONNX B
+            float* dst = hInputF + 3u * cam * PLANE_FLOATS;
 
             if(w.empty())
             {
-                std::memset(planeR, 0, PLANE_FLOATS * sizeof(float));
-                std::memset(planeG, 0, PLANE_FLOATS * sizeof(float));
-                std::memset(planeB, 0, PLANE_FLOATS * sizeof(float));
+                std::memset(dst, 0, 3u * PLANE_FLOATS * sizeof(float));
                 continue;
             }
 
-            constexpr float INV_255 = 1.0f / 255.0f;
-            for(uint32_t r = 0; r < INPUT_H; r++)
-            {
-                const uint8_t* src = w.ptr(r);        // RGB, 3 bytes/pixel
-                float* rowR = planeR + r * INPUT_W;
-                float* rowG = planeG + r * INPUT_W;
-                float* rowB = planeB + r * INPUT_W;
-                for(uint32_t c = 0; c < INPUT_W; c++)
-                {
-                    rowR[c] = src[3 * c + 0] * INV_255;
-                    rowG[c] = src[3 * c + 1] * INV_255;
-                    rowB[c] = src[3 * c + 2] * INV_255;
-                }
-            }
+            cv::dnn::blobFromImage(w, m_impl->arBlob[cam],
+                                   /*scalefactor*/ 1.0 / 255.0,
+                                   /*size*/        cv::Size(),
+                                   /*mean*/        cv::Scalar(),
+                                   /*swapRB*/      false,
+                                   /*crop*/        false,
+                                   CV_32F);
+            std::memcpy(dst, m_impl->arBlob[cam].ptr<float>(),
+                        3u * PLANE_FLOATS * sizeof(float));
         }
 
         // Conditioning mask (channel 9). Always start at zero. In Detecting,

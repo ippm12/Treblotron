@@ -15,6 +15,9 @@
 #include <opencv2/imgproc.hpp>
 #include <opencv2/videoio.hpp>
 #include <opencv2/imgcodecs.hpp>
+#ifdef DARTLENS_USE_TENSORRT
+#include <opencv2/dnn.hpp>
+#endif
 
 #include <atomic>
 #include <chrono>
@@ -74,6 +77,12 @@ struct CameraSlot
     // shared reference to the previous contents (copy-on-write double buffer).
     cv::Mat          latestRaw;           // RGB, 1280x720ish from the sensor
     cv::Mat          latestWarped;        // RGB, 720x720, empty if not calibrated
+#ifdef DARTLENS_USE_TENSORRT
+    // Pre-prepped seg-engine input plane for this camera — 1×(3*360*640) CV_32F.
+    // Produced on the capture thread (resize + blobFromImage) so the inference
+    // thread doesn't have to. Empty until the first frame is ready.
+    cv::Mat          latestSegPlane;
+#endif
     std::mutex       frameMutex;
 
     std::thread      captureThread;
@@ -167,7 +176,15 @@ static void captureLoop(CameraSlot* slot)
 {
     cv::Mat frame;
     cv::Mat rgb;
+#ifndef DARTLENS_USE_TENSORRT
     cv::Mat warped;
+#endif
+#ifdef DARTLENS_USE_TENSORRT
+    // Reused scratch for the seg-input pipeline. resizedSeg is 360x640 RGB8;
+    // segPlane is the 1×(3*360*640) CV_32F NCHW blob blobFromImage writes.
+    cv::Mat resizedSeg;
+    cv::Mat segPlane;
+#endif
 
     while(slot->running.load(std::memory_order_relaxed))
     {
@@ -186,6 +203,12 @@ static void captureLoop(CameraSlot* slot)
                 cv::cvtColor(frame, rgb, cv::COLOR_BGR2RGB);
             }
 
+#ifndef DARTLENS_USE_TENSORRT
+            // Capture-thread warp — only used by the Hailo + sim vision sources
+            // and the calibration debug overlay. The TensorRT pipeline does its
+            // own warp on the masked frame after segmentation, so paying the
+            // ~5-15 ms of warpPerspective on this thread would be pure waste
+            // there.
             bool haveWarp = false;
             // Snapshot the logical index once per frame — swapCameraSlots() may
             // rewrite it between the calibrated check and the warp call, and we
@@ -197,16 +220,45 @@ static void captureLoop(CameraSlot* slot)
                 haveWarp = warpCameraFrame(logical, rgb, warped)
                            && !warped.empty();
             }
+#endif
+
+#ifdef DARTLENS_USE_TENSORRT
+            // Pre-prep this camera's seg-engine input plane while the other
+            // capture threads do the same for theirs. Cheap-by-comparison
+            // resize, then blobFromImage produces tightly-packed NCHW float32
+            // (1, 3, 360, 640) with SIMD-vectorized internals — vastly faster
+            // than the per-pixel scalar loop the inference thread used to run
+            // for all 3 cameras serially.
+            {
+                VISION_PROFILE_SCOPE(slot->timings, "segPlane");
+                cv::resize(rgb, resizedSeg, cv::Size(640, 360), 0, 0, cv::INTER_LINEAR);
+                cv::dnn::blobFromImage(resizedSeg, segPlane,
+                                       /*scalefactor*/ 1.0 / 255.0,
+                                       /*size*/        cv::Size(),
+                                       /*mean*/        cv::Scalar(),
+                                       /*swapRB*/      false,
+                                       /*crop*/        false,
+                                       CV_32F);
+            }
+#endif
 
             // Publish via clone so any reader holding a shallow copy of the
             // previous frame keeps their buffer intact (copy-on-write double buffer).
             {
                 std::lock_guard<std::mutex> lock(slot->frameMutex);
                 slot->latestRaw = rgb.clone();
+#ifndef DARTLENS_USE_TENSORRT
                 if(haveWarp)
                 {
                     slot->latestWarped = warped.clone();
                 }
+#endif
+#ifdef DARTLENS_USE_TENSORRT
+                // segPlane is exclusive-owned by this thread; clone before
+                // publishing so the next iteration's blobFromImage doesn't
+                // race a reader that's still mid-memcpy.
+                slot->latestSegPlane = segPlane.clone();
+#endif
             }
         }
 
@@ -486,6 +538,51 @@ bool getCameraWarpedFrame(uint32_t index, CameraFrame& outFrame)
     }
     return copyFrameOut(snapshot, outFrame);
 }
+
+
+#ifdef DARTLENS_USE_TENSORRT
+bool getCameraSegPlane(uint32_t index, float* out, size_t floatCount)
+{
+    if(!out) return false;
+    if(index >= f_cameraCount.load(std::memory_order_acquire)) return false;
+
+    CameraSlot& slot = *f_cameras[index];
+
+    // Shallow-copy out under the lock; the actual byte memcpy is done outside
+    // so we don't hold the capture thread off for the full 2.7 MB transfer.
+    cv::Mat snapshot;
+    {
+        std::lock_guard<std::mutex> lock(slot.frameMutex);
+        snapshot = slot.latestSegPlane;
+    }
+    if(snapshot.empty() || !snapshot.isContinuous()) return false;
+    const size_t n = static_cast<size_t>(snapshot.total());
+    if(n > floatCount) return false;
+
+    std::memcpy(out, snapshot.ptr<float>(), n * sizeof(float));
+    return true;
+}
+
+
+void publishCameraWarpedFrame(uint32_t index,
+                              const uint8_t* pixels,
+                              int width, int height, int stride)
+{
+    if(!pixels || width <= 0 || height <= 0 || stride <= 0) return;
+    if(index >= f_cameraCount.load(std::memory_order_acquire)) return;
+
+    CameraSlot& slot = *f_cameras[index];
+
+    // Build a Mat that owns its pixel buffer (clone of an external view) so
+    // readers don't race a caller that reuses its source memory next frame.
+    cv::Mat view(height, width, CV_8UC3,
+                 const_cast<uint8_t*>(pixels), static_cast<size_t>(stride));
+    cv::Mat owned = view.clone();
+
+    std::lock_guard<std::mutex> lock(slot.frameMutex);
+    slot.latestWarped = std::move(owned);
+}
+#endif
 
 
 Status saveAllCameraFrames(const std::string& outputDir)

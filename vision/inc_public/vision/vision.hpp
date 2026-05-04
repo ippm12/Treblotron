@@ -196,6 +196,33 @@ bool getCameraFrame(uint32_t index, CameraFrame& outFrame);
  */
 bool getCameraWarpedFrame(uint32_t index, CameraFrame& outFrame);
 
+#ifdef DARTLENS_USE_TENSORRT
+/**
+ * Copies the latest dart-segmentation input plane for the given camera into the
+ * caller-provided buffer (NCHW float32, shape (3, 360, 640) — i.e. 3*360*640
+ * floats). Produced on the capture thread by resizing the raw RGB to 640x360
+ * and dividing by 255, in parallel with the other cameras' threads, so the
+ * inference thread can just memcpy the planes into the seg engine's pinned
+ * input buffer with no per-pixel work. Returns false if the camera has no
+ * frame yet, the index is out of range, or `floatCount` is too small.
+ *
+ * Only available in TensorRT builds — the seg pipeline is Jetson-only.
+ */
+bool getCameraSegPlane(uint32_t index, float* out, size_t floatCount);
+
+/**
+ * Publish a warped frame produced *outside* the camera capture thread (the TRT
+ * pipeline warps the seg-masked frame on the inference thread, then hands it
+ * back here so vision_debug can keep showing a per-camera preview without
+ * paying for a second warp). The pixel buffer is copied into the slot under
+ * the slot lock; subsequent getCameraWarpedFrame() calls return it. Pixel
+ * format is RGB24 packed (3 bytes/pixel, row-major, `stride` bytes per row).
+ */
+void publishCameraWarpedFrame(uint32_t index,
+                              const uint8_t* pixels,
+                              int width, int height, int stride);
+#endif
+
 /**
  * Swap which physical camera occupies the two given logical slots. Used on
  * boot enumerations where the OS hands us cameras in a different order than
