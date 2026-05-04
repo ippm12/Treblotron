@@ -163,6 +163,7 @@ if(DARTLENS_USE_TENSORRT)
     # cache survives forever until you actually replace the ONNX.
     set(_dartlens_onnx_assets
         vision/multicam_unet_ar/multicam_unet_ar.onnx
+        vision/multicam_unet_ar/dart_seg_unet.onnx
         vision/palm_detection/blazepalm.onnx
         vision/palm_detection/hand_landmark.onnx
     )
