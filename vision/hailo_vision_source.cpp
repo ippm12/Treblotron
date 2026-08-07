@@ -13,8 +13,8 @@
 
 #include "hailo_vision_source.hpp"
 #include "vision/vision.hpp"
-#include "vision/wire_calibration.hpp"
-#include "peak_detection.hpp"
+#include "detect/wire_calibration.hpp"
+#include "detect/peak_detection.hpp"
 #include "dart/dart_board_geometry.hpp"
 
 #include <hailo/hailort.hpp>

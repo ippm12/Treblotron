@@ -6,7 +6,7 @@
 
 #include "calibration.hpp"
 #include "vision/vision.hpp"
-#include "vision/wire_calibration.hpp"
+#include "detect/wire_calibration.hpp"
 #include "game_lib/game_manager.hpp"
 #include "games/main_menu.hpp"
 #include "game_lib/components/render_shape.hpp"
