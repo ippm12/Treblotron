@@ -7,7 +7,7 @@
  */
 
 #include "vision/vision.hpp"
-#include "vision/wire_calibration.hpp"
+#include "detect/wire_calibration.hpp"
 #include "debug/scoped_timer.hpp"
 
 #include <opencv2/core.hpp>
@@ -15,7 +15,7 @@
 #include <opencv2/imgproc.hpp>
 #include <opencv2/videoio.hpp>
 #include <opencv2/imgcodecs.hpp>
-#ifdef DARTLENS_USE_TENSORRT
+#ifdef DARTLENS_HAVE_LOCAL_INFERENCE
 #include <opencv2/dnn.hpp>
 #endif
 
@@ -77,12 +77,34 @@ struct CameraSlot
     // shared reference to the previous contents (copy-on-write double buffer).
     cv::Mat          latestRaw;           // RGB, 1280x720ish from the sensor
     cv::Mat          latestWarped;        // RGB, 720x720, empty if not calibrated
-#ifdef DARTLENS_USE_TENSORRT
+#ifdef DARTLENS_PASSTHROUGH_CAPTURE
+    // The UVC cameras already deliver MJPEG (see selectBestResolution), so a
+    // client that only forwards frames to an inference server has no reason to
+    // decode them and re-encode them — that costs CPU at both ends and puts a
+    // second generation of JPEG loss into the model's input. In passthrough
+    // mode the capture thread stores the sensor's own compressed bytes and
+    // nothing is decoded unless a preview screen actually asks for pixels.
+    std::vector<uint8_t> latestCompressed;
+
+    // Set once the driver is confirmed to be handing back real JPEG. If the
+    // V4L2 backend ignores CAP_PROP_CONVERT_RGB (which happens with some
+    // driver/backend combinations) this stays false and the slot silently
+    // behaves exactly as it did before.
+    std::atomic<bool> passthroughActive{false};
+#endif
+#ifdef DARTLENS_HAVE_LOCAL_INFERENCE
     // Pre-prepped seg-engine input plane for this camera — 1×(3*360*640) CV_32F.
     // Produced on the capture thread (resize + blobFromImage) so the inference
     // thread doesn't have to. Empty until the first frame is ready.
     cv::Mat          latestSegPlane;
 #endif
+    /**
+     * Bumped on every publish. Lets a consumer tell a genuinely new frame from
+     * the one it already sent — the streaming client is credited faster than
+     * the cameras produce, so without this it would forward duplicates.
+     */
+    std::atomic<uint64_t> frameSeq{0};
+
     std::mutex       frameMutex;
 
     std::thread      captureThread;
@@ -112,6 +134,27 @@ static std::atomic<bool> f_initRunning{false};
 static uint32_t          f_refCount = 0;
 
 
+#ifdef DARTLENS_PASSTHROUGH_CAPTURE
+/**
+ * JPEG quality used only when the driver refuses raw MJPEG and we have to
+ * re-encode. 75 is a deliberate step down from the old 85: at that point we are
+ * already paying for a second compression generation, so the bandwidth is worth
+ * more than the last few percent of quality.
+ */
+static constexpr int PASSTHROUGH_FALLBACK_QUALITY = 75;
+
+
+/** A JPEG always starts with the SOI marker FF D8. */
+static bool looksLikeJpeg(const cv::Mat& m)
+{
+    if(m.empty() || m.elemSize() != 1) return false;
+    const size_t bytes = m.total();
+    if(bytes < 4) return false;
+    return m.data[0] == 0xFF && m.data[1] == 0xD8;
+}
+#endif
+
+
 // ============================================================================
 // Resolution selection
 // ============================================================================
@@ -137,6 +180,12 @@ static void selectBestResolution(cv::VideoCapture& cap)
             cv::VideoWriter::fourcc('M', 'J', 'P', 'G'));
     cap.set(cv::CAP_PROP_FPS, TARGET_FPS);
     cap.set(cv::CAP_PROP_BUFFERSIZE, 2);
+#ifdef DARTLENS_PASSTHROUGH_CAPTURE
+    // Ask the backend to stop decoding for us. Combined with the MJPG fourcc
+    // above this makes read() return the sensor's compressed buffer verbatim.
+    // Set after the fourcc: it only has meaning once the format is MJPEG.
+    cap.set(cv::CAP_PROP_CONVERT_RGB, 0);
+#endif
 
     for(int i = 0; i < PROBE_COUNT; i++)
     {
@@ -176,10 +225,10 @@ static void captureLoop(CameraSlot* slot)
 {
     cv::Mat frame;
     cv::Mat rgb;
-#ifndef DARTLENS_USE_TENSORRT
+#ifndef DARTLENS_HAVE_LOCAL_INFERENCE
     cv::Mat warped;
 #endif
-#ifdef DARTLENS_USE_TENSORRT
+#ifdef DARTLENS_HAVE_LOCAL_INFERENCE
     // Reused scratch for the seg-input pipeline. resizedSeg is 360x640 RGB8;
     // segPlane is the 1×(3*360*640) CV_32F NCHW blob blobFromImage writes.
     cv::Mat resizedSeg;
@@ -198,12 +247,48 @@ static void captureLoop(CameraSlot* slot)
             }
             if(!ok) continue;
 
+#ifdef DARTLENS_PASSTHROUGH_CAPTURE
+            // With CAP_PROP_CONVERT_RGB=0 the V4L2 backend hands back the
+            // sensor's compressed buffer as a single-row CV_8UC1 Mat. Confirm
+            // it really is JPEG (SOI marker) rather than trusting the property
+            // took effect — some backends quietly ignore it and keep returning
+            // decoded BGR, and misreading that as JPEG would ship garbage.
+            if(looksLikeJpeg(frame))
+            {
+                {
+                    std::lock_guard<std::mutex> lock(slot->frameMutex);
+                    slot->latestCompressed.assign(frame.data,
+                                                  frame.data + frame.total() * frame.elemSize());
+                }
+                slot->frameSeq.fetch_add(1, std::memory_order_release);
+                if(!slot->passthroughActive.exchange(true, std::memory_order_acq_rel))
+                {
+                    LOG_INFO(VISION_LOG_ID,
+                             "Camera {} passthrough active — forwarding the sensor's own "
+                             "JPEG, no decode/re-encode", slot->deviceIndex);
+                }
+                continue;   // nothing else on this thread has anything to do
+            }
+
+            if(!slot->passthroughActive.load(std::memory_order_acquire))
+            {
+                static bool warned = false;
+                if(!warned)
+                {
+                    warned = true;
+                    LOG_WARNING(VISION_LOG_ID,
+                                "Camera driver ignored CAP_PROP_CONVERT_RGB — falling back to "
+                                "decode + re-encode. Streaming still works, just costs more CPU.");
+                }
+            }
+#endif
+
             {
                 VISION_PROFILE_SCOPE(slot->timings, "cvtColor");
                 cv::cvtColor(frame, rgb, cv::COLOR_BGR2RGB);
             }
 
-#ifndef DARTLENS_USE_TENSORRT
+#ifndef DARTLENS_HAVE_LOCAL_INFERENCE
             // Capture-thread warp — only used by the Hailo + sim vision sources
             // and the calibration debug overlay. The TensorRT pipeline does its
             // own warp on the masked frame after segmentation, so paying the
@@ -222,7 +307,7 @@ static void captureLoop(CameraSlot* slot)
             }
 #endif
 
-#ifdef DARTLENS_USE_TENSORRT
+#ifdef DARTLENS_HAVE_LOCAL_INFERENCE
             // Pre-prep this camera's seg-engine input plane while the other
             // capture threads do the same for theirs. Cheap-by-comparison
             // resize, then blobFromImage produces tightly-packed NCHW float32
@@ -247,19 +332,20 @@ static void captureLoop(CameraSlot* slot)
             {
                 std::lock_guard<std::mutex> lock(slot->frameMutex);
                 slot->latestRaw = rgb.clone();
-#ifndef DARTLENS_USE_TENSORRT
+#ifndef DARTLENS_HAVE_LOCAL_INFERENCE
                 if(haveWarp)
                 {
                     slot->latestWarped = warped.clone();
                 }
 #endif
-#ifdef DARTLENS_USE_TENSORRT
+#ifdef DARTLENS_HAVE_LOCAL_INFERENCE
                 // segPlane is exclusive-owned by this thread; clone before
                 // publishing so the next iteration's blobFromImage doesn't
                 // race a reader that's still mid-memcpy.
                 slot->latestSegPlane = segPlane.clone();
 #endif
             }
+            slot->frameSeq.fetch_add(1, std::memory_order_release);
         }
 
         slot->timings.nextFrame();
@@ -489,6 +575,38 @@ bool swapCameraSlots(uint32_t a, uint32_t b)
 // Internal: snapshot a Mat out of the slot (shallow copy under lock) and
 // memcpy it into an outFrame so the caller gets a standalone byte buffer.
 // Shared across the raw and warped accessors.
+#ifdef DARTLENS_PASSTHROUGH_CAPTURE
+/**
+ * Latest frame as decoded RGB, whichever mode the slot is in.
+ *
+ * In passthrough mode the decode happens here, on the caller's thread, rather
+ * than on the capture thread — so it costs nothing during normal play and only
+ * shows up when a screen (calibration, vision_debug) actually wants pixels.
+ */
+static bool decodeLatestRgb(CameraSlot& slot, cv::Mat& out)
+{
+    if(slot.passthroughActive.load(std::memory_order_acquire))
+    {
+        std::vector<uint8_t> jpeg;
+        {
+            std::lock_guard<std::mutex> lock(slot.frameMutex);
+            jpeg = slot.latestCompressed;
+        }
+        if(jpeg.empty()) return false;
+
+        const cv::Mat bgr = cv::imdecode(jpeg, cv::IMREAD_COLOR);
+        if(bgr.empty()) return false;
+        cv::cvtColor(bgr, out, cv::COLOR_BGR2RGB);
+        return true;
+    }
+
+    std::lock_guard<std::mutex> lock(slot.frameMutex);
+    out = slot.latestRaw;   // shallow copy; copy-on-write keeps it valid
+    return !out.empty();
+}
+#endif
+
+
 static bool copyFrameOut(const cv::Mat& src, CameraFrame& outFrame)
 {
     if(src.empty()) return false;
@@ -504,6 +622,45 @@ static bool copyFrameOut(const cv::Mat& src, CameraFrame& outFrame)
 }
 
 
+#ifdef DARTLENS_PASSTHROUGH_CAPTURE
+bool getCameraCompressedFrame(uint32_t index, std::vector<uint8_t>& out)
+{
+    if(index >= f_cameraCount.load(std::memory_order_acquire)) return false;
+
+    CameraSlot& slot = *f_cameras[index];
+
+    if(slot.passthroughActive.load(std::memory_order_acquire))
+    {
+        std::lock_guard<std::mutex> lock(slot.frameMutex);
+        if(slot.latestCompressed.empty()) return false;
+        out = slot.latestCompressed;   // already JPEG — nothing to do
+        return true;
+    }
+
+    // Fallback for a driver that wouldn't hand over raw MJPEG: encode from the
+    // decoded frame, which is exactly what the client used to do unconditionally.
+    cv::Mat rgb;
+    {
+        std::lock_guard<std::mutex> lock(slot.frameMutex);
+        rgb = slot.latestRaw;
+    }
+    if(rgb.empty()) return false;
+
+    cv::Mat bgr;
+    cv::cvtColor(rgb, bgr, cv::COLOR_RGB2BGR);
+    return cv::imencode(".jpg", bgr, out,
+                        {cv::IMWRITE_JPEG_QUALITY, PASSTHROUGH_FALLBACK_QUALITY});
+}
+#endif
+
+
+uint64_t getCameraFrameSequence(uint32_t index)
+{
+    if(index >= f_cameraCount.load(std::memory_order_acquire)) return 0;
+    return f_cameras[index]->frameSeq.load(std::memory_order_acquire);
+}
+
+
 bool getCameraFrame(uint32_t index, CameraFrame& outFrame)
 {
     if(index >= f_cameraCount.load(std::memory_order_acquire))
@@ -514,10 +671,14 @@ bool getCameraFrame(uint32_t index, CameraFrame& outFrame)
     CameraSlot& slot = *f_cameras[index];
 
     cv::Mat snapshot;
+#ifdef DARTLENS_PASSTHROUGH_CAPTURE
+    if(!decodeLatestRgb(slot, snapshot)) return false;
+#else
     {
         std::lock_guard<std::mutex> lock(slot.frameMutex);
         snapshot = slot.latestRaw;  // shallow copy
     }
+#endif
     return copyFrameOut(snapshot, outFrame);
 }
 
@@ -532,6 +693,23 @@ bool getCameraWarpedFrame(uint32_t index, CameraFrame& outFrame)
     CameraSlot& slot = *f_cameras[index];
 
     cv::Mat snapshot;
+#ifdef DARTLENS_PASSTHROUGH_CAPTURE
+    if(slot.passthroughActive.load(std::memory_order_acquire))
+    {
+        // The capture thread never decoded, so there is no cached warp. Only
+        // the calibration and vision_debug screens ask for this, so paying for
+        // it on their thread is the right trade.
+        cv::Mat rgb;
+        if(!decodeLatestRgb(slot, rgb)) return false;
+        cv::Mat warped;
+        if(!warpCameraFrame(slot.logicalIndex.load(std::memory_order_acquire), rgb, warped)
+        || warped.empty())
+        {
+            return false;
+        }
+        return copyFrameOut(warped, outFrame);
+    }
+#endif
     {
         std::lock_guard<std::mutex> lock(slot.frameMutex);
         snapshot = slot.latestWarped;
@@ -540,7 +718,7 @@ bool getCameraWarpedFrame(uint32_t index, CameraFrame& outFrame)
 }
 
 
-#ifdef DARTLENS_USE_TENSORRT
+#ifdef DARTLENS_HAVE_LOCAL_INFERENCE
 bool getCameraSegPlane(uint32_t index, float* out, size_t floatCount)
 {
     if(!out) return false;
@@ -605,12 +783,18 @@ Status saveAllCameraFrames(const std::string& outputDir)
         cv::Mat frameCopy;
         {
             std::lock_guard<std::mutex> lock(f_cameras[i]->frameMutex);
+#ifdef DARTLENS_PASSTHROUGH_CAPTURE
+            cv::Mat decoded;
+            if(!decodeLatestRgb(*f_cameras[i], decoded)) continue;
+            cv::cvtColor(decoded, frameCopy, cv::COLOR_RGB2BGR);
+#else
             if(f_cameras[i]->latestRaw.empty())
             {
                 LOG_WARNING(VISION_LOG_ID, "saveAllCameraFrames: no frame for camera {}", i);
                 continue;
             }
             cv::cvtColor(f_cameras[i]->latestRaw, frameCopy, cv::COLOR_RGB2BGR);
+#endif
         }
 
         std::string path = outputDir + "/" + uuid + "_cam" + std::to_string(i) + ".png";

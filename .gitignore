@@ -1,5 +1,10 @@
 build/
+# CMakePresets puts each configuration in its own build-<preset> directory.
+build-*/
+# Compiled TensorRT engines are host-specific and rebuilt on demand.
+*.trt
 logs/
+captures/
 .vscode/
 .claude/
 
@@ -15,3 +20,7 @@ compile_commands.json
 CTestTestfile.cmake
 _deps
 CMakeUserPresets.json
+
+# ONNX Runtime is fetched at configure time for the directml backend.
+external_libs/onnxruntime/
+external_libs/directml/

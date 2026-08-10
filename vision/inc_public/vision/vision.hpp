@@ -11,6 +11,7 @@
 #define VISION_HPP
 
 #include "common_inc.hpp"
+#include "detect/wire_calibration.hpp"  // EXPECTED_CAMERA_COUNT
 #include <cstdint>
 #include <functional>
 #include <string>
@@ -157,9 +158,6 @@ void setVisionCallbacks(DartLandedCallback onDartLanded,
 // Camera API (for calibration / data collection)
 // ============================================================================
 
-/** The system expects exactly 3 cameras. */
-static constexpr uint32_t EXPECTED_CAMERA_COUNT = 3;
-
 /** Frame data copied out of the camera system. Caller owns the pixel data. */
 struct CameraFrame
 {
@@ -189,6 +187,13 @@ std::string getCameraName(uint32_t index);
 bool getCameraFrame(uint32_t index, CameraFrame& outFrame);
 
 /**
+ * Monotonic counter of frames published for this camera, 0 if unknown.
+ * A consumer that is polled faster than the cameras run uses this to tell a
+ * genuinely new frame from one it has already handled.
+ */
+uint64_t getCameraFrameSequence(uint32_t index);
+
+/**
  * Copies the latest warped (720x720 template-space) RGB frame for the given
  * camera into outFrame. Returns false if the camera is not calibrated, has no
  * frame yet, or the index is out of range. The warp is performed on the
@@ -196,7 +201,20 @@ bool getCameraFrame(uint32_t index, CameraFrame& outFrame);
  */
 bool getCameraWarpedFrame(uint32_t index, CameraFrame& outFrame);
 
-#ifdef DARTLENS_USE_TENSORRT
+#ifdef DARTLENS_PASSTHROUGH_CAPTURE
+/**
+ * Copies the latest frame for a camera as JPEG bytes, ready to put on a wire.
+ *
+ * The UVC cameras already deliver MJPEG, so in the normal case this hands back
+ * the sensor's own compressed buffer with no decode, no re-encode, and no
+ * second generation of compression loss. If the driver refused to give up raw
+ * MJPEG, it falls back to encoding from the decoded frame — same result, more
+ * CPU. Only available in builds that stream frames to a remote server.
+ */
+bool getCameraCompressedFrame(uint32_t index, std::vector<uint8_t>& out);
+#endif
+
+#ifdef DARTLENS_HAVE_LOCAL_INFERENCE
 /**
  * Copies the latest dart-segmentation input plane for the given camera into the
  * caller-provided buffer (NCHW float32, shape (3, 360, 640) — i.e. 3*360*640
@@ -206,7 +224,8 @@ bool getCameraWarpedFrame(uint32_t index, CameraFrame& outFrame);
  * input buffer with no per-pixel work. Returns false if the camera has no
  * frame yet, the index is out of range, or `floatCount` is too small.
  *
- * Only available in TensorRT builds — the seg pipeline is Jetson-only.
+ * Only available in local-inference builds — the remote and sim paths
+ * have no use for it.
  */
 bool getCameraSegPlane(uint32_t index, float* out, size_t floatCount);
 

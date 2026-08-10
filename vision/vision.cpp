@@ -22,8 +22,11 @@
 #ifdef DARTLENS_USE_HAILO
 #include "hailo_vision_source.hpp"
 #endif
-#ifdef DARTLENS_USE_TENSORRT
-#include "tensorrt_vision_source.hpp"
+#ifdef DARTLENS_USE_LOCAL
+#include "local_vision_source.hpp"
+#endif
+#ifdef DARTLENS_USE_NETWORK
+#include "network_vision_source.hpp"
 #endif
 
 #include <memory>
@@ -58,8 +61,11 @@ Status initializeVisionModule()
 #ifdef DARTLENS_USE_HAILO
     f_visionSource = std::make_shared<HailoVisionSource>();
 #endif
-#ifdef DARTLENS_USE_TENSORRT
-    f_visionSource = std::make_shared<TensorRTVisionSource>();
+#ifdef DARTLENS_USE_LOCAL
+    f_visionSource = std::make_shared<LocalVisionSource>();
+#endif
+#ifdef DARTLENS_USE_NETWORK
+    f_visionSource = std::make_shared<NetworkVisionSource>();
 #endif
 
     if(f_visionSource)
@@ -354,7 +360,7 @@ void presentVisionLoadingFrame(float deltaTime)
 
     // ---- Progress bar -------------------------------------------------
     // Single monotonic 0 → 100% bar that advances at C++ phase markers
-    // in tensorrt_vision_source.cpp::buildThreadMain. The TRT progress
+    // in local_vision_source.cpp::buildThreadMain. The backend progress
     // monitor doesn't touch the bar — it only ticks the iteration
     // counter shown below, so the bar can't bounce backwards as TRT
     // cycles through internal phases.

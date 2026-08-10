@@ -1,0 +1,108 @@
+{
+  "version": 3,
+  "cmakeMinimumRequired": { "major": 3, "minor": 22, "patch": 1 },
+  "configurePresets": [
+    {
+      "name": "base",
+      "hidden": true,
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build-${presetName}",
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "Debug" }
+    },
+
+    {
+      "name": "app-sim",
+      "inherits": "base",
+      "displayName": "App — simulated darts (dev workstation)",
+      "description": "Clickable dartboard instead of cameras. No models, no inference backend, fastest build.",
+      "binaryDir": "${sourceDir}/build",
+      "cacheVariables": {
+        "DARTLENS_BUILD_APP": "ON",
+        "DARTLENS_BUILD_SERVER": "OFF",
+        "DARTLENS_VISION_SOURCE": "sim",
+        "DARTLENS_INFER_BACKEND": "none"
+      }
+    },
+    {
+      "name": "app-network",
+      "inherits": "base",
+      "displayName": "App — remote inference (Raspberry Pi)",
+      "description": "Cameras and UI here, models on a server. Point it with DARTLENS_SERVER=host:port at runtime.",
+      "cacheVariables": {
+        "DARTLENS_BUILD_APP": "ON",
+        "DARTLENS_BUILD_SERVER": "OFF",
+        "DARTLENS_VISION_SOURCE": "network",
+        "DARTLENS_INFER_BACKEND": "none"
+      }
+    },
+    {
+      "name": "app-local-jetson",
+      "inherits": "base",
+      "displayName": "App — local TensorRT inference (Jetson Orin)",
+      "description": "Standalone: cameras, models and UI all on one machine.",
+      "cacheVariables": {
+        "DARTLENS_BUILD_APP": "ON",
+        "DARTLENS_BUILD_SERVER": "OFF",
+        "DARTLENS_VISION_SOURCE": "local",
+        "DARTLENS_INFER_BACKEND": "tensorrt"
+      }
+    },
+    {
+      "name": "app-hailo",
+      "inherits": "base",
+      "displayName": "App — legacy Hailo accelerator",
+      "cacheVariables": {
+        "DARTLENS_BUILD_APP": "ON",
+        "DARTLENS_BUILD_SERVER": "OFF",
+        "DARTLENS_VISION_SOURCE": "hailo",
+        "DARTLENS_INFER_BACKEND": "none"
+      }
+    },
+
+    {
+      "name": "server-directml",
+      "inherits": "base",
+      "displayName": "Server — GPU inference via DirectML (any DX12 GPU)",
+      "description": "Headless inference server on the local GPU. Works on AMD, Intel and NVIDIA alike. Fetches ONNX Runtime at configure time.",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "DARTLENS_BUILD_APP": "OFF",
+        "DARTLENS_BUILD_SERVER": "ON",
+        "DARTLENS_INFER_BACKEND": "directml"
+      }
+    },
+    {
+      "name": "server-cpu",
+      "inherits": "base",
+      "displayName": "Server — CPU inference (OpenCV DNN)",
+      "description": "Headless inference server. No SDL, no flecs, no games — builds only debug/dart/detect/net/server plus a trimmed OpenCV.",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "DARTLENS_BUILD_APP": "OFF",
+        "DARTLENS_BUILD_SERVER": "ON",
+        "DARTLENS_INFER_BACKEND": "cpu"
+      }
+    },
+    {
+      "name": "server-tensorrt",
+      "inherits": "base",
+      "displayName": "Server — TensorRT inference (Jetson / CUDA host)",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "DARTLENS_BUILD_APP": "OFF",
+        "DARTLENS_BUILD_SERVER": "ON",
+        "DARTLENS_INFER_BACKEND": "tensorrt"
+      }
+    }
+  ],
+
+  "buildPresets": [
+    { "name": "app-sim",          "configurePreset": "app-sim" },
+    { "name": "app-network",      "configurePreset": "app-network" },
+    { "name": "app-local-jetson", "configurePreset": "app-local-jetson" },
+    { "name": "app-hailo",        "configurePreset": "app-hailo" },
+    { "name": "server-directml",  "configurePreset": "server-directml" },
+    { "name": "server-cpu",       "configurePreset": "server-cpu" },
+    { "name": "server-tensorrt",  "configurePreset": "server-tensorrt" }
+  ]
+}
