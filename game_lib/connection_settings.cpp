@@ -48,6 +48,26 @@ namespace
     /** Longest address we accept: "255.255.255.255:65535" plus room for a name. */
     constexpr size_t SETTINGS_ADDRESS_MAX = 64;
 
+    // ----- Panel layout -------------------------------------------------
+    //
+    // Derived from the pieces rather than hand-tuned, so the panel actually
+    // contains what it draws. The input hints are the tall element: their
+    // icons are ICON_SIZE square and hang *below* the y they are given, which
+    // is what pushed them off the bottom of the first version of this panel.
+    constexpr float HINT_ICON_SIZE = 54.0f;   // matches input_hints.cpp ICON_SIZE
+    constexpr float PANEL_PAD      = 26.0f;   // breathing room inside every edge
+
+    constexpr float ROW_H        = 72.0f;
+    constexpr float ROWS_TOP     = 214.0f;    // below the title and status block
+    constexpr float STATUS_LINE_H = 46.0f;    // the transient "Saved" line
+
+    constexpr float PANEL_W = 980.0f;
+    constexpr float PANEL_H = ROWS_TOP
+                            + static_cast<float>(SETTINGS_ROW_COUNT) * ROW_H
+                            + STATUS_LINE_H
+                            + HINT_ICON_SIZE
+                            + PANEL_PAD * 2.0f;
+
     Color linkColor(VisionLinkState state)
     {
         switch(state)
@@ -186,8 +206,8 @@ void GameManager::renderSettings()
 
     box(0.0f, 0.0f, 1920.0f, 1080.0f, {20, 20, 20}, SETTINGS_OVERLAY_Z);
 
-    constexpr float panelW = 980.0f;
-    constexpr float panelH = 470.0f;
+    constexpr float panelW = PANEL_W;
+    constexpr float panelH = PANEL_H;
     const float panelX = (1920.0f - panelW) * 0.5f;
     const float panelY = (1080.0f - panelH) * 0.5f;
     box(panelX, panelY, panelW, panelH, {50, 50, 55}, SETTINGS_OVERLAY_Z + 1);
@@ -218,10 +238,10 @@ void GameManager::renderSettings()
         "Close"
     };
 
-    constexpr float rowH   = 72.0f;
+    constexpr float rowH   = ROW_H;
     const float     rowW   = panelW - 96.0f;
     const float     rowX   = panelX + 48.0f;
-    const float     startY = panelY + 214.0f;
+    const float     startY = panelY + ROWS_TOP;
 
     for(uint8_t i = 0; i < SETTINGS_ROW_COUNT; i++)
     {
@@ -239,12 +259,14 @@ void GameManager::renderSettings()
              selected ? Color{255, 255, 255} : Color{170, 170, 180}, rowFontId);
     }
 
+    const float hintsY  = panelY + panelH - PANEL_PAD - HINT_ICON_SIZE;
+    const float statusY = hintsY - STATUS_LINE_H;
+
     if(!m_settingsStatus.empty())
     {
         int sw = 0, sh = 0;
         if(rowFont) TTF_GetStringSize(rowFont, m_settingsStatus.c_str(), 0, &sw, &sh);
-        text(m_settingsStatus, panelX + (panelW - sw) * 0.5f, panelY + panelH - 72.0f,
-             {150, 210, 160}, rowFontId);
+        text(m_settingsStatus, panelX + (panelW - sw) * 0.5f, statusY, {150, 210, 160}, rowFontId);
     }
 
     // The keyboard covers the panel while typing, so the hints would just be
@@ -255,7 +277,7 @@ void GameManager::renderSettings()
     }
     else
     {
-        m_inputHints.render(m_frameId, rowFontId, panelX + 48.0f, panelY + panelH - 36.0f,
+        m_inputHints.render(m_frameId, rowFontId, panelX + 48.0f, hintsY,
                             SETTINGS_OVERLAY_Z + 3,
                             {{SDLK_RETURN, SDL_GAMEPAD_BUTTON_SOUTH, "select"},
                              {SDLK_ESCAPE, SDL_GAMEPAD_BUTTON_EAST,  "close"}});

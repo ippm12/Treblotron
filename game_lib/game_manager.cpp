@@ -166,6 +166,14 @@ Status GameManager::initialize()
         LOG_WARNING(GAME_MANAGER_LOG_ID, "Failed to load pause menu font");
     }
 
+    // The address editor needs its fonts before it can draw anything. Without
+    // this it still paints its full-width backdrop but every key and label is
+    // invisible, which looks like a bare dark box swallowing the lower screen.
+    {
+        const FontID kbFont = (m_pauseFontId != INVALID_FONT_ID) ? m_pauseFontId : m_barFontId;
+        m_settingsKeyboard.init(kbFont, kbFont);
+    }
+
     // Shortcut to the connection settings. Deliberately only live while the
     // link is down: when everything is working these belong to the game, and
     // settings is still reachable from the main menu.
