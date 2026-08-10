@@ -6,6 +6,7 @@
  */
 
 #include "games/main_menu.hpp"
+#include "vision/vision_link.hpp"
 #include "calibration.hpp"
 #include "vision_debug.hpp"
 #include "game_lib/game_registry.hpp"
@@ -114,6 +115,13 @@ Status MainMenu::init(FrameID frameId)
     // from the menu without a keyboard.
     m_cards.clear();
     m_cards.push_back({CardType::PlayerSettings, 0});
+#ifdef DARTLENS_USE_NETWORK
+    // Only builds that talk to a remote server have a connection to configure.
+    // Gated at compile time rather than on getVisionLinkState(), because the
+    // menu is constructed before the vision source exists and would otherwise
+    // always see NotApplicable.
+    m_cards.push_back({CardType::Connection, 0});
+#endif
     m_cards.push_back({CardType::Calibration, 0});
     m_cards.push_back({CardType::VisionDebug, 0});
 
@@ -350,6 +358,10 @@ void MainMenu::openCard()
         m_showEmptyTeamWarning = false;
         m_showDuplicateNameWarning = false;
     }
+    else if(card.type == CardType::Connection)
+    {
+        openConnectionSettings();
+    }
     else if(card.type == CardType::Calibration)
     {
 #ifdef DARTLENS_USE_SIM
@@ -503,6 +515,11 @@ void MainMenu::renderCardGrid()
                 cardTitle = "Player Settings";
                 uint8_t count = getPlayerCount();
                 cardDesc = std::to_string(count) + " player" + (count != 1 ? "s" : "");
+            }
+            else if(card.type == CardType::Connection)
+            {
+                cardTitle = "Connection";
+                cardDesc  = getVisionLinkDetail();
             }
             else if(card.type == CardType::Calibration)
             {

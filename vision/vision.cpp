@@ -6,6 +6,7 @@
  */
 
 #include "vision/vision.hpp"
+#include "vision/vision_link.hpp"
 #include "vision_source.hpp"
 #include "frame/render_queue.hpp"
 #include "game_lib/components/render_shape.hpp"
@@ -79,6 +80,10 @@ static constexpr const char* VISION_SOURCE_NAME =
 Status initializeVisionModule()
 {
     LOG_INFO(VISION_LOG_ID, "Vision source compiled in: {}", VISION_SOURCE_NAME);
+
+    // A missing address is not an error here — the app comes up regardless and
+    // the settings overlay is how you fix it.
+    loadInferenceServerAddress();
 
 #ifdef DARTLENS_USE_SIM
     f_visionSource = std::make_shared<SimVisionSource>();
@@ -243,6 +248,20 @@ std::string getVisionDetectionStatus()
 }
 
 
+VisionLinkState getVisionLinkState()
+{
+    if(!f_visionSource) return VisionLinkState::NotApplicable;
+    return f_visionSource->getLinkState();
+}
+
+
+std::string getVisionLinkDetail()
+{
+    if(!f_visionSource) return {};
+    return f_visionSource->getLinkDetail();
+}
+
+
 // Loading-screen state. Fonts are loaded lazily on first use and kept
 // around until shutdownVisionModule(). Elapsed/spinner-phase state lives
 // here too so the loading loop can stay stateless.
@@ -299,8 +318,15 @@ void presentVisionLoadingFrame(float deltaTime)
     // ---- Title ---------------------------------------------------------
     if(f_loadingTitleFont != INVALID_FONT_ID)
     {
-        const std::string titleText = failed ? std::string("Vision init failed")
-                                             : std::string("Building vision model");
+        // The network source is not building anything — it is waiting on a
+        // server. Saying "building vision model" there sends people looking
+        // for a problem that does not exist.
+#ifdef DARTLENS_USE_NETWORK
+        const std::string busyTitle = "Connecting to inference server";
+#else
+        const std::string busyTitle = "Building vision model";
+#endif
+        const std::string titleText = failed ? std::string("Vision init failed") : busyTitle;
         const Color titleColor = failed ? Color{240, 130, 110} : Color{230, 230, 240};
 
         auto title = std::make_shared<RenderText>();
@@ -370,7 +396,11 @@ void presentVisionLoadingFrame(float deltaTime)
     if(f_loadingBodyFont != INVALID_FONT_ID)
     {
         auto sub = std::make_shared<RenderText>();
+#ifdef DARTLENS_USE_NETWORK
+        sub->m_text     = "(the game will start anyway — press F1 to change the address)";
+#else
         sub->m_text     = "(first-run only — subsequent launches are instant)";
+#endif
         sub->m_color    = {150, 160, 180};
         sub->m_fontId   = f_loadingBodyFont;
         sub->m_rotation = 0.0f;

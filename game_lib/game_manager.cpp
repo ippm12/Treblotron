@@ -19,6 +19,7 @@
 #include "games/main_menu.hpp"
 #include "game_manager_class.hpp"
 #include "vision/vision.hpp"
+#include "vision/vision_link.hpp"
 #include "players/players.hpp"
 
 
@@ -165,9 +166,30 @@ Status GameManager::initialize()
         LOG_WARNING(GAME_MANAGER_LOG_ID, "Failed to load pause menu font");
     }
 
+    // Shortcut to the connection settings. Deliberately only live while the
+    // link is down: when everything is working these belong to the game, and
+    // settings is still reachable from the main menu.
+    constexpr uint32_t SETTINGS_KEY = SDLK_F1;
+    constexpr uint8_t  SETTINGS_GAMEPAD_BUTTON = SDL_GAMEPAD_BUTTON_BACK;
+
     // Register input handlers — GameManager owns these and forwards to games
     registerFrameKeyHandler(m_frameId, [this](FrameID, uint32_t keycode, bool pressed) {
         if(!pressed || !m_currentGame) return;
+
+        if(m_settingsOpen)
+        {
+            handleSettingsKey(keycode);
+            return;
+        }
+
+        // Only bound while the link is down. When everything is working this
+        // key belongs to the game; the settings page is still reachable from
+        // the main menu, so nothing is lost by not claiming it permanently.
+        if(keycode == SETTINGS_KEY && getVisionLinkState() == VisionLinkState::Disconnected)
+        {
+            openSettings();
+            return;
+        }
 
         if(m_paused)
         {
@@ -201,6 +223,29 @@ Status GameManager::initialize()
 
     registerFrameGamepadButtonHandler(m_frameId, [this](FrameID, uint8_t button, bool pressed) {
         if(!pressed || !m_currentGame) return;
+
+        if(m_settingsOpen)
+        {
+            switch(button)
+            {
+                case SDL_GAMEPAD_BUTTON_DPAD_UP:    handleSettingsKey(SDLK_UP);     break;
+                case SDL_GAMEPAD_BUTTON_DPAD_DOWN:  handleSettingsKey(SDLK_DOWN);   break;
+                case SDL_GAMEPAD_BUTTON_DPAD_LEFT:  handleSettingsKey(SDLK_LEFT);   break;
+                case SDL_GAMEPAD_BUTTON_DPAD_RIGHT: handleSettingsKey(SDLK_RIGHT);  break;
+                case SDL_GAMEPAD_BUTTON_SOUTH:      handleSettingsKey(SDLK_RETURN); break;
+                case SDL_GAMEPAD_BUTTON_EAST:       handleSettingsKey(SDLK_ESCAPE); break;
+                case SDL_GAMEPAD_BUTTON_BACK:       handleSettingsKey(SDLK_ESCAPE); break;
+                default: break;
+            }
+            return;
+        }
+
+        if(button == SETTINGS_GAMEPAD_BUTTON
+        && getVisionLinkState() == VisionLinkState::Disconnected)
+        {
+            openSettings();
+            return;
+        }
 
         if(m_paused)
         {
@@ -240,6 +285,14 @@ Status GameManager::initialize()
     });
 
     registerFrameTextHandler(m_frameId, [this](FrameID, const char* text) {
+        if(m_settingsOpen)
+        {
+            // Physical keyboard types straight into the address field, so a
+            // Pi with a keyboard attached doesn't have to peck at the on-screen
+            // one. The virtual keyboard stays visible for controller use.
+            if(m_settingsKeyboard.isOpen()) m_settingsKeyboard.handleTextInput(text);
+            return;
+        }
         if(m_paused || !m_currentGame) return;
         m_currentGame->onTextInput(text);
     });
@@ -496,7 +549,13 @@ void GameManager::tick()
         renderQueueClearFrame(m_frameId, 40, 40, 40);
         m_currentGame->render();
 
-        if(m_paused)
+        renderLinkIndicator();
+
+        if(m_settingsOpen)
+        {
+            renderSettings();
+        }
+        else if(m_paused)
         {
             renderPauseMenu();
         }
@@ -940,6 +999,12 @@ Status unloadGame()
 Status restartCurrentGame()
 {
     return f_gameManager.restartCurrentGame();
+}
+
+
+void openConnectionSettings()
+{
+    f_gameManager.openSettings();
 }
 
 

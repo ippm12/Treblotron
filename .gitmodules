@@ -20,3 +20,6 @@
 [submodule "external_libs/opencv_contrib"]
 	path = external_libs/opencv_contrib
 	url = https://github.com/opencv/opencv_contrib.git
+[submodule "external_libs/box2d"]
+	path = external_libs/box2d
+	url = https://github.com/erincatto/box2d.git

@@ -15,6 +15,7 @@
 #include "frame/frame.hpp"
 #include "game_lib/game.hpp"
 #include "game_lib/input_hints.hpp"
+#include "game_lib/virtual_keyboard.hpp"
 
 class GameManager
 {
@@ -53,6 +54,9 @@ class GameManager
          */
         void tick();
 
+        /** Raise the connection settings overlay over whatever is running. */
+        void openSettings();
+
     private:
         /** Enqueue the status bar elements for the current frame. */
         void enqueueBar(const GameBarInfo& info);
@@ -62,6 +66,27 @@ class GameManager
 
         /** Handle a key press while the pause menu is open. */
         void handlePauseKey(uint32_t keycode);
+
+        /**
+         * Render the connection-settings overlay.
+         *
+         * An overlay rather than a screen of its own so it can be opened from
+         * anywhere — including mid-game — without loadGame() tearing down the
+         * game in progress. The whole point is to fix a dropped connection
+         * without abandoning the leg you are playing.
+         */
+        void renderSettings();
+
+        /** Handle a key press while the settings overlay is open. */
+        void handleSettingsKey(uint32_t keycode);
+
+        /**
+         * Draw the link indicator, and a warning when the link is down.
+         * Rendered over every screen, because scoring silently stops working
+         * when the server is unreachable and that needs to be visible from
+         * wherever the player is standing.
+         */
+        void renderLinkIndicator();
 
         bool m_initialized;
         GamePtr m_currentGame;
@@ -74,6 +99,12 @@ class GameManager
         bool        m_paused = false;
         uint8_t     m_pauseCursor = 0;
         std::string m_pauseStatus;  // transient feedback line (e.g. "Saved to ./captures/")
+
+        // Connection settings overlay state
+        bool            m_settingsOpen   = false;
+        uint8_t         m_settingsCursor = 0;
+        std::string     m_settingsStatus;   // transient feedback ("Saved")
+        VirtualKeyboard m_settingsKeyboard;
 
         // Factory to recreate current game for restart (nullopt = no restart)
         std::function<GamePtr()> m_gameFactory;
