@@ -22,7 +22,48 @@ Two independent options drive everything:
 | `DARTLENS_INFER_BACKEND` | `none` `tensorrt` `directml` `cpu` | what executes a forward pass |
 
 The old `DARTLENS_USE_SIM` / `_HAILO` / `_TENSORRT` booleans still work and map
-onto the pair above.
+onto the pair above. They only apply when `DARTLENS_VISION_SOURCE` is still at
+its default, and are cleared from the cache once honoured — otherwise a build
+directory that once had `DARTLENS_USE_HAILO=ON` would keep demanding HailoRT
+forever, including after the accelerator has been removed from the machine.
+
+### Building on the Raspberry Pi
+
+The Pi runs the game and the cameras and streams frames out; it needs no
+accelerator and no models.
+
+```bash
+git submodule update --init --recursive     # first time only
+cmake --preset app-network
+cmake --build build-app-network -j4
+```
+
+Then just run it — the server address is entered from inside the app and saved,
+so nothing needs to be set on the command line:
+
+```bash
+./build-app-network/bin/Dart_Lens
+```
+
+If your CMake predates presets (3.21+), the same thing longhand:
+
+```bash
+cmake -S . -B build-app-network -G Ninja \
+      -DCMAKE_BUILD_TYPE=Release \
+      -DDARTLENS_BUILD_APP=ON -DDARTLENS_BUILD_SERVER=OFF \
+      -DDARTLENS_VISION_SOURCE=network -DDARTLENS_INFER_BACKEND=none
+cmake --build build-app-network -j4
+```
+
+**If a build complains about HailoRT after you've removed the hat**, it is
+reading a stale `DARTLENS_USE_HAILO=ON` out of an old build directory. The
+current CMake detects that and clears it, but the quickest cure is a fresh
+build directory — `rm -rf build && cmake --preset app-network`.
+
+Expect the first build to take a while: OpenCV is a submodule and gets compiled
+from source. The Pi client builds a trimmed set
+(`core,imgproc,features2d,flann,calib3d,imgcodecs,videoio` — no `dnn`, since
+nothing on the Pi runs a model).
 
 ### Inference backends
 
@@ -95,9 +136,38 @@ fits the homography with the same routine rather than keeping its own copy.
 # on the inference machine
 ./Dart_Lens_Server --port 9876
 
-# on the Pi
-DARTLENS_SERVER=192.168.1.50:9876 ./Dart_Lens
+# on the Pi — just run it; the address is set from inside the app
+./Dart_Lens
 ```
+
+The server address is entered in the app, not baked into the build. It is saved
+to `./config/server.txt` and re-read on every reconnect, so an edit takes effect
+within a couple of seconds without a restart. `DARTLENS_SERVER` still seeds it on
+first run for scripted deployments, but once anything has been saved through the
+UI the file wins.
+
+### Connection status
+
+A coloured dot sits in the corner of every screen:
+
+| | meaning |
+|---|---|
+| green | connected and keeping up |
+| amber | connected but slow (round-trip over 150 ms), or nothing scored for 2 s |
+| red | no server configured, unreachable, or it went away |
+
+Connected is deliberately not the same as green: a link that is up but scoring
+nothing — server still loading, or wedged — is amber, because from the player's
+side that is just as broken.
+
+When the link is down a banner names the problem and **F1** (controller: Back)
+opens the connection settings over whatever is on screen, including mid-game, so
+a dropped server can be fixed without abandoning a leg. That shortcut is bound
+*only* while the link is down; the rest of the time the key belongs to the game
+and settings is reached from the Connection card on the main menu.
+
+The app never blocks on the server at startup — it comes up regardless, and the
+indicator tells you the rest.
 
 The client streams continuously and the server always scores the newest set it
 has. A reader thread drains the socket into a **one-slot, newest-wins mailbox**

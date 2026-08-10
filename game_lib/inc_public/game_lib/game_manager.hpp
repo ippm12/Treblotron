@@ -46,4 +46,14 @@ Status restartCurrentGame();
  */
 void tickGameManager();
 
+/**
+ * Open the connection settings overlay.
+ *
+ * An overlay owned by the game manager rather than a screen, so it can be
+ * raised over whatever is running without disturbing it. The global shortcut
+ * only exists while the link is down, so this is how the main menu offers a way
+ * in when everything is working.
+ */
+void openConnectionSettings();
+
 #endif // GAME_MANAGER_HPP

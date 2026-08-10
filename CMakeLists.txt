@@ -53,16 +53,54 @@ option(DARTLENS_FETCH_DIRECTML "Ship the DirectML redistributable instead of usi
 
 # Back-compat with the previous boolean flags so existing command lines,
 # .vscode configs and build caches keep working.
-if(DARTLENS_USE_HAILO)
-    message(DEPRECATION "DARTLENS_USE_HAILO is deprecated — use -DDARTLENS_VISION_SOURCE=hailo")
-    set(DARTLENS_VISION_SOURCE "hailo")
+#
+# Two rules keep a legacy flag from outliving its usefulness:
+#
+#   - it only applies when the new variable is still at its default, so an
+#     explicit -DDARTLENS_VISION_SOURCE always wins;
+#   - it is removed from the cache once honoured, so it cannot silently steer
+#     every future configure of the same build directory.
+#
+# Both matter because the old flags live in existing build caches. Without
+# them, reconfiguring a build directory that once had DARTLENS_USE_HAILO=ON
+# would keep demanding HailoRT no matter what you asked for — which is exactly
+# what happens when a Pi's accelerator is removed and the build tree isn't.
+macro(_dartlens_retire_flag legacy explanation)
+    if(${legacy})
+        if(_dartlens_source_is_default)
+            message(DEPRECATION "${legacy} is deprecated — ${explanation}")
+            set(_dartlens_legacy_applied TRUE)
+        else()
+            message(WARNING
+                "Ignoring stale ${legacy} from the build cache: "
+                "DARTLENS_VISION_SOURCE=${DARTLENS_VISION_SOURCE} was requested explicitly. "
+                "Clearing ${legacy} so it stops interfering.")
+        endif()
+    endif()
+    unset(${legacy} CACHE)
+endmacro()
+
+set(_dartlens_source_is_default FALSE)
+if(DARTLENS_VISION_SOURCE STREQUAL "sim")
+    set(_dartlens_source_is_default TRUE)
 endif()
-if(DARTLENS_USE_TENSORRT)
-    message(DEPRECATION "DARTLENS_USE_TENSORRT is deprecated — use "
-                        "-DDARTLENS_VISION_SOURCE=local -DDARTLENS_INFER_BACKEND=tensorrt")
-    set(DARTLENS_VISION_SOURCE "local")
-    set(DARTLENS_INFER_BACKEND "tensorrt")
+
+set(_dartlens_legacy_applied FALSE)
+_dartlens_retire_flag(DARTLENS_USE_HAILO "use -DDARTLENS_VISION_SOURCE=hailo")
+if(_dartlens_legacy_applied)
+    set(DARTLENS_VISION_SOURCE "hailo" CACHE STRING "Vision source" FORCE)
 endif()
+
+set(_dartlens_legacy_applied FALSE)
+_dartlens_retire_flag(DARTLENS_USE_TENSORRT
+    "use -DDARTLENS_VISION_SOURCE=local -DDARTLENS_INFER_BACKEND=tensorrt")
+if(_dartlens_legacy_applied)
+    set(DARTLENS_VISION_SOURCE "local"    CACHE STRING "Vision source"      FORCE)
+    set(DARTLENS_INFER_BACKEND "tensorrt" CACHE STRING "Inference backend"  FORCE)
+endif()
+
+# Never read; retired so it cannot confuse anyone reading a stale cache.
+unset(DARTLENS_USE_SIM CACHE)
 
 if(NOT DARTLENS_VISION_SOURCE MATCHES "^(sim|hailo|local|network)$")
     message(FATAL_ERROR "DARTLENS_VISION_SOURCE must be sim, hailo, local or network "

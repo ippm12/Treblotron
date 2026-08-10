@@ -24,6 +24,7 @@
 #include "vision/vision.hpp"
 
 #include <atomic>
+#include <chrono>
 #include <cstdint>
 #include <mutex>
 #include <queue>
@@ -53,6 +54,9 @@ class NetworkVisionSource : public VisionSource
         std::string getInitStatus() const override;
         std::string getDetectionStatus() const override;
 
+        VisionLinkState getLinkState() const override;
+        std::string     getLinkDetail() const override;
+
     private:
         void clientThreadMain();
 
@@ -76,6 +80,20 @@ class NetworkVisionSource : public VisionSource
         mutable std::mutex    m_statusMutex;
         std::string           m_initStatus = "Connecting to inference server";
         std::string           m_detectionStatus;
+
+        // ----- Link health -------------------------------------------------
+        //
+        // Round-trip is measured by remembering when each frame set was sent
+        // and matching the sequence the server echoes back. A small ring keyed
+        // on sequence is enough: with continuous streaming most sends never get
+        // a detection of their own, and only the recent ones are interesting.
+        static constexpr size_t RTT_RING = 64;
+        struct SentStamp { uint32_t sequence = 0; std::chrono::steady_clock::time_point at{}; };
+        SentStamp m_sent[RTT_RING];
+
+        /** Smoothed so one slow cycle doesn't flip the indicator to amber. */
+        std::atomic<float> m_smoothedRttMs{-1.0f};
+        std::atomic<int64_t> m_lastDetectionMs{0};   // steady_clock ms, 0 = none yet
 
         std::mutex                          m_eventMutex;
         std::queue<std::pair<float, float>> m_newDartEvents;

@@ -6,17 +6,19 @@
  * send/receive loop. The main thread only ever touches the mutex-guarded event
  * queue and the atomics, exactly like the local source.
  *
- * Server address comes from the DARTLENS_SERVER environment variable
- * ("host" or "host:port"), defaulting to localhost. That keeps the Pi's
- * deployment a one-line change with no config file to keep in sync.
+ * The server address comes from vision_link (./config/server.txt, seeded from
+ * DARTLENS_SERVER on first run) and is re-read on every reconnect, so editing it
+ * in the settings screen takes effect within a retry interval without a restart.
  */
 
 #include "network_vision_source.hpp"
 #include "detect/wire_calibration.hpp"
 #include "net/dart_protocol.hpp"
 #include "net/net_socket.hpp"
+#include "vision/vision_link.hpp"
 
 #include <array>
+#include <cstdio>
 #include <chrono>
 #include <cstdlib>
 #include <thread>
@@ -46,27 +48,49 @@ namespace
      */
     constexpr int CLIENT_POLL_MS = 2;
 
+    /**
+     * Round-trip above this reads as amber. Healthy is ~30 ms end to end, so
+     * 150 ms means something is genuinely struggling — a saturated link, or a
+     * server sharing its GPU — while still leaving room for ordinary jitter.
+     */
+    constexpr float DEGRADED_RTT_MS = 150.0f;
 
-    /** Parse "host" or "host:port" out of DARTLENS_SERVER. */
-    void resolveServerAddress(std::string& host, uint16_t& port)
+    /**
+     * Connected but nothing scored for this long also reads as amber: the
+     * socket being up is not the same thing as darts being counted.
+     */
+    constexpr int64_t STALL_MS = 2000;
+
+    /** Weight of each new sample. Slow enough that one bad cycle can't flip it. */
+    constexpr float RTT_SMOOTHING = 0.25f;
+
+
+    /**
+     * Split the configured address into host and port.
+     *
+     * Read fresh on every reconnect rather than cached at startup, which is
+     * what lets an edit in the settings screen take effect without a restart.
+     * Returns false when nothing is configured — the caller reports that
+     * plainly instead of quietly trying localhost.
+     */
+    bool resolveServerAddress(std::string& host, uint16_t& port)
     {
-        host = "127.0.0.1";
+        const std::string configured = getInferenceServerAddress();
+        if(configured.empty()) return false;
+
         port = DEFAULT_PORT;
 
-        const char* env = std::getenv("DARTLENS_SERVER");
-        if(!env || !*env) return;
-
-        std::string value(env);
-        const size_t colon = value.rfind(':');
+        const size_t colon = configured.rfind(':');
         if(colon == std::string::npos)
         {
-            host = value;
-            return;
+            host = configured;
+            return true;
         }
 
-        host = value.substr(0, colon);
-        const int parsed = std::atoi(value.c_str() + colon + 1);
+        host = configured.substr(0, colon);
+        const int parsed = std::atoi(configured.c_str() + colon + 1);
         if(parsed > 0 && parsed <= 65535) port = static_cast<uint16_t>(parsed);
+        return !host.empty();
     }
 }
 
@@ -103,6 +127,8 @@ void NetworkVisionSource::clientThreadMain()
         {
             m_connected.store(false, std::memory_order_release);
             m_ready.store(false, std::memory_order_release);
+            m_smoothedRttMs.store(-1.0f, std::memory_order_release);
+            m_lastDetectionMs.store(0, std::memory_order_release);
             std::this_thread::sleep_for(std::chrono::milliseconds(RECONNECT_DELAY_MS));
         }
     }
@@ -119,7 +145,12 @@ bool NetworkVisionSource::runSession()
 
     std::string host;
     uint16_t    port = DEFAULT_PORT;
-    resolveServerAddress(host, port);
+    if(!resolveServerAddress(host, port))
+    {
+        setInitStatus("No inference server configured");
+        std::this_thread::sleep_for(std::chrono::milliseconds(RECONNECT_DELAY_MS));
+        return false;
+    }
 
     setInitStatus("Connecting to " + host + ":" + std::to_string(port));
 
@@ -242,6 +273,7 @@ bool NetworkVisionSource::runSession()
             }
         }
 
+        m_sent[frames.sequence % RTT_RING] = {frames.sequence, std::chrono::steady_clock::now()};
         return dartSendFrames(sock, frames);
     };
 
@@ -311,6 +343,26 @@ bool NetworkVisionSource::runSession()
             {
                 DartDetectionMsg msg;
                 if(!dartParseDetection(payload, msg)) return false;
+
+                const auto now = std::chrono::steady_clock::now();
+                m_lastDetectionMs.store(
+                    std::chrono::duration_cast<std::chrono::milliseconds>(
+                        now.time_since_epoch()).count(), std::memory_order_release);
+
+                // Only sequences still in the ring can be timed; with
+                // continuous streaming most sends never get a detection of
+                // their own, and an unmatched slot just means it aged out.
+                const SentStamp& stamp = m_sent[msg.sequence % RTT_RING];
+                if(stamp.sequence == msg.sequence)
+                {
+                    const float rtt = static_cast<float>(
+                        std::chrono::duration_cast<std::chrono::microseconds>(
+                            now - stamp.at).count()) / 1000.0f;
+                    const float prev = m_smoothedRttMs.load(std::memory_order_relaxed);
+                    m_smoothedRttMs.store(prev < 0.0f ? rtt
+                                          : prev + RTT_SMOOTHING * (rtt - prev),
+                                          std::memory_order_release);
+                }
 
                 m_boardClear.store(msg.boardClear, std::memory_order_release);
                 {
@@ -459,4 +511,44 @@ std::string NetworkVisionSource::getDetectionStatus() const
 {
     std::lock_guard<std::mutex> lock(m_statusMutex);
     return m_detectionStatus;
+}
+
+
+VisionLinkState NetworkVisionSource::getLinkState() const
+{
+    if(!m_connected.load(std::memory_order_acquire)) return VisionLinkState::Disconnected;
+
+    // Connected is not the same as working. A link that is up but scoring
+    // nothing — server still loading, or wedged — is amber, not green.
+    const int64_t last = m_lastDetectionMs.load(std::memory_order_acquire);
+    if(last == 0) return VisionLinkState::Degraded;
+
+    const int64_t nowMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now().time_since_epoch()).count();
+    if(nowMs - last > STALL_MS) return VisionLinkState::Degraded;
+
+    const float rtt = m_smoothedRttMs.load(std::memory_order_acquire);
+    if(rtt > DEGRADED_RTT_MS) return VisionLinkState::Degraded;
+
+    return VisionLinkState::Healthy;
+}
+
+
+std::string NetworkVisionSource::getLinkDetail() const
+{
+    const std::string configured = getInferenceServerAddress();
+    if(configured.empty()) return "no server configured";
+
+    if(!m_connected.load(std::memory_order_acquire))
+    {
+        std::lock_guard<std::mutex> lock(m_statusMutex);
+        return m_initStatus;
+    }
+
+    const float rtt = m_smoothedRttMs.load(std::memory_order_acquire);
+    if(rtt < 0.0f) return configured + " - connected, no frames scored yet";
+
+    char buf[64];
+    std::snprintf(buf, sizeof(buf), " - %.0f ms", static_cast<double>(rtt));
+    return configured + buf;
 }

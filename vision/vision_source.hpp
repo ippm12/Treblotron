@@ -12,6 +12,7 @@
 #define VISION_SOURCE_HPP
 
 #include "common_inc.hpp"
+#include "vision/vision_link.hpp"
 #include <cstdint>
 #include <functional>
 #include <memory>
@@ -114,6 +115,16 @@ class VisionSource
          * machine return an empty string and the UI hides the line.
          */
         virtual std::string getDetectionStatus() const { return {}; }
+
+        /**
+         * Health of the link to a remote inference server. Only the network
+         * source has one; everything else is doing its own inference, so the
+         * default says so and the UI hides the indicator.
+         */
+        virtual VisionLinkState getLinkState() const { return VisionLinkState::NotApplicable; }
+
+        /** One line of detail to sit beside the indicator. */
+        virtual std::string getLinkDetail() const { return {}; }
 
         /** Set callbacks for dart events. Pass nullptr to disconnect. */
         void setCallbacks(std::function<void()> onDartLanded,
