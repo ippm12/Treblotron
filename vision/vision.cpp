@@ -53,8 +53,33 @@ static DartPositionCallback f_onDartPositionCalculated;
 // Lifecycle
 // ============================================================================
 
+/**
+ * Which vision source this binary was compiled with.
+ *
+ * Named on stdout at startup because the alternative is guessing. Every source
+ * fails in its own way when it is the wrong one for the hardware — the Hailo
+ * source, for instance, reports "failed to create vdevice" when there is no
+ * accelerator — and it is easy to spend a while debugging that before noticing
+ * you were running a stale binary from a previous build directory.
+ */
+static constexpr const char* VISION_SOURCE_NAME =
+#if   defined(DARTLENS_USE_SIM)
+    "sim (simulated darts, no cameras)";
+#elif defined(DARTLENS_USE_HAILO)
+    "hailo (local inference on a Hailo accelerator)";
+#elif defined(DARTLENS_USE_LOCAL)
+    "local (local inference on this machine)";
+#elif defined(DARTLENS_USE_NETWORK)
+    "network (cameras here, inference on a remote server)";
+#else
+    "none";
+#endif
+
+
 Status initializeVisionModule()
 {
+    LOG_INFO(VISION_LOG_ID, "Vision source compiled in: {}", VISION_SOURCE_NAME);
+
 #ifdef DARTLENS_USE_SIM
     f_visionSource = std::make_shared<SimVisionSource>();
 #endif
