@@ -1,15 +1,20 @@
 {
   "version": 3,
-  "cmakeMinimumRequired": { "major": 3, "minor": 22, "patch": 1 },
+  "cmakeMinimumRequired": {
+    "major": 3,
+    "minor": 22,
+    "patch": 1
+  },
   "configurePresets": [
     {
       "name": "base",
       "hidden": true,
       "generator": "Ninja",
       "binaryDir": "${sourceDir}/build-${presetName}",
-      "cacheVariables": { "CMAKE_BUILD_TYPE": "Debug" }
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug"
+      }
     },
-
     {
       "name": "app-sim",
       "inherits": "base",
@@ -32,7 +37,8 @@
         "DARTLENS_BUILD_APP": "ON",
         "DARTLENS_BUILD_SERVER": "OFF",
         "DARTLENS_VISION_SOURCE": "network",
-        "DARTLENS_INFER_BACKEND": "none"
+        "DARTLENS_INFER_BACKEND": "none",
+        "CMAKE_BUILD_TYPE": "Release"
       }
     },
     {
@@ -44,7 +50,8 @@
         "DARTLENS_BUILD_APP": "ON",
         "DARTLENS_BUILD_SERVER": "OFF",
         "DARTLENS_VISION_SOURCE": "local",
-        "DARTLENS_INFER_BACKEND": "tensorrt"
+        "DARTLENS_INFER_BACKEND": "tensorrt",
+        "CMAKE_BUILD_TYPE": "Release"
       }
     },
     {
@@ -55,10 +62,10 @@
         "DARTLENS_BUILD_APP": "ON",
         "DARTLENS_BUILD_SERVER": "OFF",
         "DARTLENS_VISION_SOURCE": "hailo",
-        "DARTLENS_INFER_BACKEND": "none"
+        "DARTLENS_INFER_BACKEND": "none",
+        "CMAKE_BUILD_TYPE": "Release"
       }
     },
-
     {
       "name": "server-directml",
       "inherits": "base",
@@ -95,14 +102,34 @@
       }
     }
   ],
-
   "buildPresets": [
-    { "name": "app-sim",          "configurePreset": "app-sim" },
-    { "name": "app-network",      "configurePreset": "app-network" },
-    { "name": "app-local-jetson", "configurePreset": "app-local-jetson" },
-    { "name": "app-hailo",        "configurePreset": "app-hailo" },
-    { "name": "server-directml",  "configurePreset": "server-directml" },
-    { "name": "server-cpu",       "configurePreset": "server-cpu" },
-    { "name": "server-tensorrt",  "configurePreset": "server-tensorrt" }
+    {
+      "name": "app-sim",
+      "configurePreset": "app-sim"
+    },
+    {
+      "name": "app-network",
+      "configurePreset": "app-network"
+    },
+    {
+      "name": "app-local-jetson",
+      "configurePreset": "app-local-jetson"
+    },
+    {
+      "name": "app-hailo",
+      "configurePreset": "app-hailo"
+    },
+    {
+      "name": "server-directml",
+      "configurePreset": "server-directml"
+    },
+    {
+      "name": "server-cpu",
+      "configurePreset": "server-cpu"
+    },
+    {
+      "name": "server-tensorrt",
+      "configurePreset": "server-tensorrt"
+    }
   ]
 }

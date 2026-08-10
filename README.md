@@ -22,7 +22,47 @@ Two independent options drive everything:
 | `DARTLENS_INFER_BACKEND` | `none` `tensorrt` `directml` `cpu` | what executes a forward pass |
 
 The old `DARTLENS_USE_SIM` / `_HAILO` / `_TENSORRT` booleans still work and map
-onto the pair above.
+onto the pair above. They only apply when `DARTLENS_VISION_SOURCE` is still at
+its default, and are cleared from the cache once honoured — otherwise a build
+directory that once had `DARTLENS_USE_HAILO=ON` would keep demanding HailoRT
+forever, including after the accelerator has been removed from the machine.
+
+### Building on the Raspberry Pi
+
+The Pi runs the game and the cameras and streams frames out; it needs no
+accelerator and no models.
+
+```bash
+git submodule update --init --recursive     # first time only
+cmake --preset app-network
+cmake --build build-app-network -j4
+```
+
+Then point it at the inference machine and run:
+
+```bash
+DARTLENS_SERVER=192.168.1.50:9876 ./build-app-network/bin/Dart_Lens
+```
+
+If your CMake predates presets (3.21+), the same thing longhand:
+
+```bash
+cmake -S . -B build-app-network -G Ninja \
+      -DCMAKE_BUILD_TYPE=Release \
+      -DDARTLENS_BUILD_APP=ON -DDARTLENS_BUILD_SERVER=OFF \
+      -DDARTLENS_VISION_SOURCE=network -DDARTLENS_INFER_BACKEND=none
+cmake --build build-app-network -j4
+```
+
+**If a build complains about HailoRT after you've removed the hat**, it is
+reading a stale `DARTLENS_USE_HAILO=ON` out of an old build directory. The
+current CMake detects that and clears it, but the quickest cure is a fresh
+build directory — `rm -rf build && cmake --preset app-network`.
+
+Expect the first build to take a while: OpenCV is a submodule and gets compiled
+from source. The Pi client builds a trimmed set
+(`core,imgproc,features2d,flann,calib3d,imgcodecs,videoio` — no `dnn`, since
+nothing on the Pi runs a model).
 
 ### Inference backends
 
