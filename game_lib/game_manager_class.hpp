@@ -80,6 +80,12 @@ class GameManager
         /** Handle a key press while the settings overlay is open. */
         void handleSettingsKey(uint32_t keycode);
 
+        /** Feed typed characters into the address field. */
+        void handleSettingsText(const char* text);
+
+        /** Commit m_settingsBuffer as the new address and leave edit mode. */
+        void commitSettingsAddress();
+
         /**
          * Draw the link indicator, and a warning when the link is down.
          * Rendered over every screen, because scoring silently stops working
@@ -100,11 +106,19 @@ class GameManager
         uint8_t     m_pauseCursor = 0;
         std::string m_pauseStatus;  // transient feedback line (e.g. "Saved to ./captures/")
 
-        // Connection settings overlay state
-        bool            m_settingsOpen   = false;
-        uint8_t         m_settingsCursor = 0;
-        std::string     m_settingsStatus;   // transient feedback ("Saved")
-        VirtualKeyboard m_settingsKeyboard;
+        // Connection settings overlay state.
+        //
+        // Editing the address has two shapes, mirroring the player rename in
+        // main_menu: a physical keyboard types straight into m_settingsBuffer
+        // and the row shows a caret, while a controller gets the on-screen
+        // keyboard. Bringing up the on-screen one for someone already holding a
+        // real keyboard is just an extra layer in the way.
+        bool            m_settingsOpen    = false;
+        uint8_t         m_settingsCursor  = 0;
+        bool            m_settingsEditing = false;   // address row is being edited
+        std::string     m_settingsBuffer;            // the address being typed
+        std::string     m_settingsStatus;            // transient feedback ("Saved")
+        VirtualKeyboard m_settingsKeyboard;          // gamepad path only
 
         // Factory to recreate current game for restart (nullopt = no restart)
         std::function<GamePtr()> m_gameFactory;

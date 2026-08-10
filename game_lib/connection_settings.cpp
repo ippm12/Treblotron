@@ -19,6 +19,7 @@
 #include <SDL3_ttf/SDL_ttf.h>
 
 #include <string>
+#include <vector>
 
 #include "common_inc.hpp"
 #include "frame/frame.hpp"
@@ -96,42 +97,94 @@ namespace
 
 void GameManager::openSettings()
 {
-    m_settingsOpen   = true;
-    m_settingsCursor = SETTINGS_ROW_ADDRESS;
+    m_settingsOpen    = true;
+    m_settingsCursor  = SETTINGS_ROW_ADDRESS;
+    m_settingsEditing = false;
     m_settingsStatus.clear();
+    m_settingsBuffer.clear();
     m_settingsKeyboard.close();
+}
+
+
+void GameManager::commitSettingsAddress()
+{
+    if(IS_STATUS_OK(setInferenceServerAddress(m_settingsBuffer)))
+    {
+        // No restart needed: the client re-reads the address on its next
+        // reconnect, which is a couple of seconds away at most.
+        m_settingsStatus = "Saved - reconnecting";
+    }
+    else
+    {
+        m_settingsStatus = "Could not save the address";
+    }
+
+    m_settingsEditing = false;
+    m_settingsKeyboard.close();
+    SDL_StopTextInput(SDL_GetKeyboardFocus());
+}
+
+
+void GameManager::handleSettingsText(const char* text)
+{
+    // Only reached on the physical-keyboard path; the on-screen keyboard keeps
+    // its own buffer and is fed separately.
+    if(!m_settingsEditing || m_settingsKeyboard.isOpen() || text == nullptr) return;
+
+    const std::string input(text);
+    if(m_settingsBuffer.length() + input.length() <= SETTINGS_ADDRESS_MAX)
+    {
+        m_settingsBuffer += input;
+    }
 }
 
 
 void GameManager::handleSettingsKey(uint32_t keycode)
 {
-    // The address editor swallows input while it is up.
+    // ----- Controller path: the on-screen keyboard owns the input -----
     if(m_settingsKeyboard.isOpen())
     {
         const VirtualKeyboardResult result = m_settingsKeyboard.handleKey(keycode);
         if(result == VirtualKeyboardResult::Confirmed)
         {
-            if(IS_STATUS_OK(setInferenceServerAddress(m_settingsKeyboard.getText())))
-            {
-                // No restart needed: the client re-reads the address on its next
-                // reconnect, which is a couple of seconds away at most.
-                m_settingsStatus = "Saved - reconnecting";
-            }
-            else
-            {
-                m_settingsStatus = "Could not save the address";
-            }
-            m_settingsKeyboard.close();
-            SDL_StopTextInput(SDL_GetKeyboardFocus());
+            m_settingsBuffer = m_settingsKeyboard.getText();
+            commitSettingsAddress();
         }
         else if(result == VirtualKeyboardResult::Cancelled)
         {
+            m_settingsEditing = false;
             m_settingsKeyboard.close();
             SDL_StopTextInput(SDL_GetKeyboardFocus());
         }
         return;
     }
 
+    // ----- Physical-keyboard path: type straight into the row -----
+    if(m_settingsEditing)
+    {
+        switch(keycode)
+        {
+            case SDLK_RETURN:
+            case SDLK_KP_ENTER:
+                commitSettingsAddress();
+                break;
+
+            case SDLK_ESCAPE:
+                m_settingsEditing = false;
+                SDL_StopTextInput(SDL_GetKeyboardFocus());
+                break;
+
+            case SDLK_BACKSPACE:
+                if(!m_settingsBuffer.empty()) m_settingsBuffer.pop_back();
+                break;
+
+            default:
+                break;
+        }
+        return;
+    }
+
+    // ----- Not editing: navigating the rows -----
     switch(keycode)
     {
         case SDLK_UP:
@@ -149,8 +202,19 @@ void GameManager::handleSettingsKey(uint32_t keycode)
             if(m_settingsCursor == SETTINGS_ROW_ADDRESS)
             {
                 m_settingsStatus.clear();
-                m_settingsKeyboard.open(getInferenceServerAddress(), SETTINGS_ADDRESS_MAX);
-                SDL_StartTextInput(SDL_GetKeyboardFocus());
+                m_settingsEditing = true;
+                m_settingsBuffer  = getInferenceServerAddress();
+
+                // Only put the on-screen keyboard up for someone who has no
+                // real one to hand. Same rule the player rename uses.
+                if(getLastInputDevice() == InputDevice::Gamepad)
+                {
+                    m_settingsKeyboard.open(m_settingsBuffer, SETTINGS_ADDRESS_MAX);
+                }
+                else
+                {
+                    SDL_StartTextInput(SDL_GetKeyboardFocus());
+                }
             }
             else
             {
@@ -233,8 +297,12 @@ void GameManager::renderSettings()
     text(getVisionLinkDetail(),  panelX + 96.0f, panelY + 150.0f, {160, 160, 170},  rowFontId);
 
     const std::string address = getInferenceServerAddress();
+    const std::string shown =
+        m_settingsEditing ? m_settingsBuffer + "_"
+      : address.empty()   ? std::string("(not set)")
+                          : address;
     const std::string rows[SETTINGS_ROW_COUNT] = {
-        "Server address:  " + (address.empty() ? std::string("(not set)") : address),
+        "Server address:  " + shown,
         "Close"
     };
 
@@ -277,10 +345,14 @@ void GameManager::renderSettings()
     }
     else
     {
+        const std::vector<InputHint> hints =
+            m_settingsEditing
+                ? std::vector<InputHint>{{SDLK_RETURN, SDL_GAMEPAD_BUTTON_SOUTH, "save"},
+                                         {SDLK_ESCAPE, SDL_GAMEPAD_BUTTON_EAST,  "cancel"}}
+                : std::vector<InputHint>{{SDLK_RETURN, SDL_GAMEPAD_BUTTON_SOUTH, "select"},
+                                         {SDLK_ESCAPE, SDL_GAMEPAD_BUTTON_EAST,  "close"}};
         m_inputHints.render(m_frameId, rowFontId, panelX + 48.0f, hintsY,
-                            SETTINGS_OVERLAY_Z + 3,
-                            {{SDLK_RETURN, SDL_GAMEPAD_BUTTON_SOUTH, "select"},
-                             {SDLK_ESCAPE, SDL_GAMEPAD_BUTTON_EAST,  "close"}});
+                            SETTINGS_OVERLAY_Z + 3, hints);
     }
 }
 

@@ -298,7 +298,10 @@ Status GameManager::initialize()
             // Physical keyboard types straight into the address field, so a
             // Pi with a keyboard attached doesn't have to peck at the on-screen
             // one. The virtual keyboard stays visible for controller use.
+            // The on-screen keyboard keeps its own buffer; the physical path
+            // types into m_settingsBuffer.
             if(m_settingsKeyboard.isOpen()) m_settingsKeyboard.handleTextInput(text);
+            else                            handleSettingsText(text);
             return;
         }
         if(m_paused || !m_currentGame) return;
