@@ -32,6 +32,13 @@ namespace
     constexpr int RECONNECT_DELAY_MS = 2000;
 
     /**
+     * Longer wait after a rejected handshake. Still retried — the usual cause
+     * is a missing calibration, which the user fixes without leaving the app —
+     * but there is no point hammering a server that just turned us away.
+     */
+    constexpr int REJECT_RETRY_DELAY_MS = 5000;
+
+    /**
      * Read timeout on the socket. Long enough to cover a slow CPU inference
      * cycle plus a first-run engine build's progress gaps, short enough that a
      * server that dies mid-session doesn't wedge the client forever.
@@ -123,12 +130,20 @@ void NetworkVisionSource::clientThreadMain()
 {
     while(m_running.load(std::memory_order_acquire))
     {
-        if(!runSession() && m_running.load(std::memory_order_acquire))
+        const bool cleanExit = runSession();
+
+        // Unconditionally, before anything else. This used to be guarded by
+        // `&& m_running`, so a session that stopped the thread on its way out
+        // left m_connected true with no socket behind it — which the indicator
+        // read as "connected but scoring nothing", i.e. a mild amber, for what
+        // was actually a hard stop. State about a link must never outlive it.
+        m_connected.store(false, std::memory_order_release);
+        m_ready.store(false, std::memory_order_release);
+        m_smoothedRttMs.store(-1.0f, std::memory_order_release);
+        m_lastDetectionMs.store(0, std::memory_order_release);
+
+        if(!cleanExit && m_running.load(std::memory_order_acquire))
         {
-            m_connected.store(false, std::memory_order_release);
-            m_ready.store(false, std::memory_order_release);
-            m_smoothedRttMs.store(-1.0f, std::memory_order_release);
-            m_lastDetectionMs.store(0, std::memory_order_release);
             std::this_thread::sleep_for(std::chrono::milliseconds(RECONNECT_DELAY_MS));
         }
     }
@@ -217,13 +232,16 @@ bool NetworkVisionSource::runSession()
 
     if(ack.status != DartHandshake::Accepted)
     {
-        // A rejected handshake is a configuration problem — a retry loop would
-        // just hammer the server, so this is one of the few genuinely terminal
-        // states the loading screen reports.
+        // Rejections are retryable, just slowly.
+        //
+        // The obvious reading is that a rejection is terminal, but the common
+        // one — "no camera was fully calibrated" — is fixed from inside this
+        // very app, on the calibration screen. Giving up permanently meant
+        // calibrating changed nothing until a restart. A protocol mismatch is
+        // genuinely unfixable at runtime, and simply keeps saying so.
         LOG_ERROR(VISION_LOG_ID, "NetworkVisionSource: server rejected us: {}", ack.message);
-        setInitStatus("Failed: " + ack.message);
-        m_failed.store(true, std::memory_order_release);
-        m_running.store(false, std::memory_order_release);
+        setInitStatus("Server rejected us: " + ack.message);
+        std::this_thread::sleep_for(std::chrono::milliseconds(REJECT_RETRY_DELAY_MS));
         return false;
     }
 
@@ -322,10 +340,15 @@ bool NetworkVisionSource::runSession()
                 }
                 else if(msg.state == DartInitState::Failed)
                 {
+                    // Also retryable: the models failing to load is the
+                    // server's problem, and restarting the server fixes it.
+                    // Killing our thread here just meant the Pi needed
+                    // restarting too.
                     LOG_ERROR(VISION_LOG_ID, "NetworkVisionSource: server build failed: {}",
                               msg.status);
-                    m_failed.store(true, std::memory_order_release);
-                    m_running.store(false, std::memory_order_release);
+                    setInitStatus("Server could not load its models: " + msg.status);
+                    std::this_thread::sleep_for(
+                        std::chrono::milliseconds(REJECT_RETRY_DELAY_MS));
                     return false;
                 }
                 break;
