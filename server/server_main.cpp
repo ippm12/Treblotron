@@ -87,10 +87,15 @@ int main(int argc, char** argv)
             if(!nextArg(argc, argv, i, a, value)) return -1;
             config.confirmFrames = std::atoi(value.c_str());
         }
-        else if(std::strcmp(a, "--clear-confirm") == 0)
+        else if(std::strcmp(a, "--clear-hold") == 0)
         {
             if(!nextArg(argc, argv, i, a, value)) return -1;
-            config.clearConfirmFrames = std::atoi(value.c_str());
+            config.clearHoldMs = std::atoi(value.c_str());
+        }
+        else if(std::strcmp(a, "--hand-enter") == 0)
+        {
+            if(!nextArg(argc, argv, i, a, value)) return -1;
+            config.handEnterMs = std::atoi(value.c_str());
         }
         else if(std::strcmp(a, "--read-timeout") == 0)
         {

@@ -126,6 +126,23 @@ class VisionSource
         /** One line of detail to sit beside the indicator. */
         virtual std::string getLinkDetail() const { return {}; }
 
+        /**
+         * Ask for a capture of the frames currently being scored.
+         *
+         * Returns false when this source has nothing remote to ask, in which
+         * case the caller saves locally instead. The remote path exists because
+         * the server holds the exact frames the model saw — the client has
+         * already moved on to a later set by the time a button press lands.
+         */
+        virtual bool requestCapture() { return false; }
+
+        /**
+         * Result of the last remote capture, once, or empty if none has
+         * arrived. Polled by the UI because the answer comes back over a socket
+         * rather than from the call that asked for it.
+         */
+        virtual std::string consumeCaptureResult() { return {}; }
+
         /** Set callbacks for dart events. Pass nullptr to disconnect. */
         void setCallbacks(std::function<void()> onDartLanded,
                           std::function<void(float, float)> onDartPositionCalculated)

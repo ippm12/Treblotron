@@ -32,10 +32,13 @@ struct DartServerConfig
     std::string modelDir = "./detect/models";
 
     /** Forwarded to DartDetectorConfig. */
-    bool enableHandFilter   = true;
-    int  confirmFrames      = 3;
-    int  clearConfirmFrames = 10;
-    int  handEnterFrames    = 2;
+    bool enableHandFilter = true;
+    int  confirmFrames    = 3;
+    int  clearHoldMs      = 1000;
+    int  handEnterMs      = 100;
+
+    /** Where SaveCapture writes. Frames plus their warps under transformed/. */
+    std::string captureDir = "./captures";
 
     /**
      * Honour a client's request for heatmap frames. Costs ~127 KB per cycle,

@@ -239,6 +239,15 @@ bool dartSendHeatmap(NetSocket& sock, const DartHeatmapMsg& msg)
 }
 
 
+bool dartSendCaptureSaved(NetSocket& sock, const DartCaptureSaved& msg)
+{
+    Writer w;
+    w.u8(msg.ok ? 1 : 0);
+    w.str(msg.message);
+    return sendFramed(sock, DartMsg::CaptureSaved, w);
+}
+
+
 bool dartSendSimple(NetSocket& sock, DartMsg type)
 {
     Writer w;
@@ -359,6 +368,15 @@ bool dartParseDetection(const std::vector<uint8_t>& payload, DartDetectionMsg& o
         out.darts.push_back(d);
     }
     out.status = r.str();
+    return r.ok;
+}
+
+
+bool dartParseCaptureSaved(const std::vector<uint8_t>& payload, DartCaptureSaved& out)
+{
+    Reader r(payload);
+    out.ok      = (r.u8() != 0);
+    out.message = r.str();
     return r.ok;
 }
 

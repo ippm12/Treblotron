@@ -57,6 +57,9 @@ class NetworkVisionSource : public VisionSource
         VisionLinkState getLinkState() const override;
         std::string     getLinkDetail() const override;
 
+        bool        requestCapture() override;
+        std::string consumeCaptureResult() override;
+
     private:
         void clientThreadMain();
 
@@ -66,6 +69,9 @@ class NetworkVisionSource : public VisionSource
         std::thread       m_thread;
         std::atomic<bool> m_running{false};
         std::atomic<bool> m_resetRequested{false};
+        std::atomic<bool> m_captureRequested{false};
+        mutable std::mutex m_captureMutex;
+        std::string        m_captureResult;
         std::atomic<bool> m_boardClear{true};
 
         // Mirrors the server's build state so the loading screen can show it.

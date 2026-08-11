@@ -91,8 +91,8 @@ namespace
         dc.modelDir           = f_config.modelDir;
         dc.enableHandFilter   = f_config.enableHandFilter;
         dc.confirmFrames      = f_config.confirmFrames;
-        dc.clearConfirmFrames = f_config.clearConfirmFrames;
-        dc.handEnterFrames    = f_config.handEnterFrames;
+        dc.clearHoldMs        = f_config.clearHoldMs;
+        dc.handEnterMs        = f_config.handEnterMs;
         return dc;
     }
 
@@ -253,6 +253,79 @@ namespace
     }
 
 
+    /**
+     * Write the frame set just scored, plus the canonical warps derived from
+     * it, under `captureDir`.
+     *
+     * Saved here rather than on the client because these are the exact frames
+     * the model saw. Newest-wins drop means the client is already holding a
+     * later set by the time a button reaches us, so a client-side save would
+     * preserve the aftermath of a miss rather than the miss.
+     *
+     * Layout mirrors the training repo: {stem}_camN.png natively, and the
+     * matching 720x720 warp under transformed/, so a capture can be dropped
+     * straight into data/images + data/transformed, or replayed with --replay.
+     */
+    std::string saveCapture(const std::array<cv::Mat, EXPECTED_CAMERA_COUNT>& frames,
+                            const std::string& captureDir, bool& ok)
+    {
+        ok = false;
+        std::error_code ec;
+        std::filesystem::create_directories(captureDir, ec);
+        std::filesystem::create_directories(captureDir + "/transformed", ec);
+        if(ec) return "could not create " + captureDir;
+
+        // Timestamped stem: sortable, and lines up with the server log so a
+        // capture can be matched to the cycle that produced it.
+        const auto now = std::chrono::system_clock::now();
+        const auto t   = std::chrono::system_clock::to_time_t(now);
+        const auto ms  = std::chrono::duration_cast<std::chrono::milliseconds>(
+                             now.time_since_epoch()).count() % 1000;
+        char stem[32];
+        std::tm tm{};
+#ifdef _WIN32
+        localtime_s(&tm, &t);
+#else
+        localtime_r(&t, &tm);
+#endif
+        std::snprintf(stem, sizeof(stem), "%04d%02d%02d-%02d%02d%02d-%03d",
+                      tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday,
+                      tm.tm_hour, tm.tm_min, tm.tm_sec, static_cast<int>(ms));
+
+        uint32_t written = 0;
+        cv::Mat bgr;
+        for(uint32_t cam = 0; cam < EXPECTED_CAMERA_COUNT; cam++)
+        {
+            if(frames[cam].empty()) continue;
+
+            // Everything in the pipeline is RGB; imwrite expects BGR.
+            cv::cvtColor(frames[cam], bgr, cv::COLOR_RGB2BGR);
+            const std::string raw = captureDir + "/" + stem + "_cam"
+                                  + std::to_string(cam) + ".png";
+            if(!cv::imwrite(raw, bgr))
+            {
+                LOG_ERROR(SERVER_LOG_ID, "could not write {}", raw);
+                continue;
+            }
+            written++;
+
+            const cv::Mat& warped = f_detector.warpedFrame(cam);
+            if(warped.empty()) continue;
+            cv::cvtColor(warped, bgr, cv::COLOR_RGB2BGR);
+            cv::imwrite(captureDir + "/transformed/" + stem + "_cam"
+                        + std::to_string(cam) + ".png", bgr);
+        }
+
+        if(written == 0) return "no usable frames to save";
+
+        ok = true;
+        const std::string where = captureDir + "/" + stem + "_cam*.png";
+        LOG_INFO(SERVER_LOG_ID, "saved capture: {} ({} cameras, warps included)",
+                 where, written);
+        return where;
+    }
+
+
     bool sendHeatmapIfWanted(NetSocket& sock, bool wanted, std::mutex& sendMutex)
     {
         if(!wanted || !f_config.allowHeatmap) return true;
@@ -299,6 +372,13 @@ namespace
 
         /** Applied by the inference loop, so a reset can't land mid-run(). */
         std::atomic<bool> resetPending{false};
+
+        /**
+         * Serviced by the inference loop right after a cycle, so the frames
+         * written are the ones just scored — not whatever happens to be in
+         * flight when the request arrives.
+         */
+        std::atomic<bool> savePending{false};
 
         /** Both threads write to the socket, so every send takes this. */
         std::mutex sendMutex;
@@ -386,6 +466,11 @@ namespace
                 case DartMsg::Reset:
                     LOG_INFO(SERVER_LOG_ID, "client {} requested a board reset", peer);
                     st.resetPending.store(true, std::memory_order_release);
+                    break;
+
+                case DartMsg::SaveCapture:
+                    LOG_INFO(SERVER_LOG_ID, "client {} requested a capture", peer);
+                    st.savePending.store(true, std::memory_order_release);
                     break;
 
                 case DartMsg::Bye:
@@ -617,6 +702,14 @@ namespace
                 if(!dartSendDetection(sock, reply)) break;
             }
             if(!sendHeatmapIfWanted(sock, hello.wantHeatmap, st.sendMutex)) break;
+
+            if(st.savePending.exchange(false, std::memory_order_acq_rel))
+            {
+                DartCaptureSaved saved;
+                saved.message = saveCapture(frames, f_config.captureDir, saved.ok);
+                std::lock_guard<std::mutex> sendLock(st.sendMutex);
+                if(!dartSendCaptureSaved(sock, saved)) break;
+            }
 
             // Reported per stage: "is the pipeline fast enough" is a question
             // about where the time actually goes, and a single total invites

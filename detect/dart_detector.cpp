@@ -21,6 +21,7 @@
 #include <cmath>
 #include <cstdio>
 #include <cstring>
+#include <chrono>
 #include <mutex>
 
 
@@ -302,8 +303,17 @@ struct DartDetector::Impl
 
     bool boardClear = true;
 
-    int handStreak  = 0;  // consecutive cycles handPresent (Detecting only)
-    int clearStreak = 0;  // consecutive clean cycles (Removing only)
+    // Wall-clock, not cycle counts: the cycle rate is a property of the backend
+    // (~4 Hz on CPU, 30-55 Hz on a GPU), so counting cycles made the real
+    // timing swing by 8x depending on what hardware happened to be serving.
+    using Clock = std::chrono::steady_clock;
+
+    /** When the board last had a hand in it, or a dart peak still showing. */
+    Clock::time_point lastBusy = Clock::now();
+
+    /** When the current run of hand-present began; reset when the hand goes. */
+    Clock::time_point handSince{};
+    bool              handWasPresent = false;
 
     // Round-robin palm state. A held dart can occlude the hand from one or two
     // cameras — keeping per-camera memory and OR-ing the slots makes the state
@@ -543,8 +553,8 @@ void DartDetector::reset()
     m_impl->candidates.clear();
     m_impl->confirmedDarts.clear();
     m_impl->mode        = Impl::Mode::Detecting;
-    m_impl->handStreak  = 0;
-    m_impl->clearStreak = 0;
+    m_impl->handWasPresent = false;
+    m_impl->lastBusy       = Impl::Clock::now();
     m_impl->boardClear  = true;
     for(uint32_t i = 0; i < N_CAMS; i++) m_impl->palmRecent[i] = false;
 }
@@ -960,24 +970,31 @@ void DartDetector::Impl::decodeAndTrack(bool handPresent, DartDetectorResult& ou
 
     // ----- State machine: Detecting <-> Removing -----
     // boardClear is driven exclusively from here. While Removing it stays
-    // false; when clearConfirmFrames clean cycles pass we flip back to
+    // false; when the board has been quiet for clearHoldMs we flip back to
     // Detecting and set it true.
+    const auto now = Clock::now();
+    const bool busy = handPresent || anyPeakAboveThreshold;
+    if(busy) lastBusy = now;
+
+    const auto quietMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+        now - lastBusy).count();
+
     if(mode == Mode::Removing)
     {
-        const bool clean = !handPresent && !anyPeakAboveThreshold;
-        if(clean)
+        // One condition, and it is a duration: the board must have been
+        // continuously quiet — no hand, no leftover peak — for clearHoldMs.
+        // Anything that looks busy restarts the clock, so a hand that pauses
+        // mid-withdrawal does not let the turn end underneath it.
+        if(quietMs >= config.clearHoldMs)
         {
-            if(++clearStreak >= config.clearConfirmFrames)
-            {
-                mode        = Mode::Detecting;
-                handStreak  = 0;
-                clearStreak = 0;
-                boardClear  = true;
-            }
-        }
-        else
-        {
-            clearStreak = 0;
+            mode           = Mode::Detecting;
+            handWasPresent = false;
+            boardClear     = true;
+            // Leaving Removing is what raises the board-clear edge the game
+            // ends a turn on, so both transitions are logged: a spurious pair
+            // is indistinguishable from a real collection at the score line,
+            // but obvious here.
+            LOG_INFO(DETECT_LOG_ID, "Removing -> Detecting (quiet for {} ms)", quietMs);
         }
         // No candidate tracking, no dart emission while Removing.
         return;
@@ -986,8 +1003,20 @@ void DartDetector::Impl::decodeAndTrack(bool handPresent, DartDetectorResult& ou
     // ----- Detecting: check for hand entry first -----
     if(handPresent)
     {
-        if(++handStreak >= config.handEnterFrames)
+        if(!handWasPresent)
         {
+            handWasPresent = true;
+            handSince      = now;
+        }
+        const auto handMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+            now - handSince).count();
+        if(handMs >= config.handEnterMs)
+        {
+            LOG_INFO(DETECT_LOG_ID,
+                     "Detecting -> Removing (hand for {} ms, palm={:.2f}, "
+                     "landmark={:.2f}, dropping {} confirmed dart(s))",
+                     handMs, lastPalmScore, lastLandmarkPresence,
+                     confirmedDarts.size());
             // Enter Removing: drop all dart state so the AR model runs
             // unconditioned next cycle and we can scan the heatmap for any
             // remaining dart. boardClear stays false until the clear streak
@@ -995,14 +1024,14 @@ void DartDetector::Impl::decodeAndTrack(bool handPresent, DartDetectorResult& ou
             mode = Mode::Removing;
             candidates.clear();
             confirmedDarts.clear();
-            clearStreak = 0;
-            boardClear  = false;
+            lastBusy   = now;   // the quiet clock starts when the hand leaves
+            boardClear = false;
             return;
         }
     }
     else
     {
-        handStreak = 0;
+        handWasPresent = false;
     }
 
     // ----- Decode the peak -----
@@ -1172,15 +1201,22 @@ std::string DartDetector::Impl::formatStatus() const
         std::string flags;
         flags += " hand="; flags += (lastHandPresent     ? "Y" : "N");
         flags += " peak="; flags += (lastPeakAboveThresh ? "Y" : "N");
-        return "Removing (clear " + std::to_string(clearStreak)
-             + "/" + std::to_string(config.clearConfirmFrames) + ")"
-             + flags + scores;
+        // Countdown in seconds — a cycle count meant nothing once the rate
+        // stopped being fixed, and this is the number a player is waiting on.
+        const auto quietMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+            Clock::now() - lastBusy).count();
+        const long remaining = config.clearHoldMs - static_cast<long>(quietMs);
+        char buf[32];
+        std::snprintf(buf, sizeof(buf), "%.1fs", std::max(0L, remaining) / 1000.0);
+        return std::string("Removing (clear in ") + buf + ")" + flags + scores;
     }
 
-    if(handStreak > 0)
+    if(handWasPresent)
     {
-        return "Detecting (entering " + std::to_string(handStreak)
-             + "/" + std::to_string(config.handEnterFrames) + ")" + scores;
+        const auto handMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+            Clock::now() - handSince).count();
+        return "Detecting (hand " + std::to_string(handMs) + "/"
+             + std::to_string(config.handEnterMs) + " ms)" + scores;
     }
     return "Detecting" + scores;
 }

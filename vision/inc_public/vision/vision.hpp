@@ -252,6 +252,23 @@ void publishCameraWarpedFrame(uint32_t index,
 bool swapCameraSlots(uint32_t a, uint32_t b);
 
 /**
+ * Save a capture of the frames currently being scored.
+ *
+ * On a remote-inference build this asks the server, which holds the exact
+ * frames the model saw and can write their canonical warps alongside for free.
+ * Everywhere else it writes the local camera frames. Returns STATUS_OK when the
+ * request was made; for the remote path the outcome arrives later via
+ * consumeVisionCaptureResult().
+ */
+Status saveVisionCapture(const std::string& outputDir = "./captures");
+
+/**
+ * Result text of the last remote capture, once, or empty. The UI polls this so
+ * it can replace "requested" with the path the server actually wrote.
+ */
+std::string consumeVisionCaptureResult();
+
+/**
  * Save the current frame from every connected camera to the output directory.
  * All images in one capture share the same UUID: {uuid}_cam0.png, {uuid}_cam1.png, ...
  * Creates the output directory if it does not exist.

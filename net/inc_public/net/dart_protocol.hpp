@@ -56,6 +56,7 @@ enum class DartMsg : uint16_t
     Frames       = 2,
     Reset        = 3,
     Bye          = 4,
+    SaveCapture  = 5,
 
     // server → client
     HelloAck     = 128,
@@ -63,6 +64,7 @@ enum class DartMsg : uint16_t
     WantFrames   = 130,
     Detection    = 131,
     Heatmap      = 132,
+    CaptureSaved = 133,
 };
 
 
@@ -201,6 +203,19 @@ bool dartSendDetection   (NetSocket& sock, const DartDetectionMsg& msg);
 bool dartSendHeatmap     (NetSocket& sock, const DartHeatmapMsg& msg);
 bool dartSendSimple      (NetSocket& sock, DartMsg type);   // Reset, Bye
 
+/**
+ * Result of a SaveCapture. The frames a capture is meant to preserve are the
+ * ones the server actually scored, so the save happens there and this reports
+ * back what landed on disk.
+ */
+struct DartCaptureSaved
+{
+    bool        ok = false;
+    std::string message;   // path written, or why it failed
+};
+
+bool dartSendCaptureSaved(NetSocket& sock, const DartCaptureSaved& msg);
+
 /** Decoders. Each returns false when the payload is malformed or truncated. */
 bool dartParseHello       (const std::vector<uint8_t>& payload, DartHello& out);
 bool dartParseHelloAck    (const std::vector<uint8_t>& payload, DartHelloAck& out);
@@ -209,5 +224,6 @@ bool dartParseWantFrames  (const std::vector<uint8_t>& payload, uint32_t& credit
 bool dartParseFrames      (const std::vector<uint8_t>& payload, DartFrames& out);
 bool dartParseDetection   (const std::vector<uint8_t>& payload, DartDetectionMsg& out);
 bool dartParseHeatmap     (const std::vector<uint8_t>& payload, DartHeatmapMsg& out);
+bool dartParseCaptureSaved(const std::vector<uint8_t>& payload, DartCaptureSaved& out);
 
 #endif // NET_DART_PROTOCOL_HPP

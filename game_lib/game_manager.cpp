@@ -638,9 +638,12 @@ void GameManager::handlePauseKey(uint32_t keycode)
                     break;
                 case PauseAction::SaveCapture:
                 {
-                    Status stat = saveAllCameraFrames("./captures");
+                    // On a remote build this only *requests* the save; the
+                    // server writes the frames it actually scored and reports
+                    // back, which renderPauseMenu picks up below.
+                    Status stat = saveVisionCapture("./captures");
                     m_pauseStatus = IS_STATUS_OK(stat)
-                        ? "Saved to ./captures/"
+                        ? "Saving capture..."
                         : "Failed to save capture";
                     break;
                 }
@@ -666,6 +669,11 @@ static constexpr uint32_t PAUSE_OVERLAY_Z = 500;
 
 void GameManager::renderPauseMenu()
 {
+    // The remote capture result arrives on the client thread, not from the call
+    // that asked for it, so pick it up here and replace the placeholder.
+    const std::string captureResult = consumeVisionCaptureResult();
+    if(!captureResult.empty()) m_pauseStatus = captureResult;
+
     // Dark overlay
     auto overlay = std::make_shared<RenderShape>();
     overlay->m_type   = ShapeType::Box;

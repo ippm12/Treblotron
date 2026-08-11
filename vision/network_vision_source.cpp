@@ -302,6 +302,11 @@ bool NetworkVisionSource::runSession()
             if(!dartSendSimple(sock, DartMsg::Reset)) return false;
         }
 
+        if(m_captureRequested.exchange(false, std::memory_order_acq_rel))
+        {
+            if(!dartSendSimple(sock, DartMsg::SaveCapture)) return false;
+        }
+
         if(!sock.waitReadable(CLIENT_POLL_MS))
         {
             const auto idleMs = std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -400,6 +405,18 @@ bool NetworkVisionSource::runSession()
                         m_newDartEvents.emplace(d.angle, d.normalizedRadius);
                     }
                 }
+                break;
+            }
+
+            case DartMsg::CaptureSaved:
+            {
+                DartCaptureSaved msg;
+                if(!dartParseCaptureSaved(payload, msg)) return false;
+                LOG_INFO(VISION_LOG_ID, "capture {}: {}",
+                         msg.ok ? "saved" : "failed", msg.message);
+                std::lock_guard<std::mutex> lock(m_captureMutex);
+                m_captureResult = msg.ok ? ("Saved on server: " + msg.message)
+                                         : ("Capture failed: " + msg.message);
                 break;
             }
 
@@ -534,6 +551,25 @@ std::string NetworkVisionSource::getDetectionStatus() const
 {
     std::lock_guard<std::mutex> lock(m_statusMutex);
     return m_detectionStatus;
+}
+
+
+bool NetworkVisionSource::requestCapture()
+{
+    // Only worth asking when there is a live session to ask; otherwise let the
+    // caller fall back to a local save rather than silently doing nothing.
+    if(!m_connected.load(std::memory_order_acquire)) return false;
+    m_captureRequested.store(true, std::memory_order_release);
+    return true;
+}
+
+
+std::string NetworkVisionSource::consumeCaptureResult()
+{
+    std::lock_guard<std::mutex> lock(m_captureMutex);
+    std::string out;
+    out.swap(m_captureResult);
+    return out;
 }
 
 

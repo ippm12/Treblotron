@@ -848,21 +848,28 @@ Status saveAllCameraFrames(const std::string& outputDir)
     for(uint32_t i = 0; i < count; i++)
     {
         cv::Mat frameCopy;
+#ifdef DARTLENS_PASSTHROUGH_CAPTURE
+        // No lock here: decodeLatestRgb takes frameMutex itself, and holding it
+        // across that call self-deadlocks on a non-recursive std::mutex — which
+        // froze the whole app the moment anyone hit Save Capture.
+        cv::Mat decoded;
+        if(!decodeLatestRgb(*f_cameras[i], decoded))
+        {
+            LOG_WARNING(VISION_LOG_ID, "saveAllCameraFrames: no frame for camera {}", i);
+            continue;
+        }
+        cv::cvtColor(decoded, frameCopy, cv::COLOR_RGB2BGR);
+#else
         {
             std::lock_guard<std::mutex> lock(f_cameras[i]->frameMutex);
-#ifdef DARTLENS_PASSTHROUGH_CAPTURE
-            cv::Mat decoded;
-            if(!decodeLatestRgb(*f_cameras[i], decoded)) continue;
-            cv::cvtColor(decoded, frameCopy, cv::COLOR_RGB2BGR);
-#else
             if(f_cameras[i]->latestRaw.empty())
             {
                 LOG_WARNING(VISION_LOG_ID, "saveAllCameraFrames: no frame for camera {}", i);
                 continue;
             }
             cv::cvtColor(f_cameras[i]->latestRaw, frameCopy, cv::COLOR_RGB2BGR);
-#endif
         }
+#endif
 
         std::string path = outputDir + "/" + uuid + "_cam" + std::to_string(i) + ".png";
 

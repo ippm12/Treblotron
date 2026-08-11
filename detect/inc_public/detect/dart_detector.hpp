@@ -60,11 +60,21 @@ struct DartDetectorConfig
      */
     int confirmFrames = 3;
 
-    /** Cycles of (no hand AND no heatmap peak) required to leave Removing. */
-    int clearConfirmFrames = 10;
+    /**
+     * How long the board must be continuously quiet — no hand, no heatmap peak
+     * — before the board counts as clear and the turn can end.
+     *
+     * A duration rather than a cycle count on purpose. These used to be frame
+     * counts tuned at ~30 Hz, but the cycle rate is a property of the backend:
+     * ~4 Hz on CPU, 30-55 Hz on a GPU. That made the real timing swing by 8x
+     * with no code change, and on the fast path the board was declared clear
+     * about a third of a second after a hand was last seen — while it was
+     * often still withdrawing.
+     */
+    int clearHoldMs = 1000;
 
-    /** Cycles of hand-present required to enter Removing. */
-    int handEnterFrames = 2;
+    /** How long a hand must be continuously present before entering Removing. */
+    int handEnterMs = 100;
 };
 
 

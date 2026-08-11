@@ -248,6 +248,23 @@ std::string getVisionDetectionStatus()
 }
 
 
+Status saveVisionCapture(const std::string& outputDir)
+{
+    // Prefer the remote save: the server has the frames that were scored, and
+    // the warps derived from them. Only fall back locally when there is no
+    // server in the picture at all.
+    if(f_visionSource && f_visionSource->requestCapture()) return STATUS_OK;
+    return saveAllCameraFrames(outputDir);
+}
+
+
+std::string consumeVisionCaptureResult()
+{
+    if(!f_visionSource) return {};
+    return f_visionSource->consumeCaptureResult();
+}
+
+
 VisionLinkState getVisionLinkState()
 {
     if(!f_visionSource) return VisionLinkState::NotApplicable;
