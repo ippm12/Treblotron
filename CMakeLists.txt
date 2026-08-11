@@ -508,16 +508,48 @@ if(_dartlens_needs_backend)
         detect/models/palm_detection/blazepalm.onnx
         detect/models/palm_detection/hand_landmark.onnx
     )
-    foreach(_t IN LISTS DARTLENS_TARGETS)
+
+    # Staged through the build graph rather than POST_BUILD.
+    #
+    # POST_BUILD only fires when the target actually relinks, so replacing a
+    # model and rebuilding did nothing at all — the executable was up to date,
+    # the copy was skipped, and the old model stayed in place. That is exactly
+    # how a three-month-stale segmentation model survived a rebuild and cost a
+    # long debugging session. A stamp that DEPENDS on the source file makes the
+    # copy part of the graph, so touching a model re-stages it.
+    #
+    # copy_if_different still preserves mtime when the content matches, which is
+    # what keeps a cached TensorRT engine valid across rebuilds.
+    function(dartlens_stage_models target)
+        set(_stamps "")
         foreach(_asset IN LISTS _dartlens_onnx_assets)
-            get_filename_component(_asset_dir ${_asset} DIRECTORY)
-            add_custom_command(TARGET ${_t} POST_BUILD
+            get_filename_component(_asset_dir "${_asset}" DIRECTORY)
+            string(MAKE_C_IDENTIFIER "${_asset}" _asset_id)
+            set(_stamp "${CMAKE_CURRENT_BINARY_DIR}/model_stamps/${target}_${_asset_id}.stamp")
+            add_custom_command(
+                OUTPUT  "${_stamp}"
+                DEPENDS "${PROJECT_SOURCE_DIR}/${_asset}"
                 COMMAND ${CMAKE_COMMAND} -E make_directory
-                    $<TARGET_FILE_DIR:${_t}>/${_asset_dir}
+                        "$<TARGET_FILE_DIR:${target}>/${_asset_dir}"
                 COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                    ${PROJECT_SOURCE_DIR}/${_asset}
-                    $<TARGET_FILE_DIR:${_t}>/${_asset})
+                        "${PROJECT_SOURCE_DIR}/${_asset}"
+                        "$<TARGET_FILE_DIR:${target}>/${_asset}"
+                COMMAND ${CMAKE_COMMAND} -E touch "${_stamp}"
+                COMMENT "Staging ${_asset}"
+                VERBATIM)
+            list(APPEND _stamps "${_stamp}")
         endforeach()
+        # The executable depends on the models, not the other way round:
+        # `cmake --build . --target Dart_Lens_Server` builds only that target,
+        # so anything hanging off it in the other direction never runs.
+        # $<TARGET_FILE_DIR> resolves at generate time, so ordering the staging
+        # before the link is fine.
+        add_custom_target(${target}_models DEPENDS ${_stamps})
+        add_dependencies(${target} ${target}_models)
+    endfunction()
+
+    foreach(_t IN LISTS DARTLENS_TARGETS)
+        dartlens_stage_models(${_t})
     endforeach()
 endif()
 

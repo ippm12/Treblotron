@@ -461,14 +461,39 @@ Status initializeCameraSystem()
             slot->logicalIndex.store(count, std::memory_order_relaxed);
             slot->name = "Camera " + std::to_string(cameraNum);
 
-            // Pre-convert first frame so there's something to show immediately
-            cv::cvtColor(testFrame, slot->latestRaw, cv::COLOR_BGR2RGB);
+            // Pre-convert first frame so there's something to show immediately.
+            // In passthrough mode read() hands back the sensor's compressed
+            // buffer as a single-row CV_8UC1, which cvtColor would reject
+            // outright — decode it instead, and record the real frame size so
+            // the log below reports 1280x720 rather than a JPEG byte count.
+            int probeW = testFrame.cols;
+            int probeH = testFrame.rows;
+#ifdef DARTLENS_PASSTHROUGH_CAPTURE
+            if(looksLikeJpeg(testFrame))
+            {
+                const cv::Mat decoded = cv::imdecode(testFrame, cv::IMREAD_COLOR_RGB);
+                if(decoded.empty())
+                {
+                    LOG_WARNING(VISION_LOG_ID,
+                                "Device {} returned undecodable MJPEG — skipping", idx);
+                    slot->capture.release();
+                    continue;
+                }
+                slot->latestRaw = decoded;
+                probeW = decoded.cols;
+                probeH = decoded.rows;
+            }
+            else
+#endif
+            {
+                cv::cvtColor(testFrame, slot->latestRaw, cv::COLOR_BGR2RGB);
+            }
 
             slot->running.store(true, std::memory_order_relaxed);
             slot->captureThread = std::thread(captureLoop, slot.get());
 
             LOG_INFO(VISION_LOG_ID, "Opened {} at device index {} ({}x{})",
-                     slot->name, idx, testFrame.cols, testFrame.rows);
+                     slot->name, idx, probeW, probeH);
 
             // Store slot then publish the new count — acquire/release ordering
             // ensures the render thread sees the fully constructed slot
