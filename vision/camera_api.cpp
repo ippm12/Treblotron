@@ -180,12 +180,6 @@ static void selectBestResolution(cv::VideoCapture& cap)
             cv::VideoWriter::fourcc('M', 'J', 'P', 'G'));
     cap.set(cv::CAP_PROP_FPS, TARGET_FPS);
     cap.set(cv::CAP_PROP_BUFFERSIZE, 2);
-#ifdef DARTLENS_PASSTHROUGH_CAPTURE
-    // Ask the backend to stop decoding for us. Combined with the MJPG fourcc
-    // above this makes read() return the sensor's compressed buffer verbatim.
-    // Set after the fourcc: it only has meaning once the format is MJPEG.
-    cap.set(cv::CAP_PROP_CONVERT_RGB, 0);
-#endif
 
     for(int i = 0; i < PROBE_COUNT; i++)
     {
@@ -209,6 +203,57 @@ static void selectBestResolution(cv::VideoCapture& cap)
                 "No preferred resolution matched — using camera default {}x{}",
                 fallbackW, fallbackH);
 }
+
+
+#ifdef DARTLENS_PASSTHROUGH_CAPTURE
+/**
+ * Try to make read() hand back the sensor's compressed MJPEG instead of a
+ * decoded image.
+ *
+ * Must run *after* the resolution has been negotiated: V4L2 re-negotiates the
+ * stream format when width/height change, which quietly undoes the request.
+ * That ordering mistake is why the first version of this never engaged.
+ *
+ * Two routes, because backends disagree about which property owns this:
+ * CAP_PROP_CONVERT_RGB=0 is the documented one, and CAP_PROP_FORMAT=-1 is what
+ * some V4L2 builds actually honour. Each is confirmed by reading a frame and
+ * checking for a JPEG SOI marker rather than trusting the setter's return —
+ * these properties routinely report success and do nothing.
+ *
+ * On failure the capture is restored to decoding and the caller falls back to
+ * decode + re-encode, which is exactly what it did before.
+ */
+static bool tryEnableRawMjpeg(cv::VideoCapture& cap, int deviceIndex)
+{
+    cv::Mat probe;
+
+    cap.set(cv::CAP_PROP_CONVERT_RGB, 0);
+    if(cap.read(probe) && looksLikeJpeg(probe))
+    {
+        LOG_INFO(VISION_LOG_ID,
+                 "Device {}: MJPEG passthrough via CAP_PROP_CONVERT_RGB "
+                 "({} KB/frame, no decode or re-encode)", deviceIndex, probe.total() / 1024);
+        return true;
+    }
+
+    cap.set(cv::CAP_PROP_FORMAT, -1);
+    if(cap.read(probe) && looksLikeJpeg(probe))
+    {
+        LOG_INFO(VISION_LOG_ID,
+                 "Device {}: MJPEG passthrough via CAP_PROP_FORMAT "
+                 "({} KB/frame, no decode or re-encode)", deviceIndex, probe.total() / 1024);
+        return true;
+    }
+
+    cap.set(cv::CAP_PROP_FORMAT, CV_8UC3);
+    cap.set(cv::CAP_PROP_CONVERT_RGB, 1);
+    LOG_WARNING(VISION_LOG_ID,
+                "Device {}: driver will not hand over raw MJPEG — falling back to "
+                "decode + re-encode. Streaming still works, it just costs Pi CPU "
+                "and a second generation of JPEG loss.", deviceIndex);
+    return false;
+}
+#endif
 
 
 // ============================================================================
@@ -270,17 +315,11 @@ static void captureLoop(CameraSlot* slot)
                 continue;   // nothing else on this thread has anything to do
             }
 
-            if(!slot->passthroughActive.load(std::memory_order_acquire))
-            {
-                static bool warned = false;
-                if(!warned)
-                {
-                    warned = true;
-                    LOG_WARNING(VISION_LOG_ID,
-                                "Camera driver ignored CAP_PROP_CONVERT_RGB — falling back to "
-                                "decode + re-encode. Streaming still works, just costs more CPU.");
-                }
-            }
+            // Not JPEG: the driver is decoding for us. tryEnableRawMjpeg
+            // already reported that at open time, so say nothing here — a
+            // per-frame warning on three capture threads would be noise, and
+            // the `static bool warned` that used to guard it was shared across
+            // all three anyway.
 #endif
 
             {
@@ -443,6 +482,9 @@ Status initializeCameraSystem()
             }
 
             selectBestResolution(cap);
+#ifdef DARTLENS_PASSTHROUGH_CAPTURE
+            tryEnableRawMjpeg(cap, idx);
+#endif
 
             // Verify we can actually grab a frame
             cv::Mat testFrame;
