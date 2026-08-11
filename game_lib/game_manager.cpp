@@ -174,14 +174,23 @@ Status GameManager::initialize()
         m_settingsKeyboard.init(kbFont, kbFont);
     }
 
-    // Shortcut to the connection settings. Deliberately only live while the
-    // link is down: when everything is working these belong to the game, and
-    // settings is still reachable from the main menu.
+    // Shortcut to the vision settings.
+    //
+    // Was live only while the link was down, back when the screen held nothing
+    // but a server address — there was no reason to open it while connected.
+    // Now that the detection thresholds are on it, the moment you want it most
+    // is mid-leg with everything connected and a dart being counted twice, so
+    // it is bound whenever a game is running.
+    //
+    // Except on the simulated source, which has neither a server nor a
+    // threshold: there the screen would be a panel containing only "Close", and
+    // a shortcut to that is worse than no shortcut.
+    const bool settingsShortcut = visionHasDetector();
     constexpr uint32_t SETTINGS_KEY = SDLK_F1;
     constexpr uint8_t  SETTINGS_GAMEPAD_BUTTON = SDL_GAMEPAD_BUTTON_BACK;
 
     // Register input handlers — GameManager owns these and forwards to games
-    registerFrameKeyHandler(m_frameId, [this](FrameID, uint32_t keycode, bool pressed) {
+    registerFrameKeyHandler(m_frameId, [this, settingsShortcut](FrameID, uint32_t keycode, bool pressed) {
         if(!pressed || !m_currentGame) return;
 
         if(m_settingsOpen)
@@ -190,10 +199,7 @@ Status GameManager::initialize()
             return;
         }
 
-        // Only bound while the link is down. When everything is working this
-        // key belongs to the game; the settings page is still reachable from
-        // the main menu, so nothing is lost by not claiming it permanently.
-        if(keycode == SETTINGS_KEY && getVisionLinkState() == VisionLinkState::Disconnected)
+        if(settingsShortcut && keycode == SETTINGS_KEY)
         {
             openSettings();
             return;
@@ -229,7 +235,7 @@ Status GameManager::initialize()
         m_currentGame->onKeyDown(keycode);
     });
 
-    registerFrameGamepadButtonHandler(m_frameId, [this](FrameID, uint8_t button, bool pressed) {
+    registerFrameGamepadButtonHandler(m_frameId, [this, settingsShortcut](FrameID, uint8_t button, bool pressed) {
         if(!pressed || !m_currentGame) return;
 
         if(m_settingsOpen)
@@ -248,8 +254,7 @@ Status GameManager::initialize()
             return;
         }
 
-        if(button == SETTINGS_GAMEPAD_BUTTON
-        && getVisionLinkState() == VisionLinkState::Disconnected)
+        if(settingsShortcut && button == SETTINGS_GAMEPAD_BUTTON)
         {
             openSettings();
             return;
@@ -1021,7 +1026,7 @@ Status restartCurrentGame()
 }
 
 
-void openConnectionSettings()
+void openVisionSettings()
 {
     f_gameManager.openSettings();
 }

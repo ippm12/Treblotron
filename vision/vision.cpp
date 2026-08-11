@@ -7,6 +7,7 @@
 
 #include "vision/vision.hpp"
 #include "vision/vision_link.hpp"
+#include "vision/vision_settings.hpp"
 #include "vision_source.hpp"
 #include "frame/render_queue.hpp"
 #include "game_lib/components/render_shape.hpp"
@@ -82,8 +83,11 @@ Status initializeVisionModule()
     LOG_INFO(VISION_LOG_ID, "Vision source compiled in: {}", VISION_SOURCE_NAME);
 
     // A missing address is not an error here — the app comes up regardless and
-    // the settings overlay is how you fix it.
+    // the settings overlay is how you fix it. Both loads happen before any
+    // source is constructed, so a source that reads settings during init()
+    // sees the user's values rather than the defaults.
     loadInferenceServerAddress();
+    loadVisionSettings();
 
 #ifdef DARTLENS_USE_SIM
     f_visionSource = std::make_shared<SimVisionSource>();
@@ -245,6 +249,26 @@ std::string getVisionDetectionStatus()
 {
     if(!f_visionSource) return {};
     return f_visionSource->getDetectionStatus();
+}
+
+
+bool visionHasDetector()
+{
+#if defined(DARTLENS_USE_HAILO) || defined(DARTLENS_USE_LOCAL) || defined(DARTLENS_USE_NETWORK)
+    return true;
+#else
+    return false;
+#endif
+}
+
+
+bool visionUsesRemoteServer()
+{
+#ifdef DARTLENS_USE_NETWORK
+    return true;
+#else
+    return false;
+#endif
 }
 
 

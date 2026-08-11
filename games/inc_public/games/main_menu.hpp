@@ -25,7 +25,7 @@ enum class MenuState
 enum class CardType
 {
     PlayerSettings,
-    Connection,
+    Vision,
     Calibration,
     VisionDebug,
     Game,

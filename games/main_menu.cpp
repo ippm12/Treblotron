@@ -115,13 +115,10 @@ Status MainMenu::init(FrameID frameId)
     // from the menu without a keyboard.
     m_cards.clear();
     m_cards.push_back({CardType::PlayerSettings, 0});
-#ifdef DARTLENS_USE_NETWORK
-    // Only builds that talk to a remote server have a connection to configure.
-    // Gated at compile time rather than on getVisionLinkState(), because the
-    // menu is constructed before the vision source exists and would otherwise
-    // always see NotApplicable.
-    m_cards.push_back({CardType::Connection, 0});
-#endif
+    // Skipped only on the simulated source: it invents darts, so there is
+    // neither a server to address nor a threshold to turn. Every other build
+    // has at least the detection settings to offer.
+    if(visionHasDetector()) m_cards.push_back({CardType::Vision, 0});
     m_cards.push_back({CardType::Calibration, 0});
     m_cards.push_back({CardType::VisionDebug, 0});
 
@@ -358,9 +355,9 @@ void MainMenu::openCard()
         m_showEmptyTeamWarning = false;
         m_showDuplicateNameWarning = false;
     }
-    else if(card.type == CardType::Connection)
+    else if(card.type == CardType::Vision)
     {
-        openConnectionSettings();
+        openVisionSettings();
     }
     else if(card.type == CardType::Calibration)
     {
@@ -516,10 +513,14 @@ void MainMenu::renderCardGrid()
                 uint8_t count = getPlayerCount();
                 cardDesc = std::to_string(count) + " player" + (count != 1 ? "s" : "");
             }
-            else if(card.type == CardType::Connection)
+            else if(card.type == CardType::Vision)
             {
-                cardTitle = "Connection";
+                cardTitle = "Vision";
+                // The link is the headline when there is one; otherwise say
+                // what the card holds, rather than leaving it blank on a build
+                // that does its own inference.
                 cardDesc  = getVisionLinkDetail();
+                if(cardDesc.empty()) cardDesc = "Detection settings";
             }
             else if(card.type == CardType::Calibration)
             {

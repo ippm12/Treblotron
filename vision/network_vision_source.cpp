@@ -16,6 +16,7 @@
 #include "net/dart_protocol.hpp"
 #include "net/net_socket.hpp"
 #include "vision/vision_link.hpp"
+#include "vision/vision_settings.hpp"
 
 #include <array>
 #include <cstdio>
@@ -245,6 +246,14 @@ bool NetworkVisionSource::runSession()
         return false;
     }
 
+    // ---- Settings --------------------------------------------------------
+    // Sent unconditionally on every connect, before any frames, rather than
+    // only when they change. A server that restarted is back on its own
+    // command-line defaults and has no idea what this board prefers, and a
+    // reconnect is exactly when that is most likely to have happened.
+    uint32_t settingsGeneration = getVisionSettingsGeneration();
+    if(!dartSendSettings(sock, getVisionSettings())) return false;
+
     // ---- Serve loop ------------------------------------------------------
     uint32_t sequence = 0;
     std::array<uint64_t, EXPECTED_CAMERA_COUNT> lastSeq{};
@@ -305,6 +314,13 @@ bool NetworkVisionSource::runSession()
         if(m_captureRequested.exchange(false, std::memory_order_acq_rel))
         {
             if(!dartSendSimple(sock, DartMsg::SaveCapture)) return false;
+        }
+
+        const uint32_t generation = getVisionSettingsGeneration();
+        if(generation != settingsGeneration)
+        {
+            settingsGeneration = generation;
+            if(!dartSendSettings(sock, getVisionSettings())) return false;
         }
 
         if(!sock.waitReadable(CLIENT_POLL_MS))

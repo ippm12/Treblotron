@@ -54,7 +54,7 @@ class GameManager
          */
         void tick();
 
-        /** Raise the connection settings overlay over whatever is running. */
+        /** Raise the vision settings overlay over whatever is running. */
         void openSettings();
 
     private:
@@ -86,6 +86,9 @@ class GameManager
         /** Commit m_settingsBuffer as the new address and leave edit mode. */
         void commitSettingsAddress();
 
+        /** Persist an edited detection settings block and report the outcome. */
+        void commitVisionSettings(const struct DartVisionSettings& settings);
+
         /**
          * Draw the link indicator, and a warning when the link is down.
          * Rendered over every screen, because scoring silently stops working
@@ -106,13 +109,18 @@ class GameManager
         uint8_t     m_pauseCursor = 0;
         std::string m_pauseStatus;  // transient feedback line (e.g. "Saved to ./captures/")
 
-        // Connection settings overlay state.
+        // Vision settings overlay state.
         //
         // Editing the address has two shapes, mirroring the player rename in
         // main_menu: a physical keyboard types straight into m_settingsBuffer
         // and the row shows a caret, while a controller gets the on-screen
         // keyboard. Bringing up the on-screen one for someone already holding a
         // real keyboard is just an extra layer in the way.
+        //
+        // Every other row is a number or a switch, adjusted with left/right and
+        // saved on the spot. Nothing there is worth a text field: the values are
+        // bounded, and a player nudging a threshold wants to see the effect on
+        // the next throw, not to type a number and confirm it.
         bool            m_settingsOpen    = false;
         uint8_t         m_settingsCursor  = 0;
         bool            m_settingsEditing = false;   // address row is being edited

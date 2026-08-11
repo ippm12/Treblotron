@@ -248,6 +248,21 @@ bool dartSendCaptureSaved(NetSocket& sock, const DartCaptureSaved& msg)
 }
 
 
+bool dartSendSettings(NetSocket& sock, const DartVisionSettings& msg)
+{
+    // Fixed fields rather than a key/value blob: the set changes about as often
+    // as the protocol version does, and a version bump is already the mechanism
+    // for that.
+    Writer w;
+    w.u32(static_cast<uint32_t>(msg.tuning.confirmFrames));
+    w.u32(static_cast<uint32_t>(msg.tuning.confirmHoldMs));
+    w.u32(static_cast<uint32_t>(msg.tuning.clearHoldMs));
+    w.u32(static_cast<uint32_t>(msg.tuning.handEnterMs));
+    w.u8 (msg.captureOnDetect ? 1 : 0);
+    return sendFramed(sock, DartMsg::Settings, w);
+}
+
+
 bool dartSendSimple(NetSocket& sock, DartMsg type)
 {
     Writer w;
@@ -378,6 +393,24 @@ bool dartParseCaptureSaved(const std::vector<uint8_t>& payload, DartCaptureSaved
     out.ok      = (r.u8() != 0);
     out.message = r.str();
     return r.ok;
+}
+
+
+bool dartParseSettings(const std::vector<uint8_t>& payload, DartVisionSettings& out)
+{
+    Reader r(payload);
+    out.tuning.confirmFrames = static_cast<int>(r.u32());
+    out.tuning.confirmHoldMs = static_cast<int>(r.u32());
+    out.tuning.clearHoldMs   = static_cast<int>(r.u32());
+    out.tuning.handEnterMs   = static_cast<int>(r.u32());
+    out.captureOnDetect      = (r.u8() != 0);
+    if(!r.ok) return false;
+
+    // The values went out as unsigned; a negative on the far side arrives here
+    // as something near 4 billion. Clamping is what keeps that from becoming a
+    // turn that never ends.
+    clampDartTuning(out.tuning);
+    return true;
 }
 
 

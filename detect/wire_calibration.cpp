@@ -317,6 +317,26 @@ bool warpCameraFrame(uint32_t camIndex, const cv::Mat& src, cv::Mat& dst)
 }
 
 
+bool getCameraHomography(uint32_t camIndex, double out[9])
+{
+    if(camIndex >= EXPECTED_CAMERA_COUNT || out == nullptr) return false;
+
+    const WireCalibrationSlot& slot = f_slots[camIndex];
+    if(!slot.calibrated || slot.homography.empty()) return false;
+
+    // findHomography always returns a 3x3 CV_64F; copy element-wise rather than
+    // memcpy'ing so a non-continuous Mat can never be read wrong.
+    for(int r = 0; r < 3; r++)
+    {
+        for(int c = 0; c < 3; c++)
+        {
+            out[r * 3 + c] = slot.homography.at<double>(r, c);
+        }
+    }
+    return true;
+}
+
+
 // ============================================================================
 // Save / Load
 // ============================================================================

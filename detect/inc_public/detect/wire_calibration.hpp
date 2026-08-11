@@ -82,6 +82,17 @@ std::string getNextPointLabel(uint32_t camIndex);
 bool warpCameraFrame(uint32_t camIndex, const cv::Mat& src, cv::Mat& dst);
 
 /**
+ * Copy a camera's homography into `out` as 9 row-major doubles.
+ *
+ * Maps source-image pixels to the 720x720 canonical view — the same convention
+ * as DartModelTraining's board_detections.json, so a value from here can be fed
+ * straight to cv2.warpPerspective(img, H, (720, 720)) or merged into that file.
+ *
+ * Returns false when the camera is not calibrated.
+ */
+bool getCameraHomography(uint32_t camIndex, double out[9]);
+
+/**
  * Save all calibrated points to a text file (./config/wire_calibration.txt
  * by default). Returns STATUS_OK on success.
  */

@@ -123,6 +123,24 @@ std::string getVisionInitStatus();
 std::string getVisionDetectionStatus();
 
 /**
+ * Whether this build actually detects darts from camera frames.
+ *
+ * False only for the simulated source, which invents darts and has no
+ * thresholds to tune. The settings screen asks so it can leave out controls
+ * that would do nothing — a build-time fact, exposed as a function so the
+ * ifdefs stay inside the vision module.
+ */
+bool visionHasDetector();
+
+/**
+ * Whether inference happens on a remote server rather than on this machine.
+ *
+ * True only for the network source. What makes the server address worth showing
+ * — and what makes a settings change something that has to travel over a wire.
+ */
+bool visionUsesRemoteServer();
+
+/**
  * Render one frame of the "building model" loading screen to the main
  * window (the frame created by the game manager). Intended to be called
  * from a mini-loop between initializeVisionModule() and the normal game

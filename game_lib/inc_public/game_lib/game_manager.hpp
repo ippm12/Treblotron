@@ -47,13 +47,14 @@ Status restartCurrentGame();
 void tickGameManager();
 
 /**
- * Open the connection settings overlay.
+ * Open the vision settings overlay: server address and detection thresholds.
  *
  * An overlay owned by the game manager rather than a screen, so it can be
- * raised over whatever is running without disturbing it. The global shortcut
- * only exists while the link is down, so this is how the main menu offers a way
- * in when everything is working.
+ * raised over whatever is running without disturbing it — a threshold that is
+ * mis-scoring is best adjusted during the leg that revealed it, not after
+ * abandoning it. F1 (or Back on a controller) does the same thing in-game;
+ * this is the main menu's way in.
  */
-void openConnectionSettings();
+void openVisionSettings();
 
 #endif // GAME_MANAGER_HPP

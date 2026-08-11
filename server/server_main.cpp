@@ -30,10 +30,34 @@ namespace
             "  --port <n>            TCP port to listen on (default 9876)\n"
             "  --model-dir <path>    Directory holding the ONNX models\n"
             "                        (default ./detect/models)\n"
-            "  --confirm <n>         Consecutive cycles to confirm a dart (default 3)\n"
-            "  --clear-confirm <n>   Clean cycles to declare the board clear (default 10)\n"
+            "\n"
+            "Detection tuning. These are defaults: a connected client sends its\n"
+            "own from its Vision screen and those win for the session. Durations,\n"
+            "not frame counts, because the cycle rate is a property of the backend\n"
+            "and has ranged from 4 to 55 Hz.\n"
+            "  --confirm <n>         Minimum consecutive detections for a dart\n"
+            "                        (default 3)\n"
+            "  --confirm-hold <ms>   A dart must hold position this long to count -\n"
+            "                        what separates a landed dart from one still in\n"
+            "                        flight (default 300)\n"
+            "  --clear-hold <ms>     Board must be quiet this long before a turn can\n"
+            "                        end - no hand, no leftover dart (default 1000)\n"
+            "  --hand-enter <ms>     Hand present this long to start removing\n"
+            "                        (default 100)\n"
             "  --no-hand-filter      Skip the palm/landmark stages\n"
+            "\n"
+            "Captures:\n"
+            "  --capture-dir <path>  Where captures are written (default ./captures)\n"
+            "  --capture-on-detect   Save the frames behind every confirmed dart\n"
+            "\n"
+            "Link:\n"
+            "  --read-timeout <ms>   Drop a silent client after this long\n"
+            "                        (default 20000)\n"
+            "  --grace <ms>          Keep board state this long for a reconnect\n"
+            "                        (default 60000)\n"
             "  --no-heatmap          Never send heatmap frames, even if asked\n"
+            "\n"
+            "Offline:\n"
             "  --selftest            Load the models, run one pass, and exit\n"
             "  --replay <dir>        Score saved {uuid}_camN.png triples and exit\n"
             "  --calibration <path>  Calibration for --replay\n"
@@ -85,17 +109,30 @@ int main(int argc, char** argv)
         else if(std::strcmp(a, "--confirm") == 0)
         {
             if(!nextArg(argc, argv, i, a, value)) return -1;
-            config.confirmFrames = std::atoi(value.c_str());
+            config.settings.tuning.confirmFrames = std::atoi(value.c_str());
+        }
+        else if(std::strcmp(a, "--confirm-hold") == 0)
+        {
+            if(!nextArg(argc, argv, i, a, value)) return -1;
+            config.settings.tuning.confirmHoldMs = std::atoi(value.c_str());
+        }
+        else if(std::strcmp(a, "--capture-on-detect") == 0)
+        {
+            config.settings.captureOnDetect = true;
+        }
+        else if(std::strcmp(a, "--capture-dir") == 0)
+        {
+            if(!nextArg(argc, argv, i, a, config.captureDir)) return -1;
         }
         else if(std::strcmp(a, "--clear-hold") == 0)
         {
             if(!nextArg(argc, argv, i, a, value)) return -1;
-            config.clearHoldMs = std::atoi(value.c_str());
+            config.settings.tuning.clearHoldMs = std::atoi(value.c_str());
         }
         else if(std::strcmp(a, "--hand-enter") == 0)
         {
             if(!nextArg(argc, argv, i, a, value)) return -1;
-            config.handEnterMs = std::atoi(value.c_str());
+            config.settings.tuning.handEnterMs = std::atoi(value.c_str());
         }
         else if(std::strcmp(a, "--read-timeout") == 0)
         {
@@ -134,6 +171,10 @@ int main(int argc, char** argv)
             return -1;
         }
     }
+
+    // Bounds live with the struct, so a bad --clear-hold is corrected the same
+    // way a bad one off the network is.
+    clampDartTuning(config.settings.tuning);
 
     if(IS_STATUS_NOT_OK(initializeLoggingModule(LOGGING_LEVEL_INFO)))
     {

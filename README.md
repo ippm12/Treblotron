@@ -146,6 +146,35 @@ within a couple of seconds without a restart. `DARTLENS_SERVER` still seeds it o
 first run for scripted deployments, but once anything has been saved through the
 UI the file wins.
 
+### Vision settings
+
+**F1** (controller: Back) raises the Vision screen over whatever is on screen,
+including mid-leg. It holds the server address — on remote-inference builds — and
+the detection thresholds:
+
+| setting | default | what it is for |
+|---|---|---|
+| Detections to confirm | 3 | separate looks that must agree before a dart is scored |
+| Hold before counting | 300 ms | raise if one throw is counted twice |
+| Board clear delay | 1000 ms | quiet time before a turn can end; raise if turns end early |
+| Hand detect delay | 100 ms | how long a hand must be visible before collection starts |
+| Save every dart | off | writes the frames behind every dart, for retraining |
+
+Left/right adjusts, and the change is saved to `./config/vision.txt` and applied
+on the spot — there is no apply step, because a threshold is judged by the next
+throw. Values are clamped on load, on edit, and on arrival over the network, so a
+hand-edited file cannot produce a turn that never ends.
+
+On a remote-inference build the settings live on the client and travel to the
+server: they are sent right after the handshake and again whenever they change.
+The server's own `--confirm-hold` and friends are the defaults it runs on until a
+client says otherwise, and what `--replay` uses. Nothing is written back to the
+server's configuration — a client's preferences belong to that client, so the
+next board to connect starts from the server's own defaults again.
+
+Which rows appear depends on the build: the simulated source invents darts and
+shows none of them, and a local-inference build has no address to set.
+
 ### Connection status
 
 A coloured dot sits in the corner of every screen:
@@ -160,11 +189,9 @@ Connected is deliberately not the same as green: a link that is up but scoring
 nothing — server still loading, or wedged — is amber, because from the player's
 side that is just as broken.
 
-When the link is down a banner names the problem and **F1** (controller: Back)
-opens the connection settings over whatever is on screen, including mid-game, so
-a dropped server can be fixed without abandoning a leg. That shortcut is bound
-*only* while the link is down; the rest of the time the key belongs to the game
-and settings is reached from the Connection card on the main menu.
+When the link is down a banner names the problem and points at **F1**, so a
+dropped server can be fixed without abandoning a leg. The Vision card on the main
+menu is the other way in.
 
 The app never blocks on the server at startup — it comes up regardless, and the
 indicator tells you the rest.

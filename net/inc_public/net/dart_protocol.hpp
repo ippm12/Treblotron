@@ -9,12 +9,18 @@
  *   client                                server
  *     |------------- Hello --------------->|   proto version, wire points
  *     |<----------- HelloAck --------------|
+ *     |------------ Settings ------------->|   detection tuning, then on change
  *     |<--------- InitProgress ------------|   repeated while models load
  *     |<--------- WantFrames(n) -----------|   flow-control credit
  *     |------------- Frames -------------->|   3x JPEG
  *     |<---------- Detection --------------|   dart events + board state
  *     |<---------- Heatmap ----------------|   optional, debug overlay only
  *     |------------- Reset --------------->|   collect-darts / new turn
+ *
+ * Tuning travels client → server because that is where the settings screen is.
+ * The player adjusts thresholds on the board in front of them; the server is a
+ * headless box in another room. Its own --confirm-hold and friends are the
+ * defaults it runs on until a client states a preference, and for --replay.
  *
  * Credit-based flow control is load-bearing, not a nicety. Inference is far
  * slower than the camera frame rate, so a free-running stream would queue up
@@ -32,6 +38,7 @@
 #define NET_DART_PROTOCOL_HPP
 
 #include "common_inc.hpp"
+#include "detect/dart_tuning.hpp"
 #include "net/net_socket.hpp"
 
 #include <cstdint>
@@ -39,8 +46,14 @@
 #include <vector>
 
 
-/** Bump on any incompatible change; HelloAck rejects a mismatch. */
-constexpr uint32_t DART_PROTOCOL_VERSION = 1;
+/**
+ * Bump on any incompatible change; HelloAck rejects a mismatch.
+ *
+ * 2: added Settings. A v1 server would log the message as unexpected and keep
+ *    running on its own thresholds, so the client's settings screen would
+ *    silently do nothing — worse than a refused connection that says why.
+ */
+constexpr uint32_t DART_PROTOCOL_VERSION = 2;
 
 /** 'DLNS' — sanity check that we're framed correctly on the stream. */
 constexpr uint32_t DART_PROTOCOL_MAGIC = 0x534E4C44u;
@@ -57,6 +70,7 @@ enum class DartMsg : uint16_t
     Reset        = 3,
     Bye          = 4,
     SaveCapture  = 5,
+    Settings     = 6,
 
     // server → client
     HelloAck     = 128,
@@ -201,7 +215,8 @@ bool dartSendWantFrames  (NetSocket& sock, uint32_t credits);
 bool dartSendFrames      (NetSocket& sock, const DartFrames& msg);
 bool dartSendDetection   (NetSocket& sock, const DartDetectionMsg& msg);
 bool dartSendHeatmap     (NetSocket& sock, const DartHeatmapMsg& msg);
-bool dartSendSimple      (NetSocket& sock, DartMsg type);   // Reset, Bye
+bool dartSendSettings    (NetSocket& sock, const DartVisionSettings& msg);
+bool dartSendSimple      (NetSocket& sock, DartMsg type);   // Reset, Bye, SaveCapture
 
 /**
  * Result of a SaveCapture. The frames a capture is meant to preserve are the
@@ -225,5 +240,8 @@ bool dartParseFrames      (const std::vector<uint8_t>& payload, DartFrames& out)
 bool dartParseDetection   (const std::vector<uint8_t>& payload, DartDetectionMsg& out);
 bool dartParseHeatmap     (const std::vector<uint8_t>& payload, DartHeatmapMsg& out);
 bool dartParseCaptureSaved(const std::vector<uint8_t>& payload, DartCaptureSaved& out);
+
+/** Clamps on the way out, so a malformed or hostile peer cannot set nonsense. */
+bool dartParseSettings    (const std::vector<uint8_t>& payload, DartVisionSettings& out);
 
 #endif // NET_DART_PROTOCOL_HPP

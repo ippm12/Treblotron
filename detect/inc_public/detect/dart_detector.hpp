@@ -28,6 +28,7 @@
 #define DETECT_DART_DETECTOR_HPP
 
 #include "common_inc.hpp"
+#include "detect/dart_tuning.hpp"
 #include "detect/inference_backend.hpp"
 #include "detect/wire_calibration.hpp"
 
@@ -54,27 +55,11 @@ struct DartDetectorConfig
     bool enableHandFilter = true;
 
     /**
-     * Consecutive cycles a candidate peak must survive before it is promoted
-     * to a confirmed dart. Tuned for the ~30 Hz camera rate of a local
-     * TensorRT pipeline; a slower CPU backend may want fewer.
+     * Starting values for the thresholds. Only read during build() — from then
+     * on the live values are whatever applyTuning() last set, so a settings
+     * edit does not need a rebuild.
      */
-    int confirmFrames = 3;
-
-    /**
-     * How long the board must be continuously quiet — no hand, no heatmap peak
-     * — before the board counts as clear and the turn can end.
-     *
-     * A duration rather than a cycle count on purpose. These used to be frame
-     * counts tuned at ~30 Hz, but the cycle rate is a property of the backend:
-     * ~4 Hz on CPU, 30-55 Hz on a GPU. That made the real timing swing by 8x
-     * with no code change, and on the fast path the board was declared clear
-     * about a third of a second after a hand was last seen — while it was
-     * often still withdrawing.
-     */
-    int clearHoldMs = 1000;
-
-    /** How long a hand must be continuously present before entering Removing. */
-    int handEnterMs = 100;
+    DartTuning tuning;
 };
 
 
@@ -147,6 +132,21 @@ class DartDetector
          * Empty before build().
          */
         std::string backendName() const;
+
+        /**
+         * Replace the state-machine thresholds while inference is running.
+         *
+         * Safe to call from any thread at any time, including mid-cycle: each
+         * value is read independently by the state machine, and none of them
+         * indexes a buffer or sizes an allocation. A cycle that straddles the
+         * change sees a mix of old and new, which is exactly as meaningful as
+         * either — the user moved the threshold between two frames.
+         *
+         * Deliberately not a full DartDetectorConfig: modelDir and
+         * enableHandFilter decide what got loaded, and re-deciding those needs
+         * another build().
+         */
+        void applyTuning(const DartTuning& tuning);
 
         /** Drop all candidate/confirmed dart state and return to Detecting. */
         void reset();

@@ -9,6 +9,7 @@
 
 #include "local_vision_source.hpp"
 #include "detect/wire_calibration.hpp"
+#include "vision/vision_settings.hpp"
 
 #include <opencv2/core.hpp>
 
@@ -98,7 +99,10 @@ void LocalVisionSource::buildThreadMain()
             if(!phase.empty()) setStatus(phase);
         };
 
-        DartDetectorConfig config;   // defaults match the tuning this ships with
+        DartDetectorConfig config;
+        config.tuning = getVisionSettings().tuning;
+        m_tuningGeneration.store(getVisionSettingsGeneration(), std::memory_order_relaxed);
+
         const Status stat = m_detector.build(config, onProgress, m_buildAbort);
 
         if(m_buildAbort.load(std::memory_order_acquire))
@@ -157,6 +161,16 @@ void LocalVisionSource::inferenceLoop()
 
     while(m_running.load(std::memory_order_acquire))
     {
+        // Pick up a settings edit. One relaxed load per cycle in the common
+        // case where nothing changed; the detector's own fields are atomics, so
+        // applying mid-stream needs no coordination with the run() below.
+        const uint32_t generation = getVisionSettingsGeneration();
+        if(generation != m_tuningGeneration.load(std::memory_order_relaxed))
+        {
+            m_tuningGeneration.store(generation, std::memory_order_relaxed);
+            m_detector.applyTuning(getVisionSettings().tuning);
+        }
+
         if(m_resetRequested.exchange(false, std::memory_order_acq_rel))
         {
             m_detector.reset();

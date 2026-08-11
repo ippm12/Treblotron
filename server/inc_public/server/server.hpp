@@ -31,13 +31,21 @@ struct DartServerConfig
     uint16_t    port     = 9876;
     std::string modelDir = "./detect/models";
 
-    /** Forwarded to DartDetectorConfig. */
+    /** Forwarded to DartDetectorConfig. Build-time: needs a restart to change. */
     bool enableHandFilter = true;
-    int  confirmFrames    = 3;
-    int  clearHoldMs      = 1000;
-    int  handEnterMs      = 100;
 
-    /** Where SaveCapture writes. Frames plus their warps under transformed/. */
+    /**
+     * Starting detection settings, from the command line.
+     *
+     * These are the defaults the server runs on, not the last word. A connected
+     * client sends its own — the settings screen is on the board, where the
+     * person adjusting them can see the effect — and that overrides these for
+     * the life of the session. What is left here is what --replay uses, and
+     * what a session runs on before its client has said anything.
+     */
+    DartVisionSettings settings;
+
+    /** Where SaveCapture writes: native frames plus a {stem}.json of transforms. */
     std::string captureDir = "./captures";
 
     /**

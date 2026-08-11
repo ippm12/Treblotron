@@ -32,8 +32,11 @@
 #include <chrono>
 #include <condition_variable>
 #include <filesystem>
+#include <fstream>
+#include <iomanip>
 #include <map>
 #include <mutex>
+#include <sstream>
 #include <thread>
 
 
@@ -90,9 +93,7 @@ namespace
         DartDetectorConfig dc;
         dc.modelDir           = f_config.modelDir;
         dc.enableHandFilter   = f_config.enableHandFilter;
-        dc.confirmFrames      = f_config.confirmFrames;
-        dc.clearHoldMs        = f_config.clearHoldMs;
-        dc.handEnterMs        = f_config.handEnterMs;
+        dc.tuning             = f_config.settings.tuning;
         return dc;
     }
 
@@ -254,17 +255,23 @@ namespace
 
 
     /**
-     * Write the frame set just scored, plus the canonical warps derived from
-     * it, under `captureDir`.
+     * Write the frame set just scored, plus the homography that turns each one
+     * into the canonical view, under `captureDir`.
      *
      * Saved here rather than on the client because these are the exact frames
      * the model saw. Newest-wins drop means the client is already holding a
      * later set by the time a button reaches us, so a client-side save would
      * preserve the aftermath of a miss rather than the miss.
      *
-     * Layout mirrors the training repo: {stem}_camN.png natively, and the
-     * matching 720x720 warp under transformed/, so a capture can be dropped
-     * straight into data/images + data/transformed, or replayed with --replay.
+     * The transform is written, not the warped image. The warp is derivable
+     * from the homography at any time; the homography is not derivable from
+     * anything else once the rig moves, so it is the part actually worth
+     * keeping. It also saves three PNG encodes per capture, which matters when
+     * --capture-on-detect is firing on every dart.
+     *
+     * Layout mirrors the training repo — {stem}_camN.png alongside a
+     * {stem}.json of transforms — so a capture drops straight into
+     * data/images, merges into board_detections.json, and replays as-is.
      */
     std::string saveCapture(const std::array<cv::Mat, EXPECTED_CAMERA_COUNT>& frames,
                             const std::string& captureDir, bool& ok)
@@ -272,7 +279,6 @@ namespace
         ok = false;
         std::error_code ec;
         std::filesystem::create_directories(captureDir, ec);
-        std::filesystem::create_directories(captureDir + "/transformed", ec);
         if(ec) return "could not create " + captureDir;
 
         // Timestamped stem: sortable, and lines up with the server log so a
@@ -292,7 +298,22 @@ namespace
                       tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday,
                       tm.tm_hour, tm.tm_min, tm.tm_sec, static_cast<int>(ms));
 
+        // One sidecar per capture rather than appends to a shared index: a
+        // capture directory stays self-describing when copied around, and two
+        // captures can never interleave in the same file.
+        //
+        // Full double precision throughout. A homography is only meaningful to
+        // the last digit - rounding h20/h21 (which are ~1e-4) visibly shears the
+        // warp - so readability loses to exactness here.
+        std::ostringstream json;
+        json << std::setprecision(17);
+        json << "{\n";
+        json << "  \"stem\": \"" << stem << "\",\n";
+        json << "  \"canonical_size\": " << WARPED_OUTPUT_SIZE << ",\n";
+        json << "  \"cameras\": {\n";
+
         uint32_t written = 0;
+        uint32_t described = 0;
         cv::Mat bgr;
         for(uint32_t cam = 0; cam < EXPECTED_CAMERA_COUNT; cam++)
         {
@@ -300,28 +321,66 @@ namespace
 
             // Everything in the pipeline is RGB; imwrite expects BGR.
             cv::cvtColor(frames[cam], bgr, cv::COLOR_RGB2BGR);
-            const std::string raw = captureDir + "/" + stem + "_cam"
-                                  + std::to_string(cam) + ".png";
-            if(!cv::imwrite(raw, bgr))
+            const std::string name = std::string(stem) + "_cam"
+                                   + std::to_string(cam) + ".png";
+            if(!cv::imwrite(captureDir + "/" + name, bgr))
             {
-                LOG_ERROR(SERVER_LOG_ID, "could not write {}", raw);
+                LOG_ERROR(SERVER_LOG_ID, "could not write {}/{}", captureDir, name);
                 continue;
             }
             written++;
 
-            const cv::Mat& warped = f_detector.warpedFrame(cam);
-            if(warped.empty()) continue;
-            cv::cvtColor(warped, bgr, cv::COLOR_RGB2BGR);
-            cv::imwrite(captureDir + "/transformed/" + stem + "_cam"
-                        + std::to_string(cam) + ".png", bgr);
+            double h[9];
+            if(!getCameraHomography(cam, h))
+            {
+                // The image is still worth keeping - it can be re-annotated
+                // later - but say so, because a silently transform-less capture
+                // is useless as training data.
+                LOG_WARNING(SERVER_LOG_ID, "cam {} has no homography; {} saved "
+                         "without a transform", cam, name);
+                continue;
+            }
+
+            if(described++ > 0) json << ",\n";
+            json << "    \"" << cam << "\": {\n";
+            json << "      \"image\": \"" << name << "\",\n";
+            json << "      \"width\": "  << frames[cam].cols
+                 << ", \"height\": "     << frames[cam].rows << ",\n";
+            json << "      \"homography\": [";
+            for(int k = 0; k < 9; k++) json << (k > 0 ? ", " : "") << h[k];
+            json << "],\n";
+
+            // The clicked points are the ground truth the homography was fitted
+            // from. Kept so a capture can be re-fitted or hand-corrected in the
+            // training repo without redoing the calibration by eye.
+            json << "      \"wire_points\": [";
+            const uint32_t pointCount = getWirePointCount(cam);
+            for(uint32_t p = 0; p < pointCount; p++)
+            {
+                float x = 0.0f;
+                float y = 0.0f;
+                if(!getWirePoint(cam, p, x, y)) break;
+                json << (p > 0 ? ", " : "") << "[" << x << ", " << y << "]";
+            }
+            json << "]\n";
+            json << "    }";
         }
+
+        json << "\n  }\n}\n";
 
         if(written == 0) return "no usable frames to save";
 
+        const std::string sidecar = captureDir + "/" + stem + ".json";
+        {
+            std::ofstream out(sidecar, std::ios::binary);
+            out << json.str();
+            if(!out) LOG_ERROR(SERVER_LOG_ID, "could not write {}", sidecar);
+        }
+
         ok = true;
         const std::string where = captureDir + "/" + stem + "_cam*.png";
-        LOG_INFO(SERVER_LOG_ID, "saved capture: {} ({} cameras, warps included)",
-                 where, written);
+        LOG_INFO(SERVER_LOG_ID, "saved capture: {} ({} cameras, {} transforms)",
+                 where, written, described);
         return where;
     }
 
@@ -379,6 +438,19 @@ namespace
          * flight when the request arrives.
          */
         std::atomic<bool> savePending{false};
+
+        /**
+         * Latest settings the client sent, waiting to be applied.
+         *
+         * Handed over rather than applied on the reader thread for the same
+         * reason as the reset above: the inference loop owns when the detector
+         * changes underneath it. Newest-wins, like the frame slot — holding a
+         * client to an intermediate value it has already moved off is worse
+         * than skipping it.
+         */
+        std::mutex         settingsMutex;
+        DartVisionSettings pendingSettings;
+        std::atomic<bool>  settingsPending{false};
 
         /** Both threads write to the socket, so every send takes this. */
         std::mutex sendMutex;
@@ -472,6 +544,26 @@ namespace
                     LOG_INFO(SERVER_LOG_ID, "client {} requested a capture", peer);
                     st.savePending.store(true, std::memory_order_release);
                     break;
+
+                case DartMsg::Settings:
+                {
+                    DartVisionSettings settings;
+                    if(!dartParseSettings(payload, settings))
+                    {
+                        LOG_ERROR(SERVER_LOG_ID, "malformed Settings from {}", peer);
+                        st.linkDown = true;
+                        st.frameReady.notify_all();
+                        return;
+                    }
+                    {
+                        std::lock_guard<std::mutex> lock(st.settingsMutex);
+                        st.pendingSettings = settings;
+                    }
+                    st.settingsPending.store(true, std::memory_order_release);
+                    LOG_INFO(SERVER_LOG_ID, "client {} set: {}", peer,
+                             describeVisionSettings(settings));
+                    break;
+                }
 
                 case DartMsg::Bye:
                     LOG_INFO(SERVER_LOG_ID, "client {} said goodbye", peer);
@@ -609,6 +701,12 @@ namespace
         // shouldn't cost the player darts they already threw.
         if(!resume) f_detector.reset();
 
+        // Back to the command-line defaults for every new session. The client
+        // states its own preferences within a millisecond or two of here, but
+        // until it does, a fresh board should be running on what this server
+        // was told to run on — not on whatever the last client left behind.
+        f_detector.applyTuning(f_config.settings.tuning);
+
         // ---- Frame loop ---------------------------------------------------
         //
         // A reader thread owns the socket's read side and drains it
@@ -637,6 +735,12 @@ namespace
         uint64_t cycles = 0;
         bool     lastBoardClear = true;   // matches the freshly-reset detector
 
+        // Session-scoped rather than written back into f_config: a client's
+        // preferences belong to that client. Leaving them behind would have the
+        // next board silently inherit them, and would make the server's own
+        // command line mean something different after the first connection.
+        bool captureOnDetect = f_config.settings.captureOnDetect;
+
         while(!stop.load(std::memory_order_acquire))
         {
             // Turn away anyone trying to connect while we are busy.
@@ -664,6 +768,17 @@ namespace
                 // land in the middle of a run().
                 f_detector.reset();
                 lastBoardClear = true;
+            }
+
+            if(st.settingsPending.exchange(false, std::memory_order_acq_rel))
+            {
+                DartVisionSettings settings;
+                {
+                    std::lock_guard<std::mutex> lock(st.settingsMutex);
+                    settings = st.pendingSettings;
+                }
+                f_detector.applyTuning(settings.tuning);
+                captureOnDetect = settings.captureOnDetect;
             }
 
             const auto t0 = std::chrono::steady_clock::now();
@@ -702,6 +817,21 @@ namespace
                 if(!dartSendDetection(sock, reply)) break;
             }
             if(!sendHeatmapIfWanted(sock, hello.wantHeatmap, st.sendMutex)) break;
+
+            // Auto-capture on a confirmed dart. Uses the same path as a manual
+            // request, so it writes the very frames the detection was made on
+            // rather than whatever arrives after someone notices a bad score.
+            if(captureOnDetect && !result.newDarts.empty())
+            {
+                bool autoOk = false;
+                const std::string where = saveCapture(frames, f_config.captureDir, autoOk);
+                if(autoOk)
+                {
+                    LOG_INFO(SERVER_LOG_ID, "capture-on-detect: {} (angle={:.1f} r={:.3f})",
+                             where, result.newDarts.front().angle,
+                             result.newDarts.front().normalizedRadius);
+                }
+            }
 
             if(st.savePending.exchange(false, std::memory_order_acq_rel))
             {

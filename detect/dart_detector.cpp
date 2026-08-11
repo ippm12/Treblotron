@@ -268,6 +268,21 @@ struct DartDetector::Impl
     InferenceBackendPtr backend;
     std::string         backendName;
 
+    /**
+     * The live thresholds, seeded from config.tuning at build().
+     *
+     * Held as atomics rather than read off `config` because the settings screen
+     * writes them from the UI thread while the state machine below reads them
+     * from an inference thread. They are independent scalars — nothing sizes a
+     * buffer from them — so per-field atomics are the whole synchronisation
+     * story; a lock would only serialise the hot loop against an edit that
+     * happens once a month.
+     */
+    std::atomic<int> confirmFrames{DartTuning{}.confirmFrames};
+    std::atomic<int> confirmHoldMs{DartTuning{}.confirmHoldMs};
+    std::atomic<int> clearHoldMs  {DartTuning{}.clearHoldMs};
+    std::atomic<int> handEnterMs  {DartTuning{}.handEnterMs};
+
     std::unique_ptr<InferenceBackend::Model> dart;
     std::unique_ptr<InferenceBackend::Model> seg;
     std::unique_ptr<InferenceBackend::Model> palm;
@@ -291,6 +306,8 @@ struct DartDetector::Impl
         PolarDart polar;
         int       streak  = 0;
         bool      emitted = false;
+        /** When this candidate first appeared, for the confirmHoldMs gate. */
+        std::chrono::steady_clock::time_point firstSeen{};
     };
 
     Mode                       mode = Mode::Detecting;
@@ -373,6 +390,7 @@ Status DartDetector::build(const DartDetectorConfig& config,
                            const std::atomic<bool>& abort)
 {
     m_impl->config = config;
+    applyTuning(config.tuning);
 
     auto report = [&](float pct, const std::string& phase)
     {
@@ -545,6 +563,21 @@ void DartDetector::shutdown()
         m_impl->backend->shutdown();
         m_impl->backend.reset();
     }
+}
+
+
+void DartDetector::applyTuning(const DartTuning& tuning)
+{
+    // Clamped here as well as at every caller: this is the last gate before the
+    // values reach the state machine, and it is reached from a config file, a
+    // settings screen, a command line and a network peer.
+    DartTuning t = tuning;
+    clampDartTuning(t);
+
+    m_impl->confirmFrames.store(t.confirmFrames, std::memory_order_relaxed);
+    m_impl->confirmHoldMs.store(t.confirmHoldMs, std::memory_order_relaxed);
+    m_impl->clearHoldMs  .store(t.clearHoldMs,   std::memory_order_relaxed);
+    m_impl->handEnterMs  .store(t.handEnterMs,   std::memory_order_relaxed);
 }
 
 
@@ -985,7 +1018,7 @@ void DartDetector::Impl::decodeAndTrack(bool handPresent, DartDetectorResult& ou
         // continuously quiet — no hand, no leftover peak — for clearHoldMs.
         // Anything that looks busy restarts the clock, so a hand that pauses
         // mid-withdrawal does not let the turn end underneath it.
-        if(quietMs >= config.clearHoldMs)
+        if(quietMs >= clearHoldMs.load(std::memory_order_relaxed))
         {
             mode           = Mode::Detecting;
             handWasPresent = false;
@@ -1010,7 +1043,7 @@ void DartDetector::Impl::decodeAndTrack(bool handPresent, DartDetectorResult& ou
         }
         const auto handMs = std::chrono::duration_cast<std::chrono::milliseconds>(
             now - handSince).count();
-        if(handMs >= config.handEnterMs)
+        if(handMs >= handEnterMs.load(std::memory_order_relaxed))
         {
             LOG_INFO(DETECT_LOG_ID,
                      "Detecting -> Removing (hand for {} ms, palm={:.2f}, "
@@ -1100,7 +1133,13 @@ void DartDetector::Impl::decodeAndTrack(bool handPresent, DartDetectorResult& ou
         {
             candidates[bestCand].polar = detected;
             candidates[bestCand].streak++;
-            if(candidates[bestCand].streak >= config.confirmFrames
+
+            // Both gates: enough independent samples, and long enough in one
+            // place that it cannot still be in the air.
+            const auto heldMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+                now - candidates[bestCand].firstSeen).count();
+            if(candidates[bestCand].streak >= confirmFrames.load(std::memory_order_relaxed)
+            && heldMs >= confirmHoldMs.load(std::memory_order_relaxed)
             && !candidates[bestCand].emitted)
             {
                 candidates[bestCand].emitted = true;
@@ -1111,9 +1150,10 @@ void DartDetector::Impl::decodeAndTrack(bool handPresent, DartDetectorResult& ou
         else
         {
             CandidateDart cd;
-            cd.polar   = detected;
-            cd.streak  = 1;
-            cd.emitted = false;
+            cd.polar     = detected;
+            cd.streak    = 1;
+            cd.emitted   = false;
+            cd.firstSeen = now;
             candidates.push_back(cd);
         }
     }
@@ -1188,7 +1228,7 @@ std::string DartDetector::Impl::formatStatus() const
         + " hm="     + fmt2(lastHeatmapPeak)
         + " exist="  + fmtExist(lastExistLogit)
         + " streak=" + std::to_string(lastCandidateStreak)
-        + "/"        + std::to_string(config.confirmFrames)
+        + "/"        + std::to_string(confirmFrames.load(std::memory_order_relaxed))
         + " logits=" + fmtLogit(palmTop1)
         + "/"        + fmtLogit(palmTop2)
         + "/"        + fmtLogit(palmTop3);
@@ -1205,7 +1245,8 @@ std::string DartDetector::Impl::formatStatus() const
         // stopped being fixed, and this is the number a player is waiting on.
         const auto quietMs = std::chrono::duration_cast<std::chrono::milliseconds>(
             Clock::now() - lastBusy).count();
-        const long remaining = config.clearHoldMs - static_cast<long>(quietMs);
+        const long remaining = clearHoldMs.load(std::memory_order_relaxed)
+                             - static_cast<long>(quietMs);
         char buf[32];
         std::snprintf(buf, sizeof(buf), "%.1fs", std::max(0L, remaining) / 1000.0);
         return std::string("Removing (clear in ") + buf + ")" + flags + scores;
@@ -1216,7 +1257,7 @@ std::string DartDetector::Impl::formatStatus() const
         const auto handMs = std::chrono::duration_cast<std::chrono::milliseconds>(
             Clock::now() - handSince).count();
         return "Detecting (hand " + std::to_string(handMs) + "/"
-             + std::to_string(config.handEnterMs) + " ms)" + scores;
+             + std::to_string(handEnterMs.load(std::memory_order_relaxed)) + " ms)" + scores;
     }
     return "Detecting" + scores;
 }

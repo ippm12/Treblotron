@@ -71,6 +71,14 @@ class LocalVisionSource : public VisionSource
         std::atomic<bool> m_resetRequested{false};
         std::atomic<bool> m_boardClear{true};
 
+        /**
+         * Generation of the vision settings the detector is currently running.
+         * The inference loop compares it against the store's each cycle and
+         * re-tunes when they differ, which keeps the settings screen off the
+         * inference thread entirely.
+         */
+        std::atomic<uint32_t> m_tuningGeneration{0};
+
         // Async-init state, written by m_buildThread and polled by the UI.
         // m_buildProgress is monotonic: it advances 0 → 1 once across the whole
         // startup. m_buildIteration is the backend's raw step counter, shown on
