@@ -295,8 +295,8 @@ than a growing backlog of stale frames.
 ### One client at a time
 
 The server serves a single board. That isn't a shortcut — the detector holds one
-stateful pipeline (confirmed darts, the conditioning mask, the Detecting/Removing
-machine), so two clients sharing it would corrupt each other's board.
+stateful pipeline (confirmed darts and the pixels they own, the Detecting/
+Removing machine), so two clients sharing it would corrupt each other's board.
 
 A client arriving mid-session is told so explicitly and keeps retrying:
 
@@ -327,10 +327,12 @@ Useful server flags:
 - `--selftest` — load every model, run the full pipeline on synthetic input,
   report ms/cycle. The quickest way to check a re-exported ONNX still matches
   the code's expectations.
-- `--replay <dir>` — score saved `{uuid}_camN.png` triples (what the game's
-  capture hotkey writes to `./captures`) with no client and no cameras.
-- `--no-hand-filter`, `--confirm <n>`, `--clear-confirm <n>` — tuning knobs for
-  a backend slower than the ~30 Hz the defaults assume.
+- `--replay <dir>` — score saved `{uuid}_camN.png` triples (what Save Capture
+  writes to `./captures`) with no client and no cameras. Each set is replayed
+  from an empty board and fed through repeatedly until the model stops finding
+  darts, so a three-dart capture reports all three rather than only the first.
+- `--no-hand-filter`, `--confirm <n>`, `--confirm-hold <ms>`, `--clear-hold <ms>`
+  — detection defaults, overridden by a connected client's Vision screen.
 - `--read-timeout <ms>`, `--grace <ms>` — how long a silent client is tolerated,
   and how long its board state is held for a reconnect.
 
@@ -338,6 +340,52 @@ With `server-directml` on a Radeon RX 7900 XT the server sustains ~52 Hz, well
 clear of the 30 Hz camera rate, so the credit window stays at one frame and
 detection latency is bounded by capture and JPEG transport rather than
 inference.
+
+## The model contract
+
+The dart detector is autoregressive: it finds **one** dart per forward pass, and
+is told which darts have already been counted so it goes looking for the next
+one. How it is told is the `instance_v1` conditioning layout, 21 input channels
+at 720x720:
+
+| channels | contents |
+|---|---|
+| 0-8 | 3 cameras x RGB, camera-major, masked by segmentation |
+| 9-17 | per-dart masks, camera-major: `9 + cam*3 + slot` |
+| 18-20 | per-dart tip Gaussian (sigma 5), one per slot, shared across cameras |
+
+A slot's mask and its tip channel describe the same dart, and the pairing
+matters: a mask says where a dart is, not which end is the point.
+
+The per-dart masks are the interesting part. The segmenter emits **one** binary
+mask of every dart present, so a single dart's pixels are only recoverable by
+differencing across time — when dart 2 is counted, whatever the mask gained
+since dart 1 was counted is dart 2. DartLens captures that difference at the
+moment of confirmation and never recomputes it, because the earlier mask is gone
+by the next cycle. Thin rims around a dart that has not moved, and holes where a
+later dart passes behind an earlier one, are expected; the model was trained
+with them and they should not be cleaned up.
+
+Still frames have no "since", which is why `--replay` derives a dart's mask from
+the connected blob under its tip instead. That recovers one dart from one frame,
+but cannot separate two whose silhouettes touch — so a replay may report two
+darts where a live run would find three. It is a property of replaying a frozen
+instant, not of the detector.
+
+**The sidecar.** `multicam_unet_ar.cond.json` sits next to the ONNX, is written
+by DartModelTraining's exporter, and names the layout that export expects. It is
+checked before anything loads:
+
+```
+AR conditioning: instance_v1 (21 channels, sigma 5)
+```
+
+That check exists because the failure it prevents is invisible. A 10-channel and
+a 21-channel export share a file name, output shapes and node names; feed one the
+other's conditioning and it still runs, still emits peaks, and only detection
+quality says otherwise — which is indistinguishable from a bad camera angle until
+someone measures it. A stale segmentation model hid exactly that way for three
+months. Now a mismatch refuses to load and says what to re-export.
 
 ## Layout
 

@@ -20,8 +20,11 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <chrono>
+#include <fstream>
+#include <iterator>
 #include <mutex>
 
 
@@ -40,11 +43,21 @@ namespace
     //
     // Model file names are joined onto DartDetectorConfig::modelDir at load
     // time. The cache suffix is part of the name so that a change to the
-    // model contract can never pick up a stale compiled engine: "_v2" marks
-    // the export that dropped the offset head and moved exist_logit to
-    // ReduceMax(heatmap)*scale + bias.
+    // model contract can never pick up a stale compiled engine: "_v2" marked
+    // the export that dropped the offset head, "_v3" the move from a single
+    // conditioning channel to the 21-channel instance layout below.
     constexpr const char* ONNX_REL   = "multicam_unet_ar/multicam_unet_ar.onnx";
-    constexpr const char* ENGINE_REL = "multicam_unet_ar/multicam_unet_ar_v2.trt";
+    constexpr const char* ENGINE_REL = "multicam_unet_ar/multicam_unet_ar_v3.trt";
+
+    // Written next to the ONNX by DartModelTraining's exporter, naming the
+    // conditioning layout that export expects. Checked before anything loads:
+    // a 10-channel and a 21-channel export are the same file name, the same
+    // output shapes and the same node names, so the only symptom of feeding one
+    // the other's conditioning is worse detection — which is indistinguishable
+    // from a bad camera angle until someone measures it. A three-month-stale
+    // model already cost one long debugging session that way.
+    constexpr const char* COND_JSON_REL = "multicam_unet_ar/multicam_unet_ar.cond.json";
+    constexpr const char* COND_KIND     = "instance_v1";
 
     // Tensor names — must match the ONNX export in DartModelTraining/export.py.
     constexpr const char* INPUT_NAME  = "input";
@@ -54,17 +67,43 @@ namespace
     // Model IO shapes (must match the ONNX export).
     constexpr uint32_t INPUT_W  = 720;
     constexpr uint32_t INPUT_H  = 720;
-    constexpr uint32_t INPUT_C  = 10;  // 3 cams x RGB + 1 conditioning mask
     constexpr uint32_t OUTPUT_W = 360;
     constexpr uint32_t OUTPUT_H = 360;
     constexpr uint32_t N_CAMS   = EXPECTED_CAMERA_COUNT;
+
+    // ----- Conditioning layout: "instance_v1", 21 channels -----------------
+    //
+    // How the model is told which darts have already been counted. The layout
+    // is assembled in exactly one place in DartModelTraining —
+    // dart_instances.conditioning_channels — and this mirrors it:
+    //
+    //   0..8    3 cameras x RGB, camera-major (cam0 RGB, cam1 RGB, cam2 RGB)
+    //   9..17   per-dart masks, camera-major: 9 + cam*MAX_COND_DARTS + slot
+    //   18..20  per-dart tip Gaussian, one per slot, shared across cameras
+    //
+    // The predecessor was a single channel holding a Gaussian per counted dart
+    // and nothing else. Telling the model *where a counted dart's pixels are*,
+    // rather than only where its tip is, is the whole point of the change: a
+    // dart it can positively account for is one it cannot re-find.
+    //
+    // A slot's mask and its tip channel describe the same dart, and the pairing
+    // is load-bearing — a mask says where a dart is but not which end is the
+    // tip. Slot assignment is arbitrary but must be consistent within a forward
+    // pass, so darts occupy slots in the order they were counted and keep them.
+    constexpr uint32_t MAX_COND_DARTS = 3;   // tip_masks.MAX_DARTS
+
+    constexpr uint32_t COND_MASK_BASE = 3u * N_CAMS;                          // 9
+    constexpr uint32_t COND_TIP_BASE  = COND_MASK_BASE + N_CAMS * MAX_COND_DARTS;  // 18
+    constexpr uint32_t COND_CHANNELS  = N_CAMS * MAX_COND_DARTS + MAX_COND_DARTS;  // 12
+
+    constexpr uint32_t INPUT_C = COND_TIP_BASE + MAX_COND_DARTS;             // 21
 
     // Decode thresholds — match DartModelTraining/heatmap_utils.py.
     constexpr float EXIST_THRESHOLD   = 0.0f;   // logit gate
     constexpr float HEATMAP_THRESHOLD = 0.55f;  // sigmoid prob floor
 
-    // Gaussian sigma for the conditioning mask — matches multicam_dataset.py
-    // (and models/multicam_unet_ar.cond.json: mask_sigma 5.0).
+    // Gaussian sigma for the tip channels — matches multicam_unet_ar.cond.json
+    // ("mask_sigma": 5.0), which is written next to the ONNX by the exporter.
     constexpr float MASK_SIGMA     = 5.0f;
     constexpr int   MASK_RADIUS_PX = 20;  // ~4 sigma — per heatmap_dataset.py
 
@@ -212,14 +251,83 @@ namespace
 
 
     /**
+     * Verify the AR export declares the conditioning layout this file builds.
+     *
+     * Deliberately a substring scan rather than a JSON parse: the sidecar is
+     * four lines emitted by one known writer, and pulling a JSON dependency
+     * into detect/ to read it would cost more than it protects. If the file
+     * ever grows structure, this becomes wrong in the safe direction — it stops
+     * finding what it needs and refuses to load.
+     */
+    bool conditioningMatches(const std::string& path)
+    {
+        std::ifstream in(path, std::ios::binary);
+        if(!in)
+        {
+            LOG_ERROR(DETECT_LOG_ID,
+                      "missing {} — this build needs the '{}' conditioning layout, and "
+                      "without the sidecar there is no way to tell what the ONNX beside "
+                      "it expects. Re-export from DartModelTraining.", path, COND_KIND);
+            return false;
+        }
+
+        const std::string text((std::istreambuf_iterator<char>(in)),
+                                std::istreambuf_iterator<char>());
+
+        const std::string wanted = std::string("\"") + COND_KIND + "\"";
+        if(text.find("\"cond_kind\"") == std::string::npos
+        || text.find(wanted) == std::string::npos)
+        {
+            LOG_ERROR(DETECT_LOG_ID,
+                      "{} does not declare cond_kind {} — the ONNX beside it was trained "
+                      "on a different conditioning layout than this build packs. "
+                      "Re-export the autoregressive model. Sidecar says: {}",
+                      path, wanted, text);
+            return false;
+        }
+
+        // Sigma is the other half of the contract and is one number; a mismatch
+        // would blur or sharpen every tip channel relative to training.
+        const size_t sigmaKey = text.find("\"mask_sigma\"");
+        if(sigmaKey != std::string::npos)
+        {
+            const size_t digit = text.find_first_of("0123456789", sigmaKey);
+            const double declared = (digit == std::string::npos)
+                                  ? -1.0
+                                  : std::strtod(text.c_str() + digit, nullptr);
+            if(std::fabs(declared - MASK_SIGMA) > 1e-6)
+            {
+                LOG_ERROR(DETECT_LOG_ID,
+                          "{} declares mask_sigma {} but this build rasterizes {}",
+                          path, declared, MASK_SIGMA);
+                return false;
+            }
+        }
+
+        LOG_INFO(DETECT_LOG_ID, "AR conditioning: {} ({} channels, sigma {})",
+                 COND_KIND, INPUT_C, MASK_SIGMA);
+        return true;
+    }
+
+
+    /**
      * Rasterize a Gaussian spot at (cx, cy) into a 720x720 float plane using
-     * element-wise max — mirrors heatmap_dataset.py:generate_heatmap. Max, not
-     * sum: overlapping blobs must stay inside [0, 1].
+     * element-wise max — mirrors heatmap_dataset.py:generate_heatmap.
+     *
+     * Quantized to 1/255 on the way in. That is not rounding for its own sake:
+     * dart_instances.conditioning_channels builds the whole block as uint8 and
+     * the caller divides by 255, precisely so that training and every consumer
+     * see bit-identical values instead of one quantising and the other not.
+     * Truncating (not rounding) matches numpy's astype(np.uint8).
+     *
+     * The window is +/-4 sigma, and the integer origin comes from truncating
+     * the centre rather than rounding it, again to match generate_heatmap's
+     * int(hy) - radius.
      */
     void addGaussianToPlane(float* plane, float cx, float cy)
     {
-        const int ix = static_cast<int>(std::lround(cx));
-        const int iy = static_cast<int>(std::lround(cy));
+        const int ix = static_cast<int>(cx);
+        const int iy = static_cast<int>(cy);
         const int x0 = std::max(0, ix - MASK_RADIUS_PX);
         const int y0 = std::max(0, iy - MASK_RADIUS_PX);
         const int x1 = std::min(static_cast<int>(INPUT_W), ix + MASK_RADIUS_PX + 1);
@@ -234,7 +342,73 @@ namespace
             {
                 const float dx = static_cast<float>(x) - cx;
                 const float g  = std::exp(-(dx * dx + dy * dy) / twoSigmaSq);
-                if(g > row[x]) row[x] = g;
+                const float q  = std::trunc(g * 255.0f) * (1.0f / 255.0f);
+                if(q > row[x]) row[x] = q;
+            }
+        }
+    }
+
+
+    /**
+     * The connected blob of `mask` under (cx, cy), as a 0/255 mask.
+     *
+     * The tip is where the model put the dart's point, which sits at the very
+     * edge of its silhouette and lands a pixel or two outside it often enough
+     * to matter — hence the small search window rather than a single sample.
+     * Mirrors silhouette_geom._component_at, which exists for the same reason.
+     *
+     * Returns false when there is no mask nearby at all.
+     */
+    bool componentUnderTip(const cv::Mat& mask, float cx, float cy, cv::Mat& out)
+    {
+        constexpr int SEARCH_PX = 6;
+
+        cv::Mat labels, stats, centroids;
+        const int n = cv::connectedComponentsWithStats(mask, labels, stats, centroids, 8);
+        if(n <= 1) return false;
+
+        const int tx = static_cast<int>(std::lround(cx));
+        const int ty = static_cast<int>(std::lround(cy));
+
+        int   best  = 0;
+        float bestD = static_cast<float>(SEARCH_PX * SEARCH_PX + 1);
+        for(int y = std::max(0, ty - SEARCH_PX);
+                y < std::min(labels.rows, ty + SEARCH_PX + 1); y++)
+        {
+            for(int x = std::max(0, tx - SEARCH_PX);
+                    x < std::min(labels.cols, tx + SEARCH_PX + 1); x++)
+            {
+                const int label = labels.at<int>(y, x);
+                if(label == 0) continue;
+                const float dx = static_cast<float>(x - tx);
+                const float dy = static_cast<float>(y - ty);
+                const float d2 = dx * dx + dy * dy;
+                if(d2 < bestD) { bestD = d2; best = label; }
+            }
+        }
+        if(best == 0) return false;
+
+        cv::compare(labels, best, out, cv::CMP_EQ);
+        return true;
+    }
+
+
+    /**
+     * Expand a 0/255 binary mask into a float plane of 0.0 / 1.0.
+     *
+     * The training block is uint8 divided by 255, so a set pixel is exactly
+     * 1.0f — worth spelling out rather than multiplying, because 255/255 in
+     * float is exact but only by luck of the value.
+     */
+    void packMaskPlane(const cv::Mat& mask, float* plane)
+    {
+        for(uint32_t r = 0; r < INPUT_H; r++)
+        {
+            const uint8_t* s = mask.ptr(r);
+            float*         d = plane + static_cast<size_t>(r) * INPUT_W;
+            for(uint32_t c = 0; c < INPUT_W; c++)
+            {
+                d[c] = s[c] ? 1.0f : 0.0f;
             }
         }
     }
@@ -313,10 +487,40 @@ struct DartDetector::Impl
     Mode                       mode = Mode::Detecting;
     std::vector<CandidateDart> candidates;
 
-    // Confirmed darts — rasterized into channel 9 of the input tensor each
-    // cycle so the AR model only hunts for the NEXT dart. Cleared on reset()
-    // and on entry to Removing.
-    std::vector<PolarDart> confirmedDarts;
+    /**
+     * A dart that has been counted, and the pixels it owns in each camera.
+     *
+     * The mask is captured once, at the moment of confirmation, and never
+     * recomputed. It has to be: it is the difference between the segmenter's
+     * output now and its output before this dart landed, and that earlier
+     * output is gone by the next cycle.
+     */
+    struct ConfirmedDart
+    {
+        PolarDart polar;
+        /** 720x720 CV_8UC1, 0/255. Empty for a camera that had no frame. */
+        cv::Mat   instance[N_CAMS];
+    };
+
+    // Confirmed darts — written into the conditioning channels of the input
+    // tensor each cycle so the AR model only hunts for the NEXT dart. Cleared
+    // on reset() and on entry to Removing.
+    std::vector<ConfirmedDart> confirmedDarts;
+
+    /**
+     * Per camera, the union of every warped seg mask captured at a
+     * confirmation so far — M_j in the training derivation.
+     *
+     * A new dart's own mask is the current seg output minus this, which is the
+     * only way to recover one dart from a segmenter that emits every dart at
+     * once. Kept as a running union rather than "the last snapshot" to match
+     * build_conditioning, and because a union cannot shrink when a frame drops
+     * a dart the segmenter previously found.
+     */
+    cv::Mat condUnion[N_CAMS];
+
+    /** This cycle's warped binary seg mask, filled lazily on a confirmation. */
+    cv::Mat maskWarped[N_CAMS];
 
     bool boardClear = true;
 
@@ -371,6 +575,8 @@ struct DartDetector::Impl
     std::string formatStatus() const;
     bool        runPalmStage(const std::array<cv::Mat, N_CAMS>& rawFrames);
     void        decodeAndTrack(bool handPresent, DartDetectorResult& out);
+    void        captureInstanceMasks(ConfirmedDart& dart);
+    void        clearConditioning();
 };
 
 const cv::Mat DartDetector::Impl::s_emptyMat;
@@ -396,6 +602,13 @@ Status DartDetector::build(const DartDetectorConfig& config,
     {
         if(onProgress) onProgress(pct, 0, phase);
     };
+
+    // Checked before the backend is even created: a contract mismatch is not
+    // something to discover after a multi-minute engine build.
+    if(!conditioningMatches(joinPath(config.modelDir, COND_JSON_REL)))
+    {
+        return STATUS_ERROR_GENERIC;
+    }
 
     m_impl->backend = createInferenceBackend();
     if(!m_impl->backend)
@@ -584,7 +797,7 @@ void DartDetector::applyTuning(const DartTuning& tuning)
 void DartDetector::reset()
 {
     m_impl->candidates.clear();
-    m_impl->confirmedDarts.clear();
+    m_impl->clearConditioning();
     m_impl->mode        = Impl::Mode::Detecting;
     m_impl->handWasPresent = false;
     m_impl->lastBusy       = Impl::Clock::now();
@@ -715,11 +928,12 @@ bool DartDetector::run(const std::array<cv::Mat, EXPECTED_CAMERA_COUNT>& rawFram
         }
     }
 
-    // ----- Build the 10-channel NCHW input tensor -------------------------
-    // Channels 0..8: camera[c]'s RGB plane (/255 normalization).
-    // Channel 9:     Gaussian mask over confirmed dart tips — held all-zero
-    //                while Removing so the AR model runs unconditioned and we
-    //                can scan the heatmap for any leftover peak.
+    // ----- Build the 21-channel NCHW input tensor -------------------------
+    // Channels 0..8:   camera[c]'s RGB plane (/255 normalization).
+    // Channels 9..20:  the conditioning block (see COND_MASK_BASE above) —
+    //                  held all-zero while Removing so the AR model runs
+    //                  unconditioned and we can scan the heatmap for any
+    //                  leftover peak.
     //
     // Frames arrive in RGB order and the training script matches this
     // (cv2.imread + cv2.cvtColor(BGR2RGB)), so we pack in src order with no
@@ -746,13 +960,30 @@ bool DartDetector::run(const std::array<cv::Mat, EXPECTED_CAMERA_COUNT>& rawFram
         std::memcpy(dst, m_impl->arBlob[cam].ptr<float>(), 3u * PLANE_FLOATS * sizeof(float));
     }
 
-    float* maskPlane = dartIn + 9u * PLANE_FLOATS;
-    std::memset(maskPlane, 0, PLANE_FLOATS * sizeof(float));
+    float* condBase = dartIn + COND_MASK_BASE * PLANE_FLOATS;
+    std::memset(condBase, 0, COND_CHANNELS * PLANE_FLOATS * sizeof(float));
+
+    // A camera with no frame this cycle, or a dart the segmenter could not
+    // separate, leaves its channel zero — but still occupies its slot. Skipping
+    // the slot instead would renumber every later dart and silently change what
+    // the model is being told.
     if(m_impl->mode == Impl::Mode::Detecting)
     {
-        for(const Impl::PolarDart& d : m_impl->confirmedDarts)
+        const size_t slots = std::min<size_t>(m_impl->confirmedDarts.size(), MAX_COND_DARTS);
+        for(size_t slot = 0; slot < slots; slot++)
         {
-            addGaussianToPlane(maskPlane, d.templateX, d.templateY);
+            const Impl::ConfirmedDart& d = m_impl->confirmedDarts[slot];
+
+            for(uint32_t cam = 0; cam < N_CAMS; cam++)
+            {
+                if(d.instance[cam].empty()) continue;
+                packMaskPlane(d.instance[cam],
+                              dartIn + (COND_MASK_BASE + cam * MAX_COND_DARTS + slot)
+                                     * PLANE_FLOATS);
+            }
+
+            addGaussianToPlane(dartIn + (COND_TIP_BASE + slot) * PLANE_FLOATS,
+                               d.polar.templateX, d.polar.templateY);
         }
     }
 
@@ -957,6 +1188,84 @@ bool DartDetector::Impl::runPalmStage(const std::array<cv::Mat, N_CAMS>& rawFram
 // Output decode + streak tracking
 // ----------------------------------------------------------------------------
 
+/**
+ * Take each camera's share of the dart just confirmed, and fold it into the
+ * running union.
+ *
+ * The segmenter emits one binary mask of every dart present, so a single
+ * dart's pixels are only ever recoverable as a difference of successive
+ * cumulative masks:
+ *
+ *     instance_j = M_j  &  ~M_(j-1)
+ *
+ * with M_j captured the instant dart j was counted. That is exactly the
+ * derivation DartModelTraining's build_conditioning reproduces when it makes
+ * the training labels, so the model has seen this and its artefacts: a thin rim
+ * around a dart that has not moved (the board drifts between captures) and a
+ * hole where a later dart passes behind an earlier one. Neither is worth
+ * cleaning up — the model was trained with them.
+ *
+ * Called only on the cycle a dart is confirmed, which is why the warp lives
+ * here rather than in the per-cycle path: it is three 720x720 remaps, and at
+ * most three darts a turn need them.
+ */
+/**
+ * Forget every counted dart, including the pixels they claimed.
+ *
+ * The union is the running M_(j-1); leaving it behind would have the first dart
+ * of the next turn subtract against the last turn's board and come back empty.
+ */
+void DartDetector::Impl::clearConditioning()
+{
+    confirmedDarts.clear();
+    for(uint32_t cam = 0; cam < N_CAMS; cam++) condUnion[cam].release();
+}
+
+
+void DartDetector::Impl::captureInstanceMasks(ConfirmedDart& dart)
+{
+    cv::Mat notPrev;
+    cv::Mat claim;      // what this dart takes out of the mask before differencing
+
+    for(uint32_t cam = 0; cam < N_CAMS; cam++)
+    {
+        // maskNative is this cycle's thresholded seg output, still live from
+        // the masking step in run(). No frame, no calibration, no mask — the
+        // slot stays empty and contributes a zeroed channel.
+        if(maskNative[cam].empty()) continue;
+        if(!warpCameraMask(cam, maskNative[cam], maskWarped[cam])
+        || maskWarped[cam].empty())
+        {
+            continue;
+        }
+
+        if(config.stillFrameConditioning)
+        {
+            // The tip is in canonical coordinates and so is the warped mask, so
+            // the same point locates the dart in every camera.
+            if(!componentUnderTip(maskWarped[cam], dart.polar.templateX,
+                                  dart.polar.templateY, claim))
+            {
+                continue;
+            }
+        }
+        else
+        {
+            claim = maskWarped[cam];
+        }
+
+        if(condUnion[cam].empty())
+        {
+            condUnion[cam] = cv::Mat::zeros(maskWarped[cam].size(), CV_8UC1);
+        }
+
+        cv::bitwise_not(condUnion[cam], notPrev);
+        cv::bitwise_and(claim, notPrev, dart.instance[cam]);
+        cv::bitwise_or(condUnion[cam], claim, condUnion[cam]);
+    }
+}
+
+
 void DartDetector::Impl::decodeAndTrack(bool handPresent, DartDetectorResult& out)
 {
     const float* heatmapLogits = dart->output(0);
@@ -1056,7 +1365,7 @@ void DartDetector::Impl::decodeAndTrack(bool handPresent, DartDetectorResult& ou
             // completes.
             mode = Mode::Removing;
             candidates.clear();
-            confirmedDarts.clear();
+            clearConditioning();
             lastBusy   = now;   // the quiet clock starts when the hand leaves
             boardClear = false;
             return;
@@ -1171,8 +1480,11 @@ void DartDetector::Impl::decodeAndTrack(bool handPresent, DartDetectorResult& ou
     if(emittedThisCycle)
     {
         // A dart was confirmed — add to the conditioning set so the next
-        // inference sees it in the mask and hunts for the next dart.
-        confirmedDarts.push_back(emitted);
+        // inference sees its pixels and hunts for the next dart.
+        ConfirmedDart cd;
+        cd.polar = emitted;
+        captureInstanceMasks(cd);
+        confirmedDarts.push_back(std::move(cd));
         boardClear = false;
         out.newDarts.push_back({emitted.angle, emitted.normalizedRadius});
     }

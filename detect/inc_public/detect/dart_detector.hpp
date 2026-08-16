@@ -55,6 +55,27 @@ struct DartDetectorConfig
     bool enableHandFilter = true;
 
     /**
+     * Take a confirmed dart's conditioning mask from the blob under its tip
+     * rather than from what changed since the previous dart was confirmed.
+     *
+     * For replaying still images, and wrong anywhere else.
+     *
+     * Live, a dart's own pixels are recovered by differencing the segmenter
+     * across time: when dart 2 is counted, everything the mask gained since
+     * dart 1 was counted is dart 2. A still frame has no "since" — every dart
+     * is present in the very first mask — so the first dart would claim all
+     * three, the model would correctly report nothing left, and a three-dart
+     * capture would replay as one. Picking the connected component under the
+     * tip instead recovers a single dart from a single frame, which is what
+     * DartModelTraining's own offline analysis does for the same reason.
+     *
+     * It cannot separate two darts whose silhouettes touch — that needs the
+     * k-lines fit in dart_instances.split_view, or a human — so the second of
+     * a touching pair gets an empty channel.
+     */
+    bool stillFrameConditioning = false;
+
+    /**
      * Starting values for the thresholds. Only read during build() — from then
      * on the live values are whatever applyTuning() last set, so a settings
      * edit does not need a rebuild.

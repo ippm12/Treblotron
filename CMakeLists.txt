@@ -504,6 +504,11 @@ endif()
 if(_dartlens_needs_backend)
     set(_dartlens_onnx_assets
         detect/models/multicam_unet_ar/multicam_unet_ar.onnx
+        # Declares which conditioning layout the ONNX beside it expects. Staged
+        # like a model because the detector refuses to load without it — an
+        # export whose channel layout disagrees with this code has to fail
+        # loudly, not quietly score the wrong thing.
+        detect/models/multicam_unet_ar/multicam_unet_ar.cond.json
         detect/models/multicam_unet_ar/dart_seg_unet.onnx
         detect/models/palm_detection/blazepalm.onnx
         detect/models/palm_detection/hand_landmark.onnx
