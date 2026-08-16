@@ -317,6 +317,24 @@ bool warpCameraFrame(uint32_t camIndex, const cv::Mat& src, cv::Mat& dst)
 }
 
 
+bool warpCameraMask(uint32_t camIndex, const cv::Mat& src, cv::Mat& dst)
+{
+    if(camIndex >= EXPECTED_CAMERA_COUNT) return false;
+
+    const WireCalibrationSlot& slot = f_slots[camIndex];
+    if(!slot.calibrated || slot.remapXY.empty() || src.empty())
+    {
+        return false;
+    }
+
+    // INTER_NEAREST ignores the fractional table entirely, so the same baked
+    // maps serve both variants and nothing extra has to be computed.
+    cv::remap(src, dst, slot.remapXY, slot.remapFrac,
+              cv::INTER_NEAREST, cv::BORDER_CONSTANT, cv::Scalar(0, 0, 0));
+    return true;
+}
+
+
 bool getCameraHomography(uint32_t camIndex, double out[9])
 {
     if(camIndex >= EXPECTED_CAMERA_COUNT || out == nullptr) return false;

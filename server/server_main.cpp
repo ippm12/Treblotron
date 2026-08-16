@@ -182,6 +182,11 @@ int main(int argc, char** argv)
         return -1;
     }
     setConsoleLog(SERVER_LOG_ID, LOGGING_LEVEL_INFO);
+    // The detector's own log too. This is a headless tool with no other UI, and
+    // the things it says are the things you need: which conditioning layout the
+    // export declares, and why a model refused to load. Without it a mismatched
+    // export surfaces on the console as a bare "models did not load".
+    setConsoleLog(DETECT_LOG_ID, LOGGING_LEVEL_INFO);
 
     int exitCode = 0;
 
