@@ -54,6 +54,6 @@ Status setVisionSettings(const DartVisionSettings& settings);
  * missing keys keep their default, so a file written by an older or newer build
  * still loads.
  */
-Status loadVisionSettings(const std::string& path = "./config/vision.txt");
+Status loadVisionSettings(const std::string& path = appDataPath("config/vision.txt"));
 
 #endif // VISION_SETTINGS_HPP

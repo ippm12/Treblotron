@@ -10,6 +10,9 @@
 #include "frame/image.hpp"
 #include "frame/frame.hpp"
 
+#include <filesystem>
+#include <string>
+
 
 struct ImageEntry
 {
@@ -67,10 +70,16 @@ ImageID loadImage(const char* filePath)
         return INVALID_IMAGE_ID;
     }
 
-    SDL_Surface* surface = IMG_Load(filePath);
+    // Relative paths name an installed asset; see the same resolution in
+    // font.cpp::loadFont.
+    const std::string resolved = std::filesystem::path(filePath).is_absolute()
+                               ? std::string(filePath)
+                               : appAssetPath(filePath);
+
+    SDL_Surface* surface = IMG_Load(resolved.c_str());
     if(!surface)
     {
-        LOG_ERROR(FRAME_LOG_ID, "Failed to load image '{}': {}", filePath, SDL_GetError());
+        LOG_ERROR(FRAME_LOG_ID, "Failed to load image '{}': {}", resolved, SDL_GetError());
         return INVALID_IMAGE_ID;
     }
 

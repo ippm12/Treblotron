@@ -29,7 +29,7 @@
 struct DartServerConfig
 {
     uint16_t    port     = 9876;
-    std::string modelDir = "./detect/models";
+    std::string modelDir = appAssetPath("detect/models");
 
     /** Forwarded to DartDetectorConfig. Build-time: needs a restart to change. */
     bool enableHandFilter = true;
@@ -46,7 +46,7 @@ struct DartServerConfig
     DartVisionSettings settings;
 
     /** Where SaveCapture writes: native frames plus a {stem}.json of transforms. */
-    std::string captureDir = "./captures";
+    std::string captureDir = appDataPath("captures");
 
     /**
      * Honour a client's request for heatmap frames. Costs ~127 KB per cycle,

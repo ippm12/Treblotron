@@ -1,0 +1,67 @@
+# install_runtime_deps.cmake.in
+#
+# Copy the toolchain DLLs that the libraries we ship depend on.
+#
+# Our own executables are statically linked against the GCC runtime, but the
+# third-party DLLs beside them are not: SDL3_ttf.dll imports
+# libwinpthread-1.dll from MSYS2. On the build machine that sits on PATH and
+# nothing looks wrong; anywhere else the process dies before main() with
+#
+#     error while loading shared libraries: ?: cannot open shared object file
+#
+# which names no file anyone can act on.
+#
+# Resolved by inspection rather than from a hand-written list, so a dependency
+# that appears after a toolchain or SDL upgrade is picked up here instead of by
+# whoever downloaded the installer.
+#
+# Configured from CMakeLists.txt; edit the .in, never the generated copy.
+
+# Where the binaries and their DLLs were installed, which is not the install
+# root — see DARTMATIC_INSTALL_BIN in CMakeLists.txt.
+set(_dm_bin "${CMAKE_INSTALL_PREFIX}/@DARTMATIC_INSTALL_BIN@")
+
+file(GLOB _dm_shipped_dlls "${_dm_bin}/*.dll")
+set(_dm_executables @DARTMATIC_INSTALLED_EXECUTABLES@)
+
+list(TRANSFORM _dm_executables PREPEND "${_dm_bin}/")
+
+file(GET_RUNTIME_DEPENDENCIES
+     EXECUTABLES                 ${_dm_executables}
+     LIBRARIES                   ${_dm_shipped_dlls}
+     RESOLVED_DEPENDENCIES_VAR   _dm_resolved
+     UNRESOLVED_DEPENDENCIES_VAR _dm_unresolved
+     # The build output, where SDL and its companions land, plus the compiler's
+     # own bin directory for the GCC runtime. DARTMATIC_BIN_DIR is set by an
+     # install(CODE) block just before this script runs.
+     DIRECTORIES                 "${DARTMATIC_BIN_DIR}" "@DARTMATIC_TOOLCHAIN_BIN@"
+     # Windows' own DLLs are not ours to redistribute and are present on every
+     # target machine. Everything under the system directory is excluded by
+     # path; the api-ms-/ext-ms- patterns catch the API-set stubs, which do not
+     # resolve to a real file at all.
+     PRE_EXCLUDE_REGEXES  "api-ms-.*" "ext-ms-.*"
+     POST_EXCLUDE_REGEXES ".*[/\\\\][Ss]ystem32[/\\\\].*" ".*[/\\\\][Ww]inSxS[/\\\\].*")
+
+foreach(_dm_dep IN LISTS _dm_resolved)
+    # Skip anything already sitting in the install tree, or file(INSTALL) would
+    # be asked to copy a file onto itself.
+    get_filename_component(_dm_dep_dir "${_dm_dep}" DIRECTORY)
+    file(TO_CMAKE_PATH "${_dm_dep_dir}" _dm_dep_dir)
+    file(TO_CMAKE_PATH "${_dm_bin}" _dm_prefix)
+    if(_dm_dep_dir STREQUAL _dm_prefix)
+        continue()
+    endif()
+
+    message(STATUS "Bundling runtime dependency: ${_dm_dep}")
+    file(INSTALL DESTINATION "${_dm_bin}"
+         TYPE SHARED_LIBRARY
+         FILES "${_dm_dep}")
+endforeach()
+
+# Unresolved entries are almost always the API-set stubs the filters above miss
+# on some Windows versions, so this is a note rather than an error. A real
+# missing DLL shows up as a launch failure, which the release checklist covers
+# by running the installed binaries with the toolchain off PATH.
+if(_dm_unresolved)
+    message(STATUS "Runtime dependencies left unresolved (normally API-set stubs): ${_dm_unresolved}")
+endif()

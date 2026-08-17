@@ -7,6 +7,7 @@
  */
 
 #include "common_inc.hpp"
+#include "dartmatic_version.hpp"
 #include "server/server.hpp"
 
 #include <atomic>
@@ -29,7 +30,13 @@ namespace
             "\n"
             "  --port <n>            TCP port to listen on (default 9876)\n"
             "  --model-dir <path>    Directory holding the ONNX models\n"
-            "                        (default ./detect/models)\n"
+            "                        (default: detect/models beside this program)\n"
+            "\n"
+            "Configuration, captures and logs are written under your user data\n"
+            "directory (%%LOCALAPPDATA%%\\Dartmatic on Windows, ~/.local/share/\n"
+            "dartmatic elsewhere), so this works when installed read-only. Put a\n"
+            "file named portable.txt beside the program to keep everything local\n"
+            "to its own folder instead.\n"
             "\n"
             "Detection tuning. These are defaults: a connected client sends its\n"
             "own from its Vision screen and those win for the session. Durations,\n"
@@ -47,7 +54,8 @@ namespace
             "  --no-hand-filter      Skip the palm/landmark stages\n"
             "\n"
             "Captures:\n"
-            "  --capture-dir <path>  Where captures are written (default ./captures)\n"
+            "  --capture-dir <path>  Where captures are written (default: captures/\n"
+            "                        under the user data directory)\n"
             "  --capture-on-detect   Save the frames behind every confirmed dart\n"
             "\n"
             "Link:\n"
@@ -60,9 +68,10 @@ namespace
             "Offline:\n"
             "  --selftest            Load the models, run one pass, and exit\n"
             "  --replay <dir>        Score saved {uuid}_camN.png triples and exit\n"
-            "  --calibration <path>  Calibration for --replay\n"
-            "                        (default ./config/wire_calibration.txt)\n"
-            "  -h, --help            Show this message\n",
+            "  --calibration <path>  Calibration for --replay (default:\n"
+            "                        config/wire_calibration.txt under user data)\n"
+            "  -h, --help            Show this message\n"
+            "  --version             Print the version and exit\n",
             argv0);
     }
 
@@ -84,7 +93,7 @@ int main(int argc, char** argv)
 {
     DartServerConfig config;
     std::string replayDir;
-    std::string calibrationPath = "./config/wire_calibration.txt";
+    std::string calibrationPath = appDataPath("config/wire_calibration.txt");
     bool selfTest = false;
 
     for(int i = 1; i < argc; i++)
@@ -95,6 +104,11 @@ int main(int argc, char** argv)
         if(std::strcmp(a, "-h") == 0 || std::strcmp(a, "--help") == 0)
         {
             printUsage(argv[0]);
+            return 0;
+        }
+        else if(std::strcmp(a, "--version") == 0)
+        {
+            std::printf("%s %s\n", DARTMATIC_PRODUCT_NAME, DARTMATIC_VERSION_STRING);
             return 0;
         }
         else if(std::strcmp(a, "--port") == 0)
@@ -187,6 +201,10 @@ int main(int argc, char** argv)
     // export declares, and why a model refused to load. Without it a mismatched
     // export surfaces on the console as a bare "models did not load".
     setConsoleLog(DETECT_LOG_ID, LOGGING_LEVEL_INFO);
+
+    LOG_INFO(SERVER_LOG_ID, "{} {} starting", DARTMATIC_PRODUCT_NAME, DARTMATIC_VERSION_STRING);
+    LOG_INFO(SERVER_LOG_ID, "Data directory: {}{}", appDataPath(""),
+             isPortableInstall() ? " (portable)" : "");
 
     int exitCode = 0;
 

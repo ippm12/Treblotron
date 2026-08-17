@@ -152,7 +152,7 @@ void LocalVisionSource::inferenceLoop()
     std::array<cv::Mat,     EXPECTED_CAMERA_COUNT> rawMats;
     DartDetectorResult result;
 
-#ifdef DARTLENS_HAVE_LOCAL_INFERENCE
+#ifdef DARTMATIC_HAVE_LOCAL_INFERENCE
     // Scratch for the capture threads' pre-computed seg planes.
     std::array<std::vector<float>, EXPECTED_CAMERA_COUNT> segStorage;
     for(auto& s : segStorage) s.resize(SEG_PER_CAM_FLOATS);
@@ -208,7 +208,7 @@ void LocalVisionSource::inferenceLoop()
             continue;
         }
 
-#ifdef DARTLENS_HAVE_LOCAL_INFERENCE
+#ifdef DARTMATIC_HAVE_LOCAL_INFERENCE
         for(uint32_t i = 0; i < EXPECTED_CAMERA_COUNT; i++)
         {
             segPlanes[i] = (!rawMats[i].empty()

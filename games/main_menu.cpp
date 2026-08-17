@@ -6,7 +6,9 @@
  */
 
 #include "games/main_menu.hpp"
+#include "vision/vision.hpp"
 #include "vision/vision_link.hpp"
+#include "detect/wire_calibration.hpp"
 #include "calibration.hpp"
 #include "vision_debug.hpp"
 #include "game_lib/game_registry.hpp"
@@ -77,6 +79,8 @@ MainMenu::MainMenu()
     , m_showNoTeamsWarning(false)
     , m_showNoPlayersWarning(false)
     , m_showSimWarning(false)
+    , m_showFirstRun(false)
+    , m_firstRunChecked(false)
     , m_titleFontId(INVALID_FONT_ID)
     , m_cardFontId(INVALID_FONT_ID)
     , m_smallFontId(INVALID_FONT_ID)
@@ -139,13 +143,48 @@ Status MainMenu::init(FrameID frameId)
     m_inputHints.init();
     m_virtualKeyboard.init(m_smallFontId, m_cardFontId);
 
+    // Deliberately not decided here: startup.cpp builds the menu before
+    // initializeVisionModule(), so at this point no calibration has been loaded
+    // and no camera has been opened. Checking now would report "0 of 3 cameras,
+    // not calibrated" on a perfectly set up machine. See update().
+    m_firstRunChecked = false;
+    m_showFirstRun    = false;
+
     return STATUS_OK;
 }
 
 
 void MainMenu::update(float /*deltaTime*/)
 {
-    // All interaction is event-driven
+    // Decided on the first frame of the real game loop, which is the earliest
+    // point at which the vision module has loaded the calibration and opened
+    // the cameras.
+    //
+    // Nothing about a detecting build scores a dart until the board has been
+    // calibrated, and there is no other moment where the program would say so:
+    // an uncalibrated system looks exactly like a working one until darts stop
+    // registering.
+    if(!m_firstRunChecked)
+    {
+        m_firstRunChecked = true;
+
+        if(visionHasDetector())
+        {
+            bool anyCalibrated = false;
+            for(uint32_t cam = 0; cam < EXPECTED_CAMERA_COUNT; cam++)
+            {
+                if(isCameraCalibrated(cam)) { anyCalibrated = true; break; }
+            }
+            m_showFirstRun = !anyCalibrated;
+            if(m_showFirstRun)
+            {
+                LOG_INFO(GAME_MANAGER_LOG_ID,
+                         "No calibrated camera — showing first-run setup panel");
+            }
+        }
+    }
+
+    // Rest of the interaction is event-driven.
 }
 
 
@@ -361,7 +400,7 @@ void MainMenu::openCard()
     }
     else if(card.type == CardType::Calibration)
     {
-#ifdef DARTLENS_USE_SIM
+#ifdef DARTMATIC_USE_SIM
         m_showSimWarning = true;
 #else
         loadGame(std::make_shared<CalibrationScreen>());
@@ -399,6 +438,18 @@ void MainMenu::openCard()
 
 void MainMenu::handleCardGridKey(uint32_t keycode)
 {
+    // First-run panel takes the whole keyboard while it is up: Enter goes to
+    // calibration, anything else dismisses it for this session.
+    if(m_showFirstRun)
+    {
+        m_showFirstRun = false;
+        if(keycode == SDLK_RETURN || keycode == SDLK_KP_ENTER)
+        {
+            loadGame(std::make_shared<CalibrationScreen>());
+        }
+        return;
+    }
+
     if(m_showSimWarning)
     {
         m_showSimWarning = false;
@@ -445,7 +496,7 @@ void MainMenu::renderCardGrid()
 
     // Title
     {
-        std::string title = "DartLens";
+        std::string title = "Dartmatic";
         float titleX = LEFT_MARGIN;
 
         auto text = std::make_shared<RenderText>();
@@ -535,7 +586,7 @@ void MainMenu::renderCardGrid()
             else if(card.type == CardType::Exit)
             {
                 cardTitle = "Exit";
-                cardDesc  = "Quit DartLens";
+                cardDesc  = "Quit Dartmatic";
             }
             else
             {
@@ -704,6 +755,96 @@ void MainMenu::renderCardGrid()
         if(smallFont) TTF_GetStringSize(smallFont, dismiss.c_str(), 0, &dW, &dH);
         dismissText->m_x = panelX + (panelW - dW) * 0.5f;
         renderQueueAdd(fid, dismissText);
+    }
+
+    // ---- First-run setup panel ----
+    //
+    // Reports state rather than instructions: how many cameras were found and
+    // whether the board is calibrated. "Connect three cameras" is unhelpful to
+    // someone who believes they already have; "Cameras detected: 1 of 3" is
+    // not.
+    if(m_showFirstRun)
+    {
+        auto overlay = std::make_shared<RenderShape>();
+        overlay->m_type   = ShapeType::Box;
+        overlay->m_color  = {20, 20, 20};
+        overlay->m_x      = 0.0f;
+        overlay->m_y      = 0.0f;
+        overlay->m_z      = CARD_Z + 80;
+        overlay->m_width  = WINDOW_W;
+        overlay->m_height = WINDOW_H;
+        renderQueueAdd(fid, overlay);
+
+        const float panelW = 1080.0f;
+        const float panelH = 400.0f;
+        const float panelX = (WINDOW_W - panelW) * 0.5f;
+        const float panelY = (WINDOW_H - panelH) * 0.5f - 45.0f;
+
+        auto panel = std::make_shared<RenderShape>();
+        panel->m_type   = ShapeType::Box;
+        panel->m_color  = {50, 50, 55};
+        panel->m_x      = panelX;
+        panel->m_y      = panelY;
+        panel->m_z      = CARD_Z + 81;
+        panel->m_width  = panelW;
+        panel->m_height = panelH;
+        renderQueueAdd(fid, panel);
+
+        TTF_Font* cardFont  = getFont(m_cardFontId);
+        TTF_Font* smallFont = getFont(m_smallFontId);
+
+        auto centred = [&](const std::string& s, FontID font, TTF_Font* metrics,
+                           float y, Color colour)
+        {
+            auto t = std::make_shared<RenderText>();
+            t->m_text     = s;
+            t->m_color    = colour;
+            t->m_fontId   = font;
+            t->m_rotation = 0.0f;
+            t->m_scaleX   = 1.0f;
+            t->m_scaleY   = 1.0f;
+            t->m_z        = CARD_Z + 82;
+            t->m_y        = y;
+            int w = 0, h = 0;
+            if(metrics) TTF_GetStringSize(metrics, s.c_str(), 0, &w, &h);
+            t->m_x = panelX + (panelW - w) * 0.5f;
+            renderQueueAdd(fid, t);
+        };
+
+        centred("Set up your board", m_cardFontId, cardFont, panelY + 34.0f,
+                {255, 255, 255});
+        centred("Dartmatic cannot score until it knows where the board is.",
+                m_smallFontId, smallFont, panelY + 96.0f, {180, 180, 190});
+
+        const uint32_t cams = getCameraCount();
+        const std::string camLine =
+            "Cameras detected:  " + std::to_string(cams) + " of "
+            + std::to_string(EXPECTED_CAMERA_COUNT);
+        centred(camLine, m_smallFontId, smallFont, panelY + 150.0f,
+                cams >= EXPECTED_CAMERA_COUNT ? Color{120, 210, 140}
+                                              : Color{255, 200, 80});
+
+        centred("Board calibration:  not done yet", m_smallFontId, smallFont,
+                panelY + 192.0f, {255, 200, 80});
+
+        if(visionUsesRemoteServer())
+        {
+            const std::string address = getInferenceServerAddress();
+            centred("Inference server:  " + (address.empty()
+                        ? std::string("not set - use the Vision card")
+                        : address),
+                    m_smallFontId, smallFont, panelY + 234.0f,
+                    address.empty() ? Color{255, 200, 80} : Color{120, 210, 140});
+        }
+
+        centred("Calibration takes a few minutes and only has to be done once,",
+                m_smallFontId, smallFont, panelY + 290.0f, {140, 140, 150});
+        centred("as long as the cameras do not move.",
+                m_smallFontId, smallFont, panelY + 322.0f, {140, 140, 150});
+
+        centred("Enter to calibrate now      any other key to explore first",
+                m_smallFontId, smallFont, panelY + panelH - 42.0f,
+                {200, 200, 210});
     }
 }
 

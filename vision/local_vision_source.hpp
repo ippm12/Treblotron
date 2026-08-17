@@ -6,7 +6,7 @@
  * lives in DartDetector so it is shared verbatim with the inference server.
  *
  * Whether the forward passes land on TensorRT or on the CPU is decided by
- * DARTLENS_INFER_BACKEND at build time and is invisible here.
+ * DARTMATIC_INFER_BACKEND at build time and is invisible here.
  *
  * Model loading happens on a background thread — a first-run TensorRT engine
  * build takes minutes — so init() returns immediately and the main loop draws

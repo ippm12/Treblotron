@@ -8,6 +8,7 @@
 #include <memory>
 #include <thread>
 #include "common_inc.hpp"
+#include "dartmatic_version.hpp"
 #include "frame/frame.hpp"
 #include "players/players.hpp"
 #include "game_lib/game_manager.hpp"
@@ -21,6 +22,13 @@ int main()
     {
         return -1;
     }
+
+    // First line of every log. A bug report that names a version is worth
+    // several that do not, and where the data lives is the other question
+    // always asked first.
+    LOG_INFO(MAIN_LOG_ID, "{} {} starting", DARTMATIC_PRODUCT_NAME, DARTMATIC_VERSION_STRING);
+    LOG_INFO(MAIN_LOG_ID, "Data directory: {}{}", appDataPath(""),
+             isPortableInstall() ? " (portable)" : "");
 
     stat = initializeFrameModule();
     if(IS_STATUS_NOT_OK(stat))
@@ -93,7 +101,7 @@ int main()
         // at the door — the link indicator and the settings overlay handle it
         // from inside the running app. Local model builds still wait, because
         // there is nothing to show until they finish.
-#ifdef DARTLENS_USE_NETWORK
+#ifdef DARTMATIC_USE_NETWORK
         constexpr bool blockOnVisionInit = false;
 #else
         constexpr bool blockOnVisionInit = true;

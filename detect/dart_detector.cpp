@@ -119,7 +119,7 @@ namespace
     constexpr float HEATMAP_TO_TEMPLATE = static_cast<float>(INPUT_W) / OUTPUT_W;
 
     // Accept peaks out to the catch-ring so misses just outside the double
-    // wire can still be recorded. Matches the Hailo source.
+    // wire can still be recorded.
     constexpr float MAX_DETECT_RADIUS = 1.35f;
 
     constexpr size_t INPUT_FLOATS   = static_cast<size_t>(INPUT_C) * INPUT_H * INPUT_W;
@@ -615,7 +615,7 @@ Status DartDetector::build(const DartDetectorConfig& config,
     {
         LOG_ERROR(DETECT_LOG_ID,
                   "DartDetector::build — no inference backend compiled in "
-                  "(configure with -DDARTLENS_INFER_BACKEND=tensorrt|cpu)");
+                  "(configure with -DDARTMATIC_INFER_BACKEND=tensorrt|cpu)");
         return STATUS_ERROR_GENERIC;
     }
 

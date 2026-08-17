@@ -6,7 +6,7 @@
  * project already vendors — which is what lets the inference server run on an
  * ordinary desktop.
  *
- * Compiled only when DARTLENS_INFER_BACKEND=cpu. There is no compile/cache
+ * Compiled only when DARTMATIC_INFER_BACKEND=cpu. There is no compile/cache
  * step here, so ModelSpec::cachePath, ::preferFp16 and ::fp32Layers are
  * ignored; loading is just readNetFromONNX plus a shape validation pass.
  *

@@ -45,7 +45,8 @@ namespace cv { class Mat; }
 /** Model file names, resolved relative to DartDetectorConfig::modelDir. */
 struct DartDetectorConfig
 {
-    std::string modelDir = "./detect/models";
+    /** Read-only, so it lives beside the executable rather than in user data. */
+    std::string modelDir = appAssetPath("detect/models");
 
     /**
      * Run the BlazePalm + hand-landmark stages. These drive the Removing

@@ -110,13 +110,13 @@ bool getCameraHomography(uint32_t camIndex, double out[9]);
  * Save all calibrated points to a text file (./config/wire_calibration.txt
  * by default). Returns STATUS_OK on success.
  */
-Status saveWireCalibration(const std::string& path = "./config/wire_calibration.txt");
+Status saveWireCalibration(const std::string& path = appDataPath("config/wire_calibration.txt"));
 
 /**
  * Load wire calibration from a text file. Cameras with fewer than
  * WIRE_POINTS_PER_CAMERA points in the file are skipped. Recomputes the
  * homography for any fully-calibrated cameras.
  */
-Status loadWireCalibration(const std::string& path = "./config/wire_calibration.txt");
+Status loadWireCalibration(const std::string& path = appDataPath("config/wire_calibration.txt"));
 
 #endif // WIRE_CALIBRATION_HPP
