@@ -80,7 +80,15 @@ Status initializeVisionModule()
     // the settings overlay is how you fix it. Both loads happen before any
     // source is constructed, so a source that reads settings during init()
     // sees the user's values rather than the defaults.
-    loadInferenceServerAddress();
+    //
+    // Only asked for on builds that actually connect to one. Loading it
+    // unconditionally meant a single-PC install logged "No inference server
+    // configured — set one from the settings screen" on every launch, sending
+    // the user to look for a setting that does not exist in their build.
+    if(visionUsesRemoteServer())
+    {
+        loadInferenceServerAddress();
+    }
     loadVisionSettings();
 
 #ifdef DARTMATIC_USE_SIM

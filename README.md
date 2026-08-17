@@ -1,393 +1,319 @@
+<div align="center">
+
 # Dartmatic
-An application for playing darts with automatic vision scoring
 
-## Building
+**Play darts. It keeps score.**
 
-Configurations are named presets. Pick one:
+Point three cameras at a dartboard and Dartmatic works out where every dart
+landed — no mat, no sensors, no electronic board. Then it gives you games you
+cannot play anywhere else.
 
-```bash
-cmake --preset app-sim          && cmake --build build                  # dev: clickable dartboard
-cmake --preset app-local-jetson && cmake --build build-app-local-jetson # standalone Jetson
-cmake --preset app-network      && cmake --build build-app-network      # Raspberry Pi client
-cmake --preset server-directml  && cmake --build build-server-directml  # inference server (GPU)
-cmake --preset server-cpu       && cmake --build build-server-cpu       # inference server (CPU)
-cmake --preset server-tensorrt  && cmake --build build-server-tensorrt  # inference server (CUDA)
-```
+[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+[![Version](https://img.shields.io/badge/version-0.1.0-orange.svg)](#)
+[![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Raspberry%20Pi-lightgrey.svg)](docs/SETUP.md)
+[![C++23](https://img.shields.io/badge/C%2B%2B-23-00599C.svg)](#)
 
-Two independent options drive everything:
+[Get started](docs/SETUP.md) · [How it works](#how-it-works) · [Games](#the-games) · [Known issues](#known-issues)
 
-| option | values | meaning |
-|---|---|---|
-| `DARTMATIC_VISION_SOURCE` | `sim` `hailo` `local` `network` | where the game gets dart events |
-| `DARTMATIC_INFER_BACKEND` | `none` `tensorrt` `directml` `cpu` | what executes a forward pass |
+</div>
 
-The old `DARTMATIC_USE_SIM` / `_HAILO` / `_TENSORRT` booleans still work and map
-onto the pair above. They only apply when `DARTMATIC_VISION_SOURCE` is still at
-its default, and are cleared from the cache once honoured — otherwise a build
-directory that once had `DARTMATIC_USE_HAILO=ON` would keep demanding HailoRT
-forever, including after the accelerator has been removed from the machine.
+<!--
+  TODO: drop a screenshot or GIF in docs/images/ and uncomment.
+  The strongest single asset for this page is a short clip of Dartfleet being
+  played — darts landing, ships sinking. Second best is the calibration screen
+  with three live camera previews.
 
-### Building on the Raspberry Pi
+![Dartmatic scoring a leg](docs/images/hero.gif)
+-->
 
-The Pi runs the game and the cameras and streams frames out; it needs no
-accelerator and no models.
+---
 
-```bash
-git submodule update --init --recursive     # first time only
-cmake --preset app-network
-cmake --build build-app-network -j4
-```
+## Why
 
-Then just run it — the server address is entered from inside the app and saved,
-so nothing needs to be set on the command line:
+Automatic scoring already exists, and it is aimed at serious players: averages,
+checkout percentages, tournament brackets. Dartmatic is aimed at the other
+evening — the one where four people are in a garage and nobody wants to do
+arithmetic.
 
-```bash
-./build-app-network/bin/Dartmatic
-```
+So accuracy matters only up to "it got the right treble", and the interesting
+part is what a scoring dartboard lets you *play* once a computer is watching.
 
-If your CMake predates presets (3.21+), the same thing longhand:
+## The games
 
-```bash
-cmake -S . -B build-app-network -G Ninja \
-      -DCMAKE_BUILD_TYPE=Release \
-      -DDARTMATIC_BUILD_APP=ON -DDARTMATIC_BUILD_SERVER=OFF \
-      -DDARTMATIC_VISION_SOURCE=network -DDARTMATIC_INFER_BACKEND=none
-cmake --build build-app-network -j4
-```
-
-**If a build complains about HailoRT after you've removed the hat**, it is
-reading a stale `DARTMATIC_USE_HAILO=ON` out of an old build directory. The
-current CMake detects that and clears it, but the quickest cure is a fresh
-build directory — `rm -rf build && cmake --preset app-network`.
-
-Expect the first build to take a while: OpenCV is a submodule and gets compiled
-from source. The Pi client builds a trimmed set
-(`core,imgproc,features2d,flann,calib3d,imgcodecs,videoio` — no `dnn`, since
-nothing on the Pi runs a model).
-
-### Inference backends
-
-| backend | runs on | notes |
-|---|---|---|
-| `tensorrt` | NVIDIA CUDA (Jetson) | Compiles an engine on first run and caches it. |
-| `directml` | any DirectX 12 GPU, Windows | AMD, Intel and NVIDIA alike. Fetches ONNX Runtime at configure time. |
-| `cpu` | anything | OpenCV DNN. No extra dependency; the fallback that always works. |
-| `none` | — | No models compiled in (sim and Pi-client builds). |
-
-Measured end-to-end, one full detection cycle (segmentation + autoregressive
-detector + both hand-filter stages) on a Ryzen 7 9800X3D / Radeon RX 7900 XT:
-
-| backend | per cycle | |
-|---|---|---|
-| `directml` | **19 ms** | ~52 Hz |
-| `cpu` | 248 ms | ~4 Hz |
-
-Both produce the same detections — the decode diagnostics agree exactly, and
-raw model outputs agree to ~3e-4.
-
-**Verifying you're actually on the GPU.** A backend that can't reach its
-accelerator falls back to CPU rather than failing, so the startup line names
-where the work really landed:
-
-```
-selftest: running on DirectML (ONNX Runtime)          <- GPU
-selftest: running on ONNX Runtime (CPU — DirectML unavailable)   <- fell back
-```
-
-The game shows the same on the loading screen's final frame.
-
-### Where DirectML comes from
-
-`server-directml` downloads ONNX Runtime (~12 MB) into `external_libs/onnxruntime`
-on first configure. **`DirectML.dll` is not fetched by default** — Windows ships
-one in `System32` and the loader finds it. The startup log names the copy in use:
-
-```
-ort backend: DirectML loaded from C:\WINDOWS\SYSTEM32\DirectML.dll
-```
-
-Using the Windows copy is free of any redistribution obligation, but its version
-tracks the OS. On Windows 11 and recent Windows 10 it is new enough; on an older
-Windows 10 it may be too old for the pinned ONNX Runtime, in which case the
-backend reports `ONNX Runtime (CPU — DirectML unavailable)` and runs ~13x slower.
-If that happens, ship the redistributable instead:
-
-```bash
-cmake --preset server-directml -DDARTMATIC_FETCH_DIRECTML=ON
-```
-
-That fetches the `Microsoft.AI.DirectML` package (a ~200 MB one-time download for
-one 18 MB DLL — hence not the default) into `external_libs/directml`, licence and
-third-party notices included. `-DDARTMATIC_DIRECTML_DLL=<path>` points at a copy
-you already have.
-
-## Remote inference
-
-The detection models are too large for a Raspberry Pi. `DARTMATIC_VISION_SOURCE=network`
-splits the system in two: the Pi keeps the cameras and the UI, a bigger machine
-runs the models, and dart events come back over TCP.
-
-Both halves link the same `detect` module, so detection is not duplicated — a
-dart scored remotely is scored by exactly the code that would have scored it
-locally. The client also ships its wire calibration on connect, so the server
-fits the homography with the same routine rather than keeping its own copy.
-
-```bash
-# on the inference machine
-./Dartmatic_Server --port 9876
-
-# on the Pi — just run it; the address is set from inside the app
-./Dartmatic
-```
-
-The server address is entered in the app, not baked into the build. It is saved
-to `./config/server.txt` and re-read on every reconnect, so an edit takes effect
-within a couple of seconds without a restart. `DARTMATIC_SERVER` still seeds it on
-first run for scripted deployments, but once anything has been saved through the
-UI the file wins.
-
-### Vision settings
-
-**F1** (controller: Back) raises the Vision screen over whatever is on screen,
-including mid-leg. It holds the server address — on remote-inference builds — and
-the detection thresholds:
-
-| setting | default | what it is for |
-|---|---|---|
-| Detections to confirm | 3 | separate looks that must agree before a dart is scored |
-| Hold before counting | 300 ms | raise if one throw is counted twice |
-| Board clear delay | 1000 ms | quiet time before a turn can end; raise if turns end early |
-| Hand detect delay | 100 ms | how long a hand must be visible before collection starts |
-| Save every dart | off | writes the frames behind every dart, for retraining |
-
-Left/right adjusts, and the change is saved to `./config/vision.txt` and applied
-on the spot — there is no apply step, because a threshold is judged by the next
-throw. Values are clamped on load, on edit, and on arrival over the network, so a
-hand-edited file cannot produce a turn that never ends.
-
-On a remote-inference build the settings live on the client and travel to the
-server: they are sent right after the handshake and again whenever they change.
-The server's own `--confirm-hold` and friends are the defaults it runs on until a
-client says otherwise, and what `--replay` uses. Nothing is written back to the
-server's configuration — a client's preferences belong to that client, so the
-next board to connect starts from the server's own defaults again.
-
-Which rows appear depends on the build: the simulated source invents darts and
-shows none of them, and a local-inference build has no address to set.
-
-### Connection status
-
-A coloured dot sits in the corner of every screen:
-
-| | meaning |
+| | |
 |---|---|
-| green | connected and keeping up |
-| amber | connected but slow (round-trip over 150 ms), or nothing scored for 2 s |
-| red | no server configured, unreachable, or it went away |
+| **Dartfleet** | Hide a fleet on the board and sink your opponent's. Every dart is a shot; the board is the sea. Teams up to 3-a-side, adjustable ship sizes. |
+| **X01** | 301 through 901, double-in and double-out options. The one everybody knows. |
+| **Cricket** | 15s through bullseye, marks and points. |
 
-Connected is deliberately not the same as green: a link that is up but scoring
-nothing — server still loading, or wedged — is amber, because from the player's
-side that is just as broken.
+More to come — original games are the point of the project, not a side effect.
 
-When the link is down a banner names the problem and points at **F1**, so a
-dropped server can be fixed without abandoning a leg. The Vision card on the main
-menu is the other way in.
+## Getting started
 
-The app never blocks on the server at startup — it comes up regardless, and the
-indicator tells you the rest.
+Three ways to run it. **[Full setup guide →](docs/SETUP.md)**
 
-The client streams continuously and the server always scores the newest set it
-has. A reader thread drains the socket into a **one-slot, newest-wins mailbox**
-and re-credits the client the instant a set comes off the wire, while inference
-runs on the other thread and takes whatever is freshest when it becomes free.
-Anything overwritten before being scored is simply dropped.
+<table>
+<tr>
+<td width="33%" valign="top">
 
-Two properties fall out of that:
+### One PC
+Cameras straight into a Windows machine, GPU does the rest.
+**Simplest — start here.**
 
-```
-cycle     = max(transfer, server work)    not  transfer + server work
-staleness = one transfer                  not  one server cycle
-```
+`Dartmatic-*-Setup.exe`
 
-Throughput tracks `max()` — measured against a client with a simulated transfer
-delay:
+</td>
+<td width="33%" valign="top">
 
-| simulated transfer | measured | if it serialised |
-|---|---|---|
-| 0 ms | 27.3 Hz | 27.8 Hz |
-| 20 ms | 28.1 Hz | 17.9 Hz |
-| 40 ms | 24.0 Hz | 13.2 Hz |
-| 60 ms | 16.1 Hz | 10.4 Hz |
+### Pi at the board
+A Raspberry Pi runs the cameras and the screen; a PC on your network runs the
+models.
 
-The staleness bound is the reason for the reader thread rather than just
-crediting early. With a single credit queued and a single thread, a cycle that
-runs long leaves the client unable to refresh the set already waiting, so what
-gets scored next was captured when the slow cycle *started* — staleness bounded
-by the worst cycle time. Draining continuously means a long cycle just discards
-more stale sets and picks up a fresh one at the end.
+`Dartmatic-Server-*.exe` + build on the Pi
 
-The three cameras are JPEG-decoded concurrently (`cv::parallel_for_`), and
-decoded straight to RGB via `IMREAD_COLOR_RGB` rather than to BGR plus a
-full-frame conversion.
+</td>
+<td width="33%" valign="top">
 
-### Where a cycle goes
+### No hardware
+Clickable dartboard instead of cameras. Every game playable.
 
-The server logs a per-stage breakdown every 30 cycles, because "is it fast
-enough" is a question about where the time actually goes:
+`Dartmatic-Demo.zip`
 
-```
-cycle 30: 27.3 ms total = 3.7 decode + 23.6 detect+reply (36.6 Hz), 0 newer set(s) skipped
-```
+</td>
+</tr>
+</table>
 
-Measured on a Radeon RX 7900 XT against a client paced at the camera rate:
+Whichever you pick, the step that matters is **calibration**: 40 clicked wire
+intersections per camera, once, so the software knows where the board is.
+It takes a few minutes and survives forever unless a camera moves.
 
-| stage | time |
-|---|---|
-| JPEG decode, 3 cameras concurrent | 3.7 ms |
-| segmentation + AR detector + hand filter + reply | 23.6 ms |
-| **total** | **27.3 ms → 36.6 Hz** |
+---
 
-That clears the 30 Hz the cameras run at, with headroom — the sensors are the
-cap, not the server. Send-to-detection latency is 30 ms median, 32 ms max.
+## How it works
 
-Concurrent decode is worth ~6 ms/cycle; before it, a cycle was ~36 ms and
-send-to-detection 46 ms median / 71 ms max.
+Two deployment shapes, one detection pipeline. The same `detect` module runs in
+both, so a dart scored remotely is scored by exactly the code that would have
+scored it locally.
 
-A client that streams flat-out rather than at the camera rate costs the server
-about 5 ms/cycle in receiving and discarding sets it will never score, which is
-why the client only sends when a camera has actually produced a new frame.
-
-Neither end ever blocks while holding work to do: the client polls rather than
-parking in a read, so detections are never left sitting in the socket while it
-waits for the next capture.
-
-**The Pi runs no models at all** — segmentation, the autoregressive detector and
-both hand-detection stages all execute server-side. The client's only jobs are
-capture, forward, and act on the dart events that come back.
-
-### Frames on the wire
-
-Transport is plain TCP, one connection, carrying both control messages and
-video: a 12-byte little-endian header (`magic`/`type`/`flags`/`payloadBytes`)
-in front of each typed message. No RTP, no codec, no container.
-
-Video is discrete JPEG stills rather than a compressed stream. The UVC cameras
-already deliver MJPEG, so the client **forwards the sensor's own bytes
-untouched** — no decode, no re-encode, and no second generation of compression
-loss between the sensor and the model. Nothing is decoded on the Pi unless a
-preview screen (calibration, vision_debug) actually asks for pixels, and that
-decode happens on the screen's own thread.
-
-If a driver ignores `CAP_PROP_CONVERT_RGB` and insists on decoding, the client
-falls back to encoding at quality 75 — the same behaviour it had before, just
-costing CPU. The log says which path is live:
-
-```
-Camera 0 passthrough active — forwarding the sensor's own JPEG, no decode/re-encode
+```mermaid
+flowchart LR
+    subgraph one["Single PC"]
+        direction LR
+        C1["3 cameras"] --> D1["detect"] --> G1["games + UI"]
+    end
+    subgraph two["Pi + server"]
+        direction LR
+        C2["3 cameras"] --> P["Pi<br/>capture + UI"]
+        P -->|MJPEG over TCP| S["server<br/>detect"]
+        S -->|dart events| P
+    end
 ```
 
-Measured payload for a 1280x720 dartboard scene with grain: ~55 KB/frame at q75,
-~91 KB at q85, so roughly 165-270 KB per 3-camera cycle. At 30 Hz that is
-41-67 Mbit/s — unremarkable for Wi-Fi 5/6 and trivial over Ethernet. Credit-based
-flow control means a slower link simply yields fewer cycles per second rather
-than a growing backlog of stale frames.
+### The detection pipeline
 
-### One client at a time
+One forward pass finds **one** dart. To find the next it is told which darts are
+already accounted for — not just where their tips are, but which pixels belong
+to them.
 
-The server serves a single board. That isn't a shortcut — the detector holds one
-stateful pipeline (confirmed darts and the pixels they own, the Detecting/
-Removing machine), so two clients sharing it would corrupt each other's board.
-
-A client arriving mid-session is told so explicitly and keeps retrying:
-
-```
-turned away 192.168.1.9:41022 — busy with 192.168.1.8:53114
-```
-
-A client that stops responding — power cut, Wi-Fi drop — never sends a TCP FIN,
-so the server drops the session after `--read-timeout` (20 s by default) rather
-than waiting on a socket that will never speak again.
-
-Board state survives a reconnect. For `--grace` milliseconds (60 s by default)
-after a session ends, the same machine coming back resumes with its darts and
-turn state intact, so a brief network blip mid-turn doesn't cost the player
-throws they already made:
-
-```
-client 192.168.1.8:53170 connected (resuming, board state kept)
-192.168.1.8 did not return within 60 s — clearing the board
+```mermaid
+flowchart TD
+    A["3 camera frames<br/>1280x720 RGB"] --> B["dart_seg_unet<br/>batch of 3"]
+    B --> C["threshold to a binary mask"]
+    C --> D["mask the RGB,<br/>warp to canonical 720x720"]
+    D --> E["pack 21 channels"]
+    K["darts already counted:<br/>per-dart masks + tip positions"] --> E
+    E --> F["multicam_unet_ar"]
+    F --> G["heatmap 360x360<br/>+ exist logit"]
+    G --> H{"exist >= 0<br/>and peak >= 0.55?"}
+    H -->|yes| I["one dart<br/>angle + radius"]
+    I --> K
+    H -->|no| J["nothing left"]
 ```
 
-Identity is the client's IP, since the port changes on every reconnect. Two
-different boards behind one NAT would look like the same machine to this — not a
-concern for a single-board setup, but worth knowing before adding a second.
+A dart's own pixels are recoverable only by differencing the segmenter across
+time: whatever the mask gained since the last dart was counted *is* the new
+dart. Dartmatic captures that difference the moment a dart is confirmed,
+because the earlier mask is gone by the next cycle.
 
-Useful server flags:
-
-- `--selftest` — load every model, run the full pipeline on synthetic input,
-  report ms/cycle. The quickest way to check a re-exported ONNX still matches
-  the code's expectations.
-- `--replay <dir>` — score saved `{uuid}_camN.png` triples (what Save Capture
-  writes to `./captures`) with no client and no cameras. Each set is replayed
-  from an empty board and fed through repeatedly until the model stops finding
-  darts, so a three-dart capture reports all three rather than only the first.
-- `--no-hand-filter`, `--confirm <n>`, `--confirm-hold <ms>`, `--clear-hold <ms>`
-  — detection defaults, overridden by a connected client's Vision screen.
-- `--read-timeout <ms>`, `--grace <ms>` — how long a silent client is tolerated,
-  and how long its board state is held for a reconnect.
-
-With `server-directml` on a Radeon RX 7900 XT the server sustains ~52 Hz, well
-clear of the 30 Hz camera rate, so the credit window stays at one frame and
-detection latency is bounded by capture and JPEG transport rather than
-inference.
-
-## The model contract
-
-The dart detector is autoregressive: it finds **one** dart per forward pass, and
-is told which darts have already been counted so it goes looking for the next
-one. How it is told is the `instance_v1` conditioning layout, 21 input channels
-at 720x720:
+<details>
+<summary><b>The 21-channel input contract</b></summary>
 
 | channels | contents |
 |---|---|
-| 0-8 | 3 cameras x RGB, camera-major, masked by segmentation |
-| 9-17 | per-dart masks, camera-major: `9 + cam*3 + slot` |
-| 18-20 | per-dart tip Gaussian (sigma 5), one per slot, shared across cameras |
+| 0–8 | 3 cameras × RGB, camera-major, masked by segmentation |
+| 9–17 | per-dart masks, camera-major: `9 + cam*3 + slot` |
+| 18–20 | per-dart tip Gaussian (σ=5), one per slot, shared across cameras |
 
-A slot's mask and its tip channel describe the same dart, and the pairing
-matters: a mask says where a dart is, not which end is the point.
+A slot's mask and its tip channel describe the same dart, and the pairing is
+load-bearing — a mask says where a dart is, not which end is the point.
 
-The per-dart masks are the interesting part. The segmenter emits **one** binary
-mask of every dart present, so a single dart's pixels are only recoverable by
-differencing across time — when dart 2 is counted, whatever the mask gained
-since dart 1 was counted is dart 2. Dartmatic captures that difference at the
-moment of confirmation and never recomputes it, because the earlier mask is gone
-by the next cycle. Thin rims around a dart that has not moved, and holes where a
-later dart passes behind an earlier one, are expected; the model was trained
-with them and they should not be cleaned up.
+Thin rims around a dart that has not moved, and holes where a later dart passes
+behind an earlier one, are both expected. The model was trained with them and
+they should not be cleaned up.
 
-Still frames have no "since", which is why `--replay` derives a dart's mask from
-the connected blob under its tip instead. That recovers one dart from one frame,
-but cannot separate two whose silhouettes touch — so a replay may report two
-darts where a live run would find three. It is a property of replaying a frozen
-instant, not of the detector.
-
-**The sidecar.** `multicam_unet_ar.cond.json` sits next to the ONNX, is written
-by DartModelTraining's exporter, and names the layout that export expects. It is
-checked before anything loads:
+**The sidecar.** `multicam_unet_ar.cond.json` ships beside the ONNX and names
+the layout that export expects. It is checked before anything loads:
 
 ```
 AR conditioning: instance_v1 (21 channels, sigma 5)
 ```
 
 That check exists because the failure it prevents is invisible. A 10-channel and
-a 21-channel export share a file name, output shapes and node names; feed one the
-other's conditioning and it still runs, still emits peaks, and only detection
-quality says otherwise — which is indistinguishable from a bad camera angle until
+a 21-channel export share a file name, output shapes and node names; feed one
+the other's conditioning and it still runs, still emits peaks, and only accuracy
+says otherwise — which is indistinguishable from a bad camera angle until
 someone measures it. A stale segmentation model hid exactly that way for three
-months. Now a mismatch refuses to load and says what to re-export.
+months.
 
-## Layout
+</details>
+
+### Accuracy
+
+Measured against hand-labelled tips from the training set, running the real C++
+pipeline end to end — calibration, segmentation, warp, 21-channel pack, decode:
+
+```
+16 / 18 labelled tips    0 false positives
+mean error 1.8 px        median 1.7 px        max 3.1 px
+```
+
+on a 720 px canonical board, where the treble ring is about 10 px wide. The two
+misses are a third dart in a near-bull cluster, where two silhouettes touch and
+a still frame cannot separate them — a limit of replaying frozen frames, not of
+live play.
+
+### Speed
+
+On a Radeon RX 7900 XT, one full cycle — segmentation, autoregressive detector,
+both hand-detection stages:
+
+| stage | time |
+|---|---|
+| JPEG decode, 3 cameras concurrent | 3.7 ms |
+| detect + reply | 23.6 ms |
+| **total** | **27.3 ms → 36.6 Hz** |
+
+That clears the 30 Hz the cameras run at, so the sensors are the cap. Send-to-detection
+latency is 30 ms median. On CPU the same cycle takes 248 ms (~4 Hz), which still
+plays but feels it.
+
+<details>
+<summary><b>How the client and server stay in step</b></summary>
+
+Transport is plain TCP, one connection, carrying both control messages and
+video: a 12-byte little-endian header in front of each typed message. No RTP,
+no codec, no container.
+
+Video is discrete JPEG stills. The UVC cameras already deliver MJPEG, so the
+client **forwards the sensor's own bytes untouched** — no decode, no re-encode,
+no second generation of compression loss between sensor and model. Nothing is
+decoded on the Pi unless a preview screen actually asks for pixels.
+
+The client streams continuously and the server always scores the newest set it
+has. A reader thread drains the socket into a **one-slot, newest-wins mailbox**
+and re-credits the client the instant a set comes off the wire, while inference
+runs on another thread and takes whatever is freshest when it becomes free.
+
+```
+cycle     = max(transfer, server work)    not  transfer + server work
+staleness = one transfer                  not  one server cycle
+```
+
+Roughly 165–270 KB per 3-camera cycle; 41–67 Mbit/s at 30 Hz. Unremarkable for
+Wi-Fi 5/6, trivial over Ethernet. A slower link yields fewer cycles per second
+rather than a growing backlog of stale frames.
+
+**The Pi runs no models at all.** Its only jobs are capture, forward, and act on
+the dart events that come back.
+
+</details>
+
+---
+
+## Known issues
+
+Honest list for a first release:
+
+- **One board per server.** The detector holds one stateful pipeline, so a
+  second client is told the server is busy and retries. Fine for a single
+  setup; not a shortcut you can work around.
+- **Jetson / TensorRT is unsupported.** The backend still compiles, but it has
+  never been built against a real TensorRT and is not part of a release.
+- **MJPEG pass-through is unverified on real V4L2 hardware.** If a driver
+  ignores `CAP_PROP_CONVERT_RGB` the client falls back to re-encoding, which
+  costs CPU on the Pi but works.
+- **No prebuilt Raspberry Pi package.** Build it once from source; see
+  [docs/SETUP.md](docs/SETUP.md).
+- **Calibration is 120 clicks.** It is the honest cost of not requiring special
+  hardware, but it is the least pleasant part of setup.
+
+---
+
+## Building from source
+
+<details>
+<summary><b>Presets, options and the build matrix</b></summary>
+
+Configurations are named presets:
+
+```bash
+cmake --preset app-local-windows && cmake --build build-app-local-windows  # single PC
+cmake --preset server-directml   && cmake --build build-server-directml    # inference server (GPU)
+cmake --preset server-cpu        && cmake --build build-server-cpu         # inference server (CPU)
+cmake --preset app-network       && cmake --build build-app-network        # Raspberry Pi client
+cmake --preset app-sim           && cmake --build build                    # dev: clickable dartboard
+cmake --preset app-demo          && cmake --build build-app-demo           # release build of the demo
+```
+
+Two independent options drive everything:
+
+| option | values | meaning |
+|---|---|---|
+| `DARTMATIC_VISION_SOURCE` | `sim`, `local`, `network` | where dart events come from |
+| `DARTMATIC_INFER_BACKEND` | `none`, `directml`, `cpu`, `tensorrt` | what executes a forward pass |
+
+They are separate because one backend serves two binaries: the game detecting
+locally, and the headless server detecting on behalf of a remote client.
+
+| backend | runs on | notes |
+|---|---|---|
+| `directml` | any DirectX 12 GPU, Windows | AMD, Intel and NVIDIA alike. Fetches ONNX Runtime at configure time. |
+| `cpu` | anything | OpenCV DNN. No extra dependency; the fallback that always works. |
+| `tensorrt` | NVIDIA CUDA | Unsupported — see Known issues. |
+| `none` | — | No models compiled in (sim and Pi-client builds). |
+
+Toolchain: MSYS2 mingw64 g++ with C++23, CMake 3.22+, Ninja. Expect the first
+build to take a while — OpenCV is a submodule and is compiled from source.
+
+**Releases.** `scripts/release.ps1` builds every artifact, checks each binary
+starts with the toolchain off `PATH`, and collects the results in `dist/`.
+Needs NSIS for the two installers.
+
+</details>
+
+<details>
+<summary><b>Where DirectML comes from</b></summary>
+
+`server-directml` downloads ONNX Runtime (~12 MB) into
+`external_libs/onnxruntime` on first configure. **`DirectML.dll` is not fetched
+by default** — Windows ships one and the loader finds it, which needs no
+download and adds no redistribution obligation.
+
+The catch is that the inbox copy tracks the OS version: an older Windows 10 can
+carry a DirectML too old for the pinned ONNX Runtime, in which case the backend
+reports itself as `ONNX Runtime (CPU — DirectML unavailable)` and runs about
+thirteen times slower. `-DDARTMATIC_FETCH_DIRECTML=ON` ships the
+redistributable instead, at a one-time ~200 MB download for one 18 MB DLL.
+
+Note that Windows also ships its **own** `onnxruntime.dll` in System32. It is
+too old for this build, so the DLL we ship must sit beside the executable —
+the installer handles this, and the version check refuses to start rather than
+misbehave if it ever does not.
+
+</details>
+
+<details>
+<summary><b>Module layout</b></summary>
 
 | module | role |
 |---|---|
@@ -397,31 +323,34 @@ months. Now a mismatch refuses to load and says what to re-export.
 | `vision/` | cameras and the vision-source implementations |
 | `frame/` `game_lib/` `games/` `players/` `dart/` `debug/` | the game itself |
 
+A module is a directory with public headers in `<mod>/inc_public/<mod>/` and
+flat implementation files in `<mod>/*.cpp`.
+
+</details>
+
+---
+
 ## Credits
 
-### Libraries
+**Libraries** — [SDL 3](https://www.libsdl.org/), [SDL_ttf](https://github.com/libsdl-org/SDL_ttf),
+[SDL_image](https://github.com/libsdl-org/SDL_image) (zlib) ·
+[spdlog](https://github.com/gabime/spdlog), [Flecs](https://github.com/SanderMertens/flecs) (MIT) ·
+[OpenCV](https://opencv.org/) (Apache 2.0) ·
+[ONNX Runtime](https://github.com/microsoft/onnxruntime) (MIT, © Microsoft) ·
+[DirectML](https://aka.ms/DirectML) (proprietary — Microsoft Software License Terms;
+not redistributed by default)
 
-- **[SDL 3](https://www.libsdl.org/)** — Windowing, rendering, and input. zlib license.
-- **[SDL_ttf](https://github.com/libsdl-org/SDL_ttf)** — TrueType font rendering. zlib license.
-- **[SDL_image](https://github.com/libsdl-org/SDL_image)** — Image loading (PNG, JPG). zlib license.
-- **[spdlog](https://github.com/gabime/spdlog)** — Fast C++ logging. MIT license.
-- **[Flecs](https://github.com/SanderMertens/flecs)** — Entity Component System. MIT license.
-- **[OpenCV](https://opencv.org/)** — Computer vision. Apache License 2.0.
+**Assets** — [Roboto](https://fonts.google.com/specimen/Roboto) by Google (Apache 2.0) ·
+[Input Prompts](https://kenney.nl/assets/input-prompts) by [Kenney](https://www.kenney.nl) (CC0)
 
-Fetched at configure time, only for `DARTMATIC_INFER_BACKEND=directml`:
+**Models** are trained and exported from a companion repository and ship under
+the same MIT licence as the rest of this project.
 
-- **[ONNX Runtime](https://github.com/microsoft/onnxruntime)** — Model execution.
-  MIT license. © Microsoft Corporation. The notice is kept alongside the binaries
-  as `external_libs/onnxruntime/LICENSE-onnxruntime.txt`.
-- **[DirectML](https://aka.ms/DirectML)** — GPU execution provider. **Proprietary**
-  — Microsoft Software License Terms, not open source. By default we do not
-  redistribute it at all: the build uses the copy Windows already ships, which is
-  covered by the user's Windows licence. With `DARTMATIC_FETCH_DIRECTML=ON` the
-  redistributable is fetched instead; its terms permit shipping it inside an
-  application you develop for Windows/Xbox, and the licence plus third-party
-  notices are kept next to the DLL in `external_libs/directml/`.
+Licence texts for everything shipped are installed alongside the program under
+`licenses/`.
 
-### Assets
+---
 
-- **[Roboto](https://fonts.google.com/specimen/Roboto)** — Font by Google. Apache License 2.0.
-- **[Input Prompts](https://kenney.nl/assets/input-prompts)** (v1.4.1) — Keyboard, mouse, and controller icons by [Kenney](https://www.kenney.nl). CC0 1.0.
+<div align="center">
+<sub>MIT licensed · <a href="docs/SETUP.md">Setup guide</a></sub>
+</div>

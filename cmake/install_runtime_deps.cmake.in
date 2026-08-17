@@ -17,10 +17,14 @@
 #
 # Configured from CMakeLists.txt; edit the .in, never the generated copy.
 
-file(GLOB _dm_shipped_dlls "${CMAKE_INSTALL_PREFIX}/*.dll")
+# Where the binaries and their DLLs were installed, which is not the install
+# root — see DARTMATIC_INSTALL_BIN in CMakeLists.txt.
+set(_dm_bin "${CMAKE_INSTALL_PREFIX}/@DARTMATIC_INSTALL_BIN@")
+
+file(GLOB _dm_shipped_dlls "${_dm_bin}/*.dll")
 set(_dm_executables @DARTMATIC_INSTALLED_EXECUTABLES@)
 
-list(TRANSFORM _dm_executables PREPEND "${CMAKE_INSTALL_PREFIX}/")
+list(TRANSFORM _dm_executables PREPEND "${_dm_bin}/")
 
 file(GET_RUNTIME_DEPENDENCIES
      EXECUTABLES                 ${_dm_executables}
@@ -43,13 +47,13 @@ foreach(_dm_dep IN LISTS _dm_resolved)
     # be asked to copy a file onto itself.
     get_filename_component(_dm_dep_dir "${_dm_dep}" DIRECTORY)
     file(TO_CMAKE_PATH "${_dm_dep_dir}" _dm_dep_dir)
-    file(TO_CMAKE_PATH "${CMAKE_INSTALL_PREFIX}" _dm_prefix)
+    file(TO_CMAKE_PATH "${_dm_bin}" _dm_prefix)
     if(_dm_dep_dir STREQUAL _dm_prefix)
         continue()
     endif()
 
     message(STATUS "Bundling runtime dependency: ${_dm_dep}")
-    file(INSTALL DESTINATION "${CMAKE_INSTALL_PREFIX}"
+    file(INSTALL DESTINATION "${_dm_bin}"
          TYPE SHARED_LIBRARY
          FILES "${_dm_dep}")
 endforeach()

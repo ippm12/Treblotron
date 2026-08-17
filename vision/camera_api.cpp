@@ -171,6 +171,53 @@ static constexpr int PROBE_COUNT = sizeof(PROBE_RESOLUTIONS) / sizeof(PROBE_RESO
 
 /// Select the highest resolution the camera supports at TARGET_FPS.
 /// Tries each candidate from highest to lowest; uses camera default as fallback.
+/**
+ * Open camera `index` using whichever capture backend suits this platform.
+ *
+ * The backend is named rather than left to OpenCV, because the fourcc request
+ * in selectBestResolution() only reaches the driver on some of them.
+ *
+ *   Linux    V4L2 — the only sensible choice, and the one that honours fourcc.
+ *   Windows  Media Foundation first, DirectShow second.
+ *
+ * In practice a MinGW build gets DirectShow: OpenCV defaults WITH_MSMF to OFF
+ * for MinGW because Media Foundation needs headers the toolchain does not
+ * ship, so cv::CAP_MSMF is not compiled in and the first open simply returns
+ * false. It is still tried first, because the ordering is the one we want the
+ * moment MSMF becomes available — under MSVC, or a future OpenCV — and asking
+ * for a backend that is absent costs nothing.
+ *
+ * Which one actually won is logged, since the two negotiate formats
+ * differently and that is the first thing worth knowing when a camera opens
+ * but hands back nothing usable.
+ *
+ * Returns true when the device opened; the caller still has to prove a frame
+ * can be read from it.
+ */
+static bool openCameraDevice(cv::VideoCapture& cap, int index)
+{
+#ifdef _WIN32
+    struct Backend { int id; const char* name; };
+    static constexpr Backend BACKENDS[] = {
+        { cv::CAP_MSMF,  "Media Foundation" },
+        { cv::CAP_DSHOW, "DirectShow"       },
+    };
+
+    for(const Backend& backend : BACKENDS)
+    {
+        if(cap.open(index, backend.id))
+        {
+            LOG_INFO(VISION_LOG_ID, "Device {} opened via {}", index, backend.name);
+            return true;
+        }
+    }
+    return false;
+#else
+    return cap.open(index, cv::CAP_V4L2);
+#endif
+}
+
+
 static void selectBestResolution(cv::VideoCapture& cap)
 {
     // UVC cameras on the Pi default to YUYV, which can't sustain our target
@@ -408,13 +455,20 @@ static void captureLoop(CameraSlot* slot)
 
 
 // ============================================================================
-// NEON detection — warn loudly on every run if OpenCV wasn't built with NEON,
-// since warpPerspective scales ~20x between the scalar and NEON paths on the
-// Pi 5 and is the dominant cost in each capture thread.
+// SIMD sanity check for the capture threads.
+//
+// warpPerspective scales roughly 20x between the scalar and NEON paths on a
+// Pi 5 and is the dominant cost in each capture thread, so an OpenCV built
+// without NEON is worth shouting about — on ARM.
+//
+// On x86 the same warning is nonsense: NEON is an ARM instruction set, so it
+// is always absent, and telling a Windows user to "rebuild OpenCV with NEON
+// enabled for a major speedup" sends them after a speedup that does not exist.
 // ============================================================================
 
-static void logOpenCVNeonStatus()
+static void logOpenCVSimdStatus()
 {
+#if defined(__ARM_NEON) || defined(__aarch64__) || defined(_M_ARM64)
     if(cv::checkHardwareSupport(CV_CPU_NEON))
     {
         LOG_INFO(VISION_LOG_ID, "OpenCV runtime NEON support: YES");
@@ -427,9 +481,12 @@ static void logOpenCVNeonStatus()
     }
 
     // Runtime CPU feature detection can report NEON even when the OpenCV build
-    // itself wasn't compiled with NEON intrinsics in the hot paths (warpPerspective
-    // in particular). Dump the build info once so we can see the compile-time
-    // CPU_BASELINE / CPU_DISPATCH values and confirm warp is actually vectorized.
+    // itself wasn't compiled with NEON intrinsics in the hot paths
+    // (warpPerspective in particular), so the compile-time CPU_BASELINE /
+    // CPU_DISPATCH values are what actually answer the question. A hundred
+    // lines of build information is a fair price on the one platform where the
+    // answer decides whether the capture threads keep up; it is pure noise
+    // everywhere else, so it is not logged there.
     const cv::String info = cv::getBuildInformation();
     std::stringstream ss(info);
     std::string line;
@@ -437,6 +494,9 @@ static void logOpenCVNeonStatus()
     {
         LOG_INFO(VISION_LOG_ID, "cv::getBuildInformation | {}", line);
     }
+#else
+    LOG_INFO(VISION_LOG_ID, "OpenCV SIMD baseline: {}", cv::getCPUFeaturesLine());
+#endif
 }
 
 
@@ -451,7 +511,7 @@ Status initializeCameraSystem()
         return STATUS_OK;
     }
 
-    logOpenCVNeonStatus();
+    logOpenCVSimdStatus();
 
     initializeWireCalibration();
     // Load any saved wire calibration synchronously before the user can interact
@@ -471,12 +531,13 @@ Status initializeCameraSystem()
                 break;  // Shutdown requested before probing finished
             }
 
-            // Force the V4L2 backend. OpenCV's default auto-selection prefers
-            // GStreamer, which builds a v4l2src pipeline that silently ignores
-            // CAP_PROP_FOURCC — our MJPG request never reaches the driver and
-            // the pipeline fails to negotiate a format. V4L2 honors fourcc.
+            // Never OpenCV's auto-selection. On Linux it prefers GStreamer,
+            // which builds a v4l2src pipeline that silently ignores
+            // CAP_PROP_FOURCC — the MJPG request never reaches the driver and
+            // format negotiation fails. Naming a backend is what makes
+            // selectBestResolution's fourcc request mean anything.
             cv::VideoCapture cap;
-            if(!cap.open(idx, cv::CAP_V4L2))
+            if(!openCameraDevice(cap, idx))
             {
                 continue;
             }

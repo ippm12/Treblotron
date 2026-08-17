@@ -677,7 +677,16 @@ endif()
 # copy to keep configuration and logs in the user's profile rather than trying
 # to write inside Program Files.
 
-set(DARTMATIC_INSTALL_BIN ".")
+# bin/ rather than the install root, because CPack's NSIS generator hardcodes
+# that path when it writes the Start Menu shortcut and the "run now" checkbox
+# on the finish page. A flat layout produced an installer whose shortcut
+# pointed at $INSTDIR\bin\Dartmatic.exe while the executable sat at
+# $INSTDIR\Dartmatic.exe — a broken shortcut is a worse first impression than
+# one extra directory.
+#
+# It also makes the installed tree identical in shape to build/bin, so
+# "does it behave the same installed as it does here" stops being a question.
+set(DARTMATIC_INSTALL_BIN "bin")
 
 if(DARTMATIC_BUILD_APP)
     install(TARGETS ${PRJ_NAME} RUNTIME DESTINATION ${DARTMATIC_INSTALL_BIN}
@@ -879,9 +888,18 @@ set(CPACK_ARCHIVE_COMPONENT_INSTALL ON)
 set(CPACK_NSIS_COMPONENT_INSTALL    ON)
 set(CPACK_DEB_COMPONENT_INSTALL     ON)
 
-# Component installs default to omitting the top-level folder, which turns the
-# demo zip into 39 loose files dumped wherever it was unpacked.
-set(CPACK_COMPONENT_INCLUDE_TOPLEVEL_DIRECTORY 1)
+# Component installs default to omitting the top-level folder. Whether that is
+# right depends entirely on the generator:
+#
+#   zip       needs one, or unpacking sprays 39 loose files into whatever
+#             directory the user happened to be in;
+#   installer must not have one, because the directory the user chose is
+#             already the container — otherwise everything lands in
+#             C:\Program Files\Dartmatic\Dartmatic-0.1.0-AMD64\ and the Start
+#             Menu shortcut points at a path that does not exist.
+#
+# Set below, next to the generator choice, rather than here where it would have
+# to guess.
 
 # What this particular build is, so the four artifacts do not collide in a
 # releases directory and nobody has to guess which one they downloaded.
@@ -908,8 +926,10 @@ if(WIN32)
     # hardware gets a proper installed presence.
     if(DARTMATIC_VISION_SOURCE STREQUAL "sim" AND NOT DARTMATIC_BUILD_SERVER)
         set(CPACK_GENERATOR "ZIP")
+        set(CPACK_COMPONENT_INCLUDE_TOPLEVEL_DIRECTORY 1)
     else()
         set(CPACK_GENERATOR "NSIS")
+        set(CPACK_COMPONENT_INCLUDE_TOPLEVEL_DIRECTORY 0)
     endif()
 
     set(CPACK_NSIS_PACKAGE_NAME     "Dartmatic ${_pkg_variant}")
@@ -926,9 +946,16 @@ if(WIN32)
     # front of the first client that tries to connect — from another machine,
     # where nobody is watching this one to click Allow. Adding the rule at
     # install time is the difference between "it works" and a silent timeout.
+    #
+    # Escaping here is doubled because the text is parsed twice: once as this
+    # string, and again when CPack writes it verbatim into CPackConfig.cmake and
+    # re-reads that file. CPack does no escaping of its own, so whatever this
+    # evaluates to has to already be valid inside a CMake quoted string.
+    # A path written \\ therefore arrives as \, which CPackConfig.cmake then
+    # rejects as the invalid escape \D — hence four backslashes, not two.
     if(DARTMATIC_BUILD_SERVER)
         set(CPACK_NSIS_EXTRA_INSTALL_COMMANDS "
-            ExecWait 'netsh advfirewall firewall add rule name=\\\"Dartmatic Server\\\" dir=in action=allow program=\\\"$INSTDIR\\${SERVER_NAME}.exe\\\" enable=yes'
+            ExecWait 'netsh advfirewall firewall add rule name=\\\"Dartmatic Server\\\" dir=in action=allow program=\\\"$INSTDIR\\\\${DARTMATIC_INSTALL_BIN}\\\\${SERVER_NAME}.exe\\\" enable=yes'
         ")
         set(CPACK_NSIS_EXTRA_UNINSTALL_COMMANDS "
             ExecWait 'netsh advfirewall firewall delete rule name=\\\"Dartmatic Server\\\"'
@@ -936,6 +963,10 @@ if(WIN32)
     endif()
 else()
     set(CPACK_GENERATOR "TGZ;DEB")
+    # The .deb unpacks straight into /opt/dartmatic, so a versioned wrapper
+    # directory inside it would just be in the way. The .tar.gz gets one from
+    # its own layout rules.
+    set(CPACK_COMPONENT_INCLUDE_TOPLEVEL_DIRECTORY 0)
     set(CPACK_PACKAGING_INSTALL_PREFIX "/opt/dartmatic")
     set(CPACK_DEBIAN_PACKAGE_MAINTAINER "ippm12")
     set(CPACK_DEBIAN_PACKAGE_SECTION    "games")

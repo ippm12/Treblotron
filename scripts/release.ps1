@@ -46,6 +46,11 @@ $repo      = (Resolve-Path (Join-Path $scriptDir "..")).Path
 if (-not $Output) { $Output = Join-Path $repo "dist" }
 Set-Location $repo
 
+# `powershell -File script.ps1 -Only app,demo` hands the whole thing over as a
+# single string rather than binding it as an array, so split it back apart.
+# Someone typing a comma-separated list means a list either way.
+$Only = $Only | ForEach-Object { $_ -split "," } | Where-Object { $_ } | ForEach-Object { $_.Trim() }
+
 $configs = @{
     app    = @{ Preset = "app-local-windows"; Dir = "build-app-local-windows"; Exe = "Dartmatic.exe" }
     server = @{ Preset = "server-directml";   Dir = "build-server-directml";   Exe = "Dartmatic_Server.exe" }
@@ -53,8 +58,32 @@ $configs = @{
 }
 
 # NSIS is only needed by the two installers; the demo is a zip.
-if (($Only | Where-Object { $_ -ne "demo" }) -and -not (Get-Command makensis -ErrorAction SilentlyContinue)) {
-    throw "makensis is not on PATH. Install NSIS (winget install NSIS.NSIS) or build -Only demo."
+#
+# Its own installer does not add itself to PATH, so looking only there would
+# send someone editing environment variables for a tool that already records
+# where it lives. Check the registry and the usual directories too, and put it
+# on PATH for this process so CPack finds it by name.
+function Resolve-MakeNsis {
+    $found = Get-Command makensis -ErrorAction SilentlyContinue
+    if ($found) { return $found.Source }
+
+    foreach ($key in 'HKLM:\SOFTWARE\NSIS', 'HKLM:\SOFTWARE\WOW6432Node\NSIS') {
+        $root = (Get-ItemProperty $key -ErrorAction SilentlyContinue).'(default)'
+        if ($root -and (Test-Path "$root\makensis.exe")) { return "$root\makensis.exe" }
+    }
+    foreach ($p in "$env:ProgramFiles\NSIS\makensis.exe", "${env:ProgramFiles(x86)}\NSIS\makensis.exe") {
+        if (Test-Path $p) { return $p }
+    }
+    return $null
+}
+
+if ($Only | Where-Object { $_ -ne "demo" }) {
+    $nsis = Resolve-MakeNsis
+    if (-not $nsis) {
+        throw "NSIS not found. Install it (winget install NSIS.NSIS) or build -Only demo."
+    }
+    $env:PATH = "$(Split-Path -Parent $nsis);$env:PATH"
+    Write-Host "Using NSIS at $nsis" -ForegroundColor DarkGray
 }
 
 New-Item -ItemType Directory -Force -Path $Output | Out-Null
