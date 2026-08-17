@@ -361,7 +361,7 @@ void MainMenu::openCard()
     }
     else if(card.type == CardType::Calibration)
     {
-#ifdef DARTLENS_USE_SIM
+#ifdef DARTMATIC_USE_SIM
         m_showSimWarning = true;
 #else
         loadGame(std::make_shared<CalibrationScreen>());
@@ -445,7 +445,7 @@ void MainMenu::renderCardGrid()
 
     // Title
     {
-        std::string title = "DartLens";
+        std::string title = "Dartmatic";
         float titleX = LEFT_MARGIN;
 
         auto text = std::make_shared<RenderText>();
@@ -535,7 +535,7 @@ void MainMenu::renderCardGrid()
             else if(card.type == CardType::Exit)
             {
                 cardTitle = "Exit";
-                cardDesc  = "Quit DartLens";
+                cardDesc  = "Quit Dartmatic";
             }
             else
             {

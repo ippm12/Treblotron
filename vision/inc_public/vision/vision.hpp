@@ -24,7 +24,7 @@
 
 /**
  * Initialize the vision module. Creates the appropriate vision source
- * based on build configuration (sim when DARTLENS_USE_SIM is defined).
+ * based on build configuration (sim when DARTMATIC_USE_SIM is defined).
  * Must be called after initializeFrameModule() and initializeGameManager().
  */
 Status initializeVisionModule();
@@ -82,7 +82,7 @@ bool getLatestVisionHeatmap(std::vector<float>& out,
  * render a loading screen via presentVisionLoadingFrame() while this
  * returns true.
  *
- * For sources that come up synchronously (sim, hailo) this always
+ * For sources that come up synchronously (sim) this always
  * returns false after initializeVisionModule() returns.
  */
 bool isVisionInitializing();
@@ -219,7 +219,7 @@ uint64_t getCameraFrameSequence(uint32_t index);
  */
 bool getCameraWarpedFrame(uint32_t index, CameraFrame& outFrame);
 
-#ifdef DARTLENS_PASSTHROUGH_CAPTURE
+#ifdef DARTMATIC_PASSTHROUGH_CAPTURE
 /**
  * Copies the latest frame for a camera as JPEG bytes, ready to put on a wire.
  *
@@ -232,7 +232,7 @@ bool getCameraWarpedFrame(uint32_t index, CameraFrame& outFrame);
 bool getCameraCompressedFrame(uint32_t index, std::vector<uint8_t>& out);
 #endif
 
-#ifdef DARTLENS_HAVE_LOCAL_INFERENCE
+#ifdef DARTMATIC_HAVE_LOCAL_INFERENCE
 /**
  * Copies the latest dart-segmentation input plane for the given camera into the
  * caller-provided buffer (NCHW float32, shape (3, 360, 640) — i.e. 3*360*640
@@ -278,7 +278,7 @@ bool swapCameraSlots(uint32_t a, uint32_t b);
  * request was made; for the remote path the outcome arrives later via
  * consumeVisionCaptureResult().
  */
-Status saveVisionCapture(const std::string& outputDir = "./captures");
+Status saveVisionCapture(const std::string& outputDir = appDataPath("captures"));
 
 /**
  * Result text of the last remote capture, once, or empty. The UI polls this so

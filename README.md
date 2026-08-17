@@ -1,4 +1,4 @@
-# DartLens
+# Dartmatic
 An application for playing darts with automatic vision scoring
 
 ## Building
@@ -18,13 +18,13 @@ Two independent options drive everything:
 
 | option | values | meaning |
 |---|---|---|
-| `DARTLENS_VISION_SOURCE` | `sim` `hailo` `local` `network` | where the game gets dart events |
-| `DARTLENS_INFER_BACKEND` | `none` `tensorrt` `directml` `cpu` | what executes a forward pass |
+| `DARTMATIC_VISION_SOURCE` | `sim` `hailo` `local` `network` | where the game gets dart events |
+| `DARTMATIC_INFER_BACKEND` | `none` `tensorrt` `directml` `cpu` | what executes a forward pass |
 
-The old `DARTLENS_USE_SIM` / `_HAILO` / `_TENSORRT` booleans still work and map
-onto the pair above. They only apply when `DARTLENS_VISION_SOURCE` is still at
+The old `DARTMATIC_USE_SIM` / `_HAILO` / `_TENSORRT` booleans still work and map
+onto the pair above. They only apply when `DARTMATIC_VISION_SOURCE` is still at
 its default, and are cleared from the cache once honoured — otherwise a build
-directory that once had `DARTLENS_USE_HAILO=ON` would keep demanding HailoRT
+directory that once had `DARTMATIC_USE_HAILO=ON` would keep demanding HailoRT
 forever, including after the accelerator has been removed from the machine.
 
 ### Building on the Raspberry Pi
@@ -42,7 +42,7 @@ Then just run it — the server address is entered from inside the app and saved
 so nothing needs to be set on the command line:
 
 ```bash
-./build-app-network/bin/Dart_Lens
+./build-app-network/bin/Dartmatic
 ```
 
 If your CMake predates presets (3.21+), the same thing longhand:
@@ -50,13 +50,13 @@ If your CMake predates presets (3.21+), the same thing longhand:
 ```bash
 cmake -S . -B build-app-network -G Ninja \
       -DCMAKE_BUILD_TYPE=Release \
-      -DDARTLENS_BUILD_APP=ON -DDARTLENS_BUILD_SERVER=OFF \
-      -DDARTLENS_VISION_SOURCE=network -DDARTLENS_INFER_BACKEND=none
+      -DDARTMATIC_BUILD_APP=ON -DDARTMATIC_BUILD_SERVER=OFF \
+      -DDARTMATIC_VISION_SOURCE=network -DDARTMATIC_INFER_BACKEND=none
 cmake --build build-app-network -j4
 ```
 
 **If a build complains about HailoRT after you've removed the hat**, it is
-reading a stale `DARTLENS_USE_HAILO=ON` out of an old build directory. The
+reading a stale `DARTMATIC_USE_HAILO=ON` out of an old build directory. The
 current CMake detects that and clears it, but the quickest cure is a fresh
 build directory — `rm -rf build && cmake --preset app-network`.
 
@@ -113,17 +113,17 @@ backend reports `ONNX Runtime (CPU — DirectML unavailable)` and runs ~13x slow
 If that happens, ship the redistributable instead:
 
 ```bash
-cmake --preset server-directml -DDARTLENS_FETCH_DIRECTML=ON
+cmake --preset server-directml -DDARTMATIC_FETCH_DIRECTML=ON
 ```
 
 That fetches the `Microsoft.AI.DirectML` package (a ~200 MB one-time download for
 one 18 MB DLL — hence not the default) into `external_libs/directml`, licence and
-third-party notices included. `-DDARTLENS_DIRECTML_DLL=<path>` points at a copy
+third-party notices included. `-DDARTMATIC_DIRECTML_DLL=<path>` points at a copy
 you already have.
 
 ## Remote inference
 
-The detection models are too large for a Raspberry Pi. `DARTLENS_VISION_SOURCE=network`
+The detection models are too large for a Raspberry Pi. `DARTMATIC_VISION_SOURCE=network`
 splits the system in two: the Pi keeps the cameras and the UI, a bigger machine
 runs the models, and dart events come back over TCP.
 
@@ -134,15 +134,15 @@ fits the homography with the same routine rather than keeping its own copy.
 
 ```bash
 # on the inference machine
-./Dart_Lens_Server --port 9876
+./Dartmatic_Server --port 9876
 
 # on the Pi — just run it; the address is set from inside the app
-./Dart_Lens
+./Dartmatic
 ```
 
 The server address is entered in the app, not baked into the build. It is saved
 to `./config/server.txt` and re-read on every reconnect, so an edit takes effect
-within a couple of seconds without a restart. `DARTLENS_SERVER` still seeds it on
+within a couple of seconds without a restart. `DARTMATIC_SERVER` still seeds it on
 first run for scripted deployments, but once anything has been saved through the
 UI the file wins.
 
@@ -360,7 +360,7 @@ matters: a mask says where a dart is, not which end is the point.
 The per-dart masks are the interesting part. The segmenter emits **one** binary
 mask of every dart present, so a single dart's pixels are only recoverable by
 differencing across time — when dart 2 is counted, whatever the mask gained
-since dart 1 was counted is dart 2. DartLens captures that difference at the
+since dart 1 was counted is dart 2. Dartmatic captures that difference at the
 moment of confirmation and never recomputes it, because the earlier mask is gone
 by the next cycle. Thin rims around a dart that has not moved, and holes where a
 later dart passes behind an earlier one, are expected; the model was trained
@@ -408,7 +408,7 @@ months. Now a mismatch refuses to load and says what to re-export.
 - **[Flecs](https://github.com/SanderMertens/flecs)** — Entity Component System. MIT license.
 - **[OpenCV](https://opencv.org/)** — Computer vision. Apache License 2.0.
 
-Fetched at configure time, only for `DARTLENS_INFER_BACKEND=directml`:
+Fetched at configure time, only for `DARTMATIC_INFER_BACKEND=directml`:
 
 - **[ONNX Runtime](https://github.com/microsoft/onnxruntime)** — Model execution.
   MIT license. © Microsoft Corporation. The notice is kept alongside the binaries
@@ -416,7 +416,7 @@ Fetched at configure time, only for `DARTLENS_INFER_BACKEND=directml`:
 - **[DirectML](https://aka.ms/DirectML)** — GPU execution provider. **Proprietary**
   — Microsoft Software License Terms, not open source. By default we do not
   redistribute it at all: the build uses the copy Windows already ships, which is
-  covered by the user's Windows licence. With `DARTLENS_FETCH_DIRECTML=ON` the
+  covered by the user's Windows licence. With `DARTMATIC_FETCH_DIRECTML=ON` the
   redistributable is fetched instead; its terms permit shipping it inside an
   application you develop for Windows/Xbox, and the licence plus third-party
   notices are kept next to the DLL in `external_libs/directml/`.

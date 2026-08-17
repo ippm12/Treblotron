@@ -93,7 +93,7 @@ int main()
         // at the door — the link indicator and the settings overlay handle it
         // from inside the running app. Local model builds still wait, because
         // there is nothing to show until they finish.
-#ifdef DARTLENS_USE_NETWORK
+#ifdef DARTMATIC_USE_NETWORK
         constexpr bool blockOnVisionInit = false;
 #else
         constexpr bool blockOnVisionInit = true;

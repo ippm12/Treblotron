@@ -1,6 +1,6 @@
 message("Start including external libraries")
 
-# DARTLENS_TARGETS is set by the top-level CMakeLists and holds whichever of
+# DARTMATIC_TARGETS is set by the top-level CMakeLists and holds whichever of
 # the game / server executables are being built. SDL, flecs and the image/font
 # libraries are app-only — the server draws nothing, so a server-only
 # configuration never even configures them. That is most of what makes the
@@ -8,11 +8,11 @@ message("Start including external libraries")
 
 # spdlog — everything logs
 add_subdirectory(spdlog)
-foreach(_t IN LISTS DARTLENS_TARGETS)
+foreach(_t IN LISTS DARTMATIC_TARGETS)
     target_link_libraries(${_t} PRIVATE spdlog::spdlog)
 endforeach()
 
-if(DARTLENS_BUILD_APP)
+if(DARTMATIC_BUILD_APP)
     # SDL
     add_subdirectory(SDL)
 
@@ -45,15 +45,15 @@ endif()
 #
 # features2d and flann are dependencies of calib3d, not direct users.
 # ----------------------------------------------------------------------------
-set(_dartlens_cv_modules "core,imgproc,features2d,flann,calib3d,imgcodecs")
-if(DARTLENS_BUILD_APP)
-    string(APPEND _dartlens_cv_modules ",videoio")
+set(_dartmatic_cv_modules "core,imgproc,features2d,flann,calib3d,imgcodecs")
+if(DARTMATIC_BUILD_APP)
+    string(APPEND _dartmatic_cv_modules ",videoio")
 endif()
-if(NOT DARTLENS_INFER_BACKEND STREQUAL "none")
-    string(APPEND _dartlens_cv_modules ",dnn")
+if(NOT DARTMATIC_INFER_BACKEND STREQUAL "none")
+    string(APPEND _dartmatic_cv_modules ",dnn")
 endif()
 
-if(DARTLENS_INFER_BACKEND STREQUAL "tensorrt")
+if(DARTMATIC_INFER_BACKEND STREQUAL "tensorrt")
     # The cuda* modules (and their cudev prerequisite) live in opencv_contrib,
     # not the main opencv repo — so WITH_CUDA requires OPENCV_EXTRA_MODULES_PATH
     # to point at an opencv_contrib checkout.
@@ -69,7 +69,7 @@ if(DARTLENS_INFER_BACKEND STREQUAL "tensorrt")
     endif()
     set(OPENCV_EXTRA_MODULES_PATH "${_opencv_contrib_modules}" CACHE PATH "" FORCE)
 
-    string(APPEND _dartlens_cv_modules ",cudev,cudaarithm,cudaimgproc,cudawarping")
+    string(APPEND _dartmatic_cv_modules ",cudev,cudaarithm,cudaimgproc,cudawarping")
     set(WITH_CUDA ON CACHE BOOL "" FORCE)
     set(WITH_CUDNN ON CACHE BOOL "" FORCE)
     set(WITH_CUBLAS ON CACHE BOOL "" FORCE)
@@ -90,8 +90,8 @@ else()
     set(WITH_CUDA OFF CACHE BOOL "" FORCE)
 endif()
 
-message(STATUS "OpenCV BUILD_LIST: ${_dartlens_cv_modules}")
-set(BUILD_LIST "${_dartlens_cv_modules}" CACHE STRING "" FORCE)
+message(STATUS "OpenCV BUILD_LIST: ${_dartmatic_cv_modules}")
+set(BUILD_LIST "${_dartmatic_cv_modules}" CACHE STRING "" FORCE)
 
 set(BUILD_SHARED_LIBS_SAVED ${BUILD_SHARED_LIBS})
 set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
@@ -122,19 +122,19 @@ set(CMAKE_BUILD_TYPE "${CMAKE_BUILD_TYPE_SAVED}" CACHE STRING "" FORCE)
 set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS_SAVED}")
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS_SAVED}")
 
-set(_dartlens_cv_libs opencv_core opencv_imgproc opencv_calib3d opencv_imgcodecs)
-if(DARTLENS_BUILD_APP)
-    list(APPEND _dartlens_cv_libs opencv_videoio)
+set(_dartmatic_cv_libs opencv_core opencv_imgproc opencv_calib3d opencv_imgcodecs)
+if(DARTMATIC_BUILD_APP)
+    list(APPEND _dartmatic_cv_libs opencv_videoio)
 endif()
-if(NOT DARTLENS_INFER_BACKEND STREQUAL "none")
-    list(APPEND _dartlens_cv_libs opencv_dnn)
+if(NOT DARTMATIC_INFER_BACKEND STREQUAL "none")
+    list(APPEND _dartmatic_cv_libs opencv_dnn)
 endif()
 
 # OpenCV's add_subdirectory doesn't propagate include dirs properly — add them
 # explicitly. Listing every module's include dir unconditionally is harmless
 # (a path that isn't built simply contributes no symbols) and keeps this from
 # needing a second per-configuration branch.
-set(_dartlens_cv_includes
+set(_dartmatic_cv_includes
     ${CMAKE_CURRENT_SOURCE_DIR}/opencv/modules/core/include
     ${CMAKE_CURRENT_SOURCE_DIR}/opencv/modules/imgproc/include
     ${CMAKE_CURRENT_SOURCE_DIR}/opencv/modules/features2d/include
@@ -146,7 +146,7 @@ set(_dartlens_cv_includes
     ${CMAKE_BINARY_DIR}  # generated headers (opencv2/cvconfig.h, opencv_modules.hpp)
 )
 
-foreach(_t IN LISTS DARTLENS_TARGETS)
-    target_link_libraries(${_t} PRIVATE ${_dartlens_cv_libs})
-    target_include_directories(${_t} PRIVATE ${_dartlens_cv_includes})
+foreach(_t IN LISTS DARTMATIC_TARGETS)
+    target_link_libraries(${_t} PRIVATE ${_dartmatic_cv_libs})
+    target_include_directories(${_t} PRIVATE ${_dartmatic_cv_includes})
 endforeach()

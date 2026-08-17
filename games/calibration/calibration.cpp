@@ -701,7 +701,7 @@ void CalibrationScreen::saveFrames()
         return;
     }
 
-    Status stat = saveAllCameraFrames("./captures");
+    Status stat = saveAllCameraFrames(appDataPath("captures"));
     showStatus(IS_STATUS_OK(stat) ? "Frames saved to ./captures/" : "Failed to save frames");
 }
 #endif

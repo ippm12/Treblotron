@@ -14,7 +14,7 @@
  *
  * Which rows exist depends on the build, not on a flag in here: a simulated
  * source has no thresholds to turn, and a local-inference build has no server
- * to address. Asking vision/ rather than testing DARTLENS_USE_* keeps this file
+ * to address. Asking vision/ rather than testing DARTMATIC_USE_* keeps this file
  * free of build-configuration ifdefs.
  */
 

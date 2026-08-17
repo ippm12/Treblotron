@@ -26,7 +26,7 @@
  * linked at build time, so a missing DLL is a clear runtime error rather than
  * a link failure.
  *
- * Compiled only when DARTLENS_INFER_BACKEND=directml. ModelSpec::cachePath,
+ * Compiled only when DARTMATIC_INFER_BACKEND=directml. ModelSpec::cachePath,
  * ::preferFp16 and ::fp32Layers are ignored — ORT has no ahead-of-time compile
  * step and DirectML picks its own precision.
  */
@@ -406,7 +406,7 @@ namespace
             {
                 if(!loadOrtLibrary()) return STATUS_ERROR_GENERIC;
 
-                if(failed(g_ort.api->CreateEnv(ORT_LOGGING_LEVEL_WARNING, "DartLens", &m_env),
+                if(failed(g_ort.api->CreateEnv(ORT_LOGGING_LEVEL_WARNING, "Dartmatic", &m_env),
                           "CreateEnv"))
                 {
                     return STATUS_ERROR_GENERIC;

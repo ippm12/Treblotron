@@ -141,7 +141,7 @@ class GameManager
         // Input hints for pause instruction in the status bar
         InputHints m_inputHints;
 
-#ifdef DARTLENS_SHOW_FPS
+#ifdef DARTMATIC_SHOW_FPS
         void enqueueFps(float deltaTime);
         FontID   m_fpsFontId;
         float    m_fpsAccumulator;

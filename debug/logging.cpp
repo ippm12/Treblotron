@@ -13,6 +13,7 @@
 #include "spdlog/sinks/basic_file_sink.h"
 #include "spdlog/sinks/stdout_color_sinks.h"
 #include "common_types.hpp"
+#include "debug/app_paths.hpp"
 #include "debug/common_logging.hpp"
 
 #define LOG_ID_IS_VALID(logid) ((logid >= 0) && (logid < MAX_ASYNC_LOGS))
@@ -71,7 +72,10 @@ static Status createAsyncLog(LogID logID, LogLevel logLevel, std::string& name)
     {
         // Create async logger that logs to both console and file
         std::string logger_name = std::to_string(logID) + "_" + name;
-        std::string log_filename = "logs/dart_lens_" + logger_name + ".log";
+        // appDataPath creates the directory, which basic_file_sink_mt will not
+        // do for a path whose parent is missing.
+        std::string log_filename =
+            appDataPath("logs/dartmatic_" + logger_name + ".log");
 
         auto file_sink = std::make_shared<spdlog::sinks::basic_file_sink_mt>(log_filename, true);
         auto console_sink = std::make_shared<spdlog::sinks::stdout_color_sink_mt>();

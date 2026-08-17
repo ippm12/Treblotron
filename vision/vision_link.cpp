@@ -21,7 +21,7 @@ namespace
     // is the right amount of machinery.
     std::mutex  f_mutex;
     std::string f_address;
-    std::string f_path = "./config/server.txt";
+    std::string f_path = appDataPath("config/server.txt");
 
     /** Trim surrounding whitespace; users paste addresses with stray spaces. */
     std::string trimmed(const std::string& s)
@@ -93,11 +93,11 @@ Status loadInferenceServerAddress(const std::string& path)
     // environment variable stays as a seed for scripted deployments that
     // predate the settings page.
     std::string chosen = fromFile;
-    const char* env = std::getenv("DARTLENS_SERVER");
+    const char* env = std::getenv("DARTMATIC_SERVER");
     if(chosen.empty() && env && *env)
     {
         chosen = trimmed(env);
-        LOG_INFO(VISION_LOG_ID, "Using inference server '{}' from DARTLENS_SERVER", chosen);
+        LOG_INFO(VISION_LOG_ID, "Using inference server '{}' from DARTMATIC_SERVER", chosen);
     }
 
     {

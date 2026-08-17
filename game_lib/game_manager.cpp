@@ -108,7 +108,7 @@ GameManager::GameManager()
     : m_initialized(false), m_currentGame(nullptr),
       m_lastTickNs(0), m_frameId(INVALID_FRAME_ID), m_barFontId(INVALID_FONT_ID),
       m_pauseFontId(INVALID_FONT_ID)
-#ifdef DARTLENS_SHOW_FPS
+#ifdef DARTMATIC_SHOW_FPS
     , m_fpsFontId(INVALID_FONT_ID), m_fpsAccumulator(0.0f), m_fpsFrameCount(0), m_fpsDisplay(0)
 #endif
 {
@@ -130,17 +130,17 @@ Status GameManager::initialize()
     }
 
     // Create the main window
-    Status stat = createNewFrame("DartLens", WINDOW_WIDTH, WINDOW_HEIGHT, m_frameId);
+    Status stat = createNewFrame("Dartmatic", WINDOW_WIDTH, WINDOW_HEIGHT, m_frameId);
     if(IS_STATUS_NOT_OK(stat))
     {
         LOG_ERROR(GAME_MANAGER_LOG_ID, "Failed to create main window");
         return stat;
     }
 
-    // On real-camera builds (Hailo / TensorRT) we run on a dedicated cabinet
+    // On real-camera builds (local inference / network client) we run on a cabinet
     // display, so come up fullscreen. The sim build is used for development
     // on a desktop where a windowed mode is more useful.
-#ifndef DARTLENS_USE_SIM
+#ifndef DARTMATIC_USE_SIM
     setFrameFullscreen(m_frameId, true);
 #endif
 
@@ -319,7 +319,7 @@ Status GameManager::initialize()
     m_currentGame = nullptr;
     m_lastTickNs = SDL_GetTicksNS();
 
-#ifdef DARTLENS_SHOW_FPS
+#ifdef DARTMATIC_SHOW_FPS
     m_fpsFontId = loadFont("assets/fonts/Roboto-Regular.ttf", 24.0f);
     if(m_fpsFontId == INVALID_FONT_ID)
     {
@@ -363,7 +363,7 @@ void GameManager::shutdown()
         m_pauseFontId = INVALID_FONT_ID;
     }
 
-#ifdef DARTLENS_SHOW_FPS
+#ifdef DARTMATIC_SHOW_FPS
     if(m_fpsFontId != INVALID_FONT_ID)
     {
         unloadFont(m_fpsFontId);
@@ -580,7 +580,7 @@ void GameManager::tick()
             enqueueBar(m_currentGame->getBarInfo());
         }
 
-#ifdef DARTLENS_SHOW_FPS
+#ifdef DARTMATIC_SHOW_FPS
         enqueueFps(deltaTime);
 #endif
         renderQueueDrawFlush(m_frameId);
@@ -646,7 +646,7 @@ void GameManager::handlePauseKey(uint32_t keycode)
                     // On a remote build this only *requests* the save; the
                     // server writes the frames it actually scored and reports
                     // back, which renderPauseMenu picks up below.
-                    Status stat = saveVisionCapture("./captures");
+                    Status stat = saveVisionCapture(appDataPath("captures"));
                     m_pauseStatus = IS_STATUS_OK(stat)
                         ? "Saving capture..."
                         : "Failed to save capture";
@@ -942,7 +942,7 @@ void GameManager::enqueueBar(const GameBarInfo& info)
 }
 
 
-#ifdef DARTLENS_SHOW_FPS
+#ifdef DARTMATIC_SHOW_FPS
 static constexpr float    FPS_UPDATE_INTERVAL = 0.5f;
 static constexpr float    FPS_X               = 1830.0f;
 static constexpr float    FPS_Y               = 6.0f;

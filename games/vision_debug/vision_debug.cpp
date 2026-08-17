@@ -111,7 +111,7 @@ Status VisionDebugScreen::init(FrameID frameId)
 
     m_inputHints.init();
 
-#ifdef DARTLENS_USE_SIM
+#ifdef DARTMATIC_USE_SIM
     // In sim builds there are no cameras or heatmap to debug — the screen
     // is meaningless. Skip the heavy resource setup and let render() show a
     // "not available" message that any input dismisses.

@@ -40,11 +40,11 @@ std::string getInferenceServerAddress();
 Status setInferenceServerAddress(const std::string& hostPort);
 
 /**
- * Load the saved address. Falls back to the DARTLENS_SERVER environment
+ * Load the saved address. Falls back to the DARTMATIC_SERVER environment
  * variable when no file exists, so an existing scripted deployment keeps
  * working; once anything is saved through the UI, the file wins.
  */
-Status loadInferenceServerAddress(const std::string& path = "./config/server.txt");
+Status loadInferenceServerAddress(const std::string& path = appDataPath("config/server.txt"));
 
 
 // ============================================================================
