@@ -42,10 +42,36 @@
       }
     },
     {
+      "name": "app-local-windows",
+      "inherits": "base",
+      "displayName": "App — single PC, cameras and DirectML on one Windows box",
+      "description": "The simplest setup there is: three USB cameras straight into this machine, GPU inference locally, no server and no networking.",
+      "cacheVariables": {
+        "DARTMATIC_BUILD_APP": "ON",
+        "DARTMATIC_BUILD_SERVER": "OFF",
+        "DARTMATIC_VISION_SOURCE": "local",
+        "DARTMATIC_INFER_BACKEND": "directml",
+        "CMAKE_BUILD_TYPE": "Release"
+      }
+    },
+    {
+      "name": "app-demo",
+      "inherits": "base",
+      "displayName": "App — simulated darts, release build for distribution",
+      "description": "Same source as app-sim, built Release and stripped. This is what the downloadable demo zip is made from; use app-sim for day-to-day work.",
+      "cacheVariables": {
+        "DARTMATIC_BUILD_APP": "ON",
+        "DARTMATIC_BUILD_SERVER": "OFF",
+        "DARTMATIC_VISION_SOURCE": "sim",
+        "DARTMATIC_INFER_BACKEND": "none",
+        "CMAKE_BUILD_TYPE": "Release"
+      }
+    },
+    {
       "name": "app-local-jetson",
       "inherits": "base",
-      "displayName": "App — local TensorRT inference (Jetson Orin)",
-      "description": "Standalone: cameras, models and UI all on one machine.",
+      "displayName": "App — local TensorRT inference (Jetson Orin) [UNSUPPORTED]",
+      "description": "Never built against a real TensorRT. Kept compiling so the backend does not rot, but it is not part of a release and has not been verified on hardware.",
       "cacheVariables": {
         "DARTMATIC_BUILD_APP": "ON",
         "DARTMATIC_BUILD_SERVER": "OFF",
@@ -98,6 +124,14 @@
     {
       "name": "app-network",
       "configurePreset": "app-network"
+    },
+    {
+      "name": "app-local-windows",
+      "configurePreset": "app-local-windows"
+    },
+    {
+      "name": "app-demo",
+      "configurePreset": "app-demo"
     },
     {
       "name": "app-local-jetson",

@@ -153,9 +153,20 @@ if(DARTMATIC_INFER_BACKEND STREQUAL "tensorrt")
     list(APPEND _DARTMATIC_LANGUAGES CUDA)
 endif()
 
-project(${PRJ_NAME} LANGUAGES ${_DARTMATIC_LANGUAGES})
+project(${PRJ_NAME}
+        VERSION   0.1.0
+        LANGUAGES ${_DARTMATIC_LANGUAGES})
 
-message(STATUS "Dartmatic: app=${DARTMATIC_BUILD_APP} server=${DARTMATIC_BUILD_SERVER} "
+# Surfaced in the startup log, on the main menu and via --version, so a bug
+# report can name the build it came from. Generated rather than hand-written in
+# a header, so the number lives in exactly one place.
+configure_file(
+    "${PROJECT_SOURCE_DIR}/inc_common/dartmatic_version.hpp.in"
+    "${PROJECT_BINARY_DIR}/generated/dartmatic_version.hpp"
+    @ONLY)
+
+message(STATUS "Dartmatic ${PROJECT_VERSION}: app=${DARTMATIC_BUILD_APP} "
+               "server=${DARTMATIC_BUILD_SERVER} "
                "vision_source=${DARTMATIC_VISION_SOURCE} backend=${DARTMATIC_INFER_BACKEND}")
 
 
@@ -189,6 +200,8 @@ function(dartmatic_configure_target target)
     )
     # Common include should be available to everyone
     target_include_directories(${target} PUBLIC ${PROJECT_SOURCE_DIR}/inc_common)
+    # ...as should the generated version header.
+    target_include_directories(${target} PUBLIC ${PROJECT_BINARY_DIR}/generated)
     file(GLOB INC_COMMON_SOURCES CONFIGURE_DEPENDS
         "${PROJECT_SOURCE_DIR}/inc_common/*.h"
         "${PROJECT_SOURCE_DIR}/inc_common/*.hpp"
@@ -222,6 +235,13 @@ function(dartmatic_configure_target target)
             -Wl,-Bstatic,--whole-archive -lwinpthread
             -Wl,--no-whole-archive,-Bdynamic)
     endif()
+
+    # Strip symbols from release builds. A MinGW debug binary here is 182 MB
+    # against 12 MB stripped, almost all of it DWARF that nobody receiving an
+    # installer can act on. Diagnosis for a released build comes from the logs,
+    # which name the version and say where they are.
+    target_link_options(${target} PRIVATE
+        $<$<AND:$<CONFIG:Release>,$<BOOL:${MINGW}>>:-s>)
 endfunction()
 
 
@@ -610,20 +630,320 @@ set(EXTERNAL_LIBS ${PROJECT_SOURCE_DIR}/external_libs)
 include_directories(${EXTERNAL_LIBS})
 add_subdirectory(${EXTERNAL_LIBS})
 
-# Copy DLLs to output directory (for Windows)
-if(WIN32 AND DARTMATIC_BUILD_APP)
-    foreach(_dll SDL3::SDL3 SDL3_ttf::SDL3_ttf spdlog::spdlog SDL3_image::SDL3_image)
-        add_custom_command(TARGET ${PRJ_NAME} POST_BUILD
-            COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            $<TARGET_FILE:${_dll}>
-            $<TARGET_FILE_DIR:${PRJ_NAME}>
-        )
+# Copy the DLLs a target actually loads into its output directory.
+#
+# $<TARGET_RUNTIME_DLLS> asks the linker what it will look for at run time,
+# rather than naming libraries by hand. The hand-written list this replaces used
+# $<TARGET_FILE:...>, which for a statically linked dependency is its .a — so
+# build/bin accumulated libspdlog.a, libSDL3_ttf.a and friends, none of which do
+# anything at run time and all of which would have shipped in the installer.
+if(WIN32)
+    foreach(_t IN LISTS DARTMATIC_TARGETS)
+        # The server links everything statically, so its DLL list is empty and
+        # copy_if_different would be invoked with a destination and no sources.
+        # Switching the subcommand to `true` is the workaround CMake's own
+        # documentation gives for that case; there is no way to skip the command
+        # outright, because whether the list is empty is not known until
+        # generate time.
+        add_custom_command(TARGET ${_t} POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E
+                    $<IF:$<BOOL:$<TARGET_RUNTIME_DLLS:${_t}>>,copy_if_different,true>
+                    "$<TARGET_RUNTIME_DLLS:${_t}>" "$<TARGET_FILE_DIR:${_t}>"
+            COMMAND_EXPAND_LISTS)
     endforeach()
 endif()
-if(WIN32 AND DARTMATIC_BUILD_SERVER)
-    add_custom_command(TARGET ${SERVER_NAME} POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different
-        $<TARGET_FILE:spdlog::spdlog>
-        $<TARGET_FILE_DIR:${SERVER_NAME}>
-    )
+
+
+# ============================================================================
+# Install rules
+# ============================================================================
+#
+# Every DESTINATION below is relative to the install prefix and several are "."
+# itself, which CMake 3.31 started normalising. Opt in where the policy exists
+# rather than restructuring around it: the flat layout is deliberate, and
+# without this every install rule emits a developer warning that buries
+# anything worth reading in the configure output.
+if(POLICY CMP0177)
+    cmake_policy(SET CMP0177 NEW)
 endif()
+#
+# A flat layout: executable, its DLLs and its assets all in one directory. That
+# is what a Windows user expects from an installed program, what a Start Menu
+# shortcut assumes, and — not incidentally — what appAssetPath() resolves
+# against, so the installed tree and a build tree find their models the same
+# way.
+#
+# Nothing here installs portable.txt. Its absence is what tells an installed
+# copy to keep configuration and logs in the user's profile rather than trying
+# to write inside Program Files.
+
+set(DARTMATIC_INSTALL_BIN ".")
+
+if(DARTMATIC_BUILD_APP)
+    install(TARGETS ${PRJ_NAME} RUNTIME DESTINATION ${DARTMATIC_INSTALL_BIN}
+            COMPONENT dartmatic)
+endif()
+if(DARTMATIC_BUILD_SERVER)
+    install(TARGETS ${SERVER_NAME} RUNTIME DESTINATION ${DARTMATIC_INSTALL_BIN}
+            COMPONENT dartmatic)
+endif()
+
+# ---- Assets -----------------------------------------------------------------
+#
+# The Kenney input-prompt pack is 2648 icons and 15 MB; this program loads 35 of
+# them. Listing those explicitly keeps the installer small enough to send to
+# someone. A name that drifts out of this list shows up immediately as a
+# "Failed to load image" line and a blank input hint, which is why the list can
+# be maintained by hand without becoming a trap.
+if(DARTMATIC_BUILD_APP)
+    install(FILES "${PROJECT_SOURCE_DIR}/assets/fonts/Roboto-Regular.ttf"
+            DESTINATION "${DARTMATIC_INSTALL_BIN}/assets/fonts"
+            COMPONENT dartmatic)
+
+    set(_kenney_root "assets/images/kenney_input-prompts_1.4.1")
+    set(_kenney_keyboard
+        keyboard_a.png keyboard_c.png keyboard_d.png keyboard_e.png
+        keyboard_f.png keyboard_q.png keyboard_r.png keyboard_s.png
+        keyboard_w.png
+        keyboard_arrow_down.png keyboard_arrow_left.png
+        keyboard_arrow_right.png keyboard_arrow_up.png
+        keyboard_backspace.png keyboard_bracket_close.png
+        keyboard_bracket_open.png keyboard_delete.png keyboard_enter.png
+        keyboard_escape.png keyboard_home.png keyboard_space.png
+        keyboard_tab.png)
+    set(_kenney_xbox
+        xbox_button_back.png xbox_button_start.png
+        xbox_button_color_a.png xbox_button_color_b.png
+        xbox_button_color_x.png xbox_button_color_y.png
+        xbox_dpad_down.png xbox_dpad_left.png xbox_dpad_right.png
+        xbox_dpad_up.png xbox_lb.png xbox_rb.png xbox_stick_l.png)
+
+    foreach(_icon IN LISTS _kenney_keyboard)
+        install(FILES "${PROJECT_SOURCE_DIR}/${_kenney_root}/Keyboard & Mouse/Default/${_icon}"
+                DESTINATION "${DARTMATIC_INSTALL_BIN}/${_kenney_root}/Keyboard & Mouse/Default"
+            COMPONENT dartmatic)
+    endforeach()
+    foreach(_icon IN LISTS _kenney_xbox)
+        install(FILES "${PROJECT_SOURCE_DIR}/${_kenney_root}/Xbox Series/Default/${_icon}"
+                DESTINATION "${DARTMATIC_INSTALL_BIN}/${_kenney_root}/Xbox Series/Default"
+            COMPONENT dartmatic)
+    endforeach()
+endif()
+
+# ---- Models -----------------------------------------------------------------
+#
+# Only configurations that actually run inference carry the 44 MB of ONNX. The
+# Pi client ships none of it: its whole purpose is that the models live on the
+# other end of the socket.
+if(_dartmatic_needs_backend)
+    foreach(_asset IN LISTS _dartmatic_onnx_assets)
+        get_filename_component(_asset_dir "${_asset}" DIRECTORY)
+        install(FILES "${PROJECT_SOURCE_DIR}/${_asset}"
+                DESTINATION "${DARTMATIC_INSTALL_BIN}/${_asset_dir}"
+            COMPONENT dartmatic)
+    endforeach()
+endif()
+
+# ---- Runtime libraries ------------------------------------------------------
+#
+# Shipping onnxruntime.dll is not optional and not merely tidy: Windows carries
+# its own onnxruntime.dll in System32 (1.17.1 as of this writing), and if ours
+# is not sitting beside the executable the loader finds that one instead. It is
+# too old for the API version this build pins, so the backend refuses to start.
+# The failure is at least loud — the version check catches it — but the fix is
+# to make sure the loader never has to look further than our own directory.
+if(WIN32)
+    # Note: no install(FILES $<TARGET_RUNTIME_DLLS:...>) here. That genex missed
+    # SDL3_image.dll and SDL3_ttf.dll even though the executable imports both,
+    # and mixing it with the dependency scan below meant two mechanisms could
+    # each believe the other had covered a DLL. The scan at the end of this
+    # section resolves every runtime library from the binaries themselves, which
+    # cannot disagree with what the loader will do.
+
+    if(DARTMATIC_INFER_BACKEND STREQUAL "directml")
+        install(FILES ${_ort_runtime_dlls}
+                DESTINATION ${DARTMATIC_INSTALL_BIN}
+                COMPONENT dartmatic)
+
+        # Only present when this tree fetched ONNX Runtime itself; a cache from
+        # before the licence started being kept will not have it. Warn rather
+        # than fail the configure, but do say so — shipping the binary without
+        # its notice is not something to discover after publishing.
+        set(_ort_license "${PROJECT_SOURCE_DIR}/external_libs/onnxruntime/LICENSE-onnxruntime.txt")
+        if(EXISTS "${_ort_license}")
+            install(FILES "${_ort_license}"
+                    DESTINATION "${DARTMATIC_INSTALL_BIN}/licenses"
+                    COMPONENT dartmatic)
+        else()
+            message(WARNING
+                "ONNX Runtime's licence is missing from external_libs/onnxruntime. "
+                "Packages built from this tree would ship the DLL without its notice. "
+                "Delete external_libs/onnxruntime and re-run cmake to refetch it.")
+        endif()
+
+        if(DARTMATIC_DIRECTML_DLL)
+            # Proprietary: the licence and third-party notices travel with it.
+            install(FILES
+                "${PROJECT_SOURCE_DIR}/external_libs/directml/LICENSE-directml.txt"
+                "${PROJECT_SOURCE_DIR}/external_libs/directml/ThirdPartyNotices.txt"
+                DESTINATION "${DARTMATIC_INSTALL_BIN}/licenses"
+                COMPONENT dartmatic)
+        endif()
+    endif()
+endif()
+
+install(FILES "${PROJECT_SOURCE_DIR}/LICENSE"
+        DESTINATION "${DARTMATIC_INSTALL_BIN}/licenses"
+        RENAME "LICENSE-dartmatic.txt"
+        COMPONENT dartmatic)
+
+# ---- Toolchain DLLs the shipped libraries need ------------------------------
+#
+# Runs last, because it inspects what the earlier rules have already put in the
+# install tree. See cmake/install_runtime_deps.cmake.in for why this is
+# resolved rather than listed.
+if(WIN32 AND MINGW)
+    set(DARTMATIC_INSTALLED_EXECUTABLES "")
+    if(DARTMATIC_BUILD_APP)
+        list(APPEND DARTMATIC_INSTALLED_EXECUTABLES "${PRJ_NAME}.exe")
+    endif()
+    if(DARTMATIC_BUILD_SERVER)
+        list(APPEND DARTMATIC_INSTALLED_EXECUTABLES "${SERVER_NAME}.exe")
+    endif()
+
+    get_filename_component(DARTMATIC_TOOLCHAIN_BIN "${CMAKE_CXX_COMPILER}" DIRECTORY)
+
+    # The build output directory has to come from the target itself.
+    # CMAKE_RUNTIME_OUTPUT_DIRECTORY is not set by this project — the bin/
+    # subdirectory arrives from elsewhere in the configure — so reading it here
+    # silently yielded an empty path and the scan found nothing at all.
+    #
+    # $<TARGET_FILE_DIR> is only available to install(CODE), not install(SCRIPT),
+    # so the value is handed over through a variable the script then reads: both
+    # run in the same scope during installation.
+    list(GET DARTMATIC_TARGETS 0 _dm_first_target)
+    install(CODE
+        "set(DARTMATIC_BIN_DIR [[$<TARGET_FILE_DIR:${_dm_first_target}>]])"
+        COMPONENT dartmatic)
+
+    configure_file(
+        "${PROJECT_SOURCE_DIR}/cmake/install_runtime_deps.cmake.in"
+        "${PROJECT_BINARY_DIR}/install_runtime_deps.cmake"
+        @ONLY)
+    install(SCRIPT "${PROJECT_BINARY_DIR}/install_runtime_deps.cmake"
+            COMPONENT dartmatic)
+endif()
+
+
+# ============================================================================
+# Packaging
+# ============================================================================
+#
+# CPack turns the install rules above into a distributable artifact. Nothing
+# here is needed by whoever receives it: NSIS runs on this machine and emits a
+# self-contained Setup.exe.
+#
+# Each configuration produces its own artifact rather than one installer with
+# selectable components, because they are genuinely separate builds — the game
+# and the server disagree about SDL, about OpenCV's module list, and about
+# whether there is an inference backend at all. Merging them would need a
+# superbuild, which is more machinery than three audiences justify.
+
+set(CPACK_PACKAGE_NAME              "Dartmatic")
+set(CPACK_PACKAGE_VENDOR            "ippm12")
+set(CPACK_PACKAGE_VERSION           "${PROJECT_VERSION}")
+set(CPACK_PACKAGE_DESCRIPTION_SUMMARY
+    "Automatic dart scoring and party games for a real dartboard")
+set(CPACK_PACKAGE_INSTALL_DIRECTORY "Dartmatic")
+set(CPACK_RESOURCE_FILE_LICENSE     "${PROJECT_SOURCE_DIR}/LICENSE")
+set(CPACK_PACKAGE_CHECKSUM          SHA256)
+
+# Package only our own component.
+#
+# OpenCV and the SDL family bring their own install rules — headers, static
+# libraries, CMake config, haarcascade XML — and a package built without this
+# filter came to 155 MB of which about 45 MB was anything a user needs. Those
+# rules land in the "Unspecified" component; every rule of ours above names
+# "dartmatic", so listing it here is what separates the two. The install stays
+# monolithic: there is no component-selection page, just a smaller payload.
+set(CPACK_COMPONENTS_ALL dartmatic)
+set(CPACK_COMPONENTS_GROUPING ALL_COMPONENTS_IN_ONE)
+
+# CPACK_COMPONENTS_ALL is only consulted when the generator is doing a
+# component install; left off, each generator quietly falls back to packaging
+# the whole install tree and the filter above does nothing. Grouping everything
+# into one component keeps the result a single archive and, for NSIS, an
+# installer with no component-selection page — the filtering is the only part
+# of the component machinery being used here.
+set(CPACK_ARCHIVE_COMPONENT_INSTALL ON)
+set(CPACK_NSIS_COMPONENT_INSTALL    ON)
+set(CPACK_DEB_COMPONENT_INSTALL     ON)
+
+# Component installs default to omitting the top-level folder, which turns the
+# demo zip into 39 loose files dumped wherever it was unpacked.
+set(CPACK_COMPONENT_INCLUDE_TOPLEVEL_DIRECTORY 1)
+
+# What this particular build is, so the four artifacts do not collide in a
+# releases directory and nobody has to guess which one they downloaded.
+if(DARTMATIC_BUILD_SERVER)
+    set(_pkg_variant "Server")
+    set(CPACK_PACKAGE_EXECUTABLES "")
+elseif(DARTMATIC_VISION_SOURCE STREQUAL "sim")
+    set(_pkg_variant "Demo")
+elseif(DARTMATIC_VISION_SOURCE STREQUAL "network")
+    set(_pkg_variant "Client")
+else()
+    set(_pkg_variant "")
+endif()
+
+if(_pkg_variant)
+    set(CPACK_PACKAGE_FILE_NAME "Dartmatic-${_pkg_variant}-${PROJECT_VERSION}-${CMAKE_SYSTEM_PROCESSOR}")
+else()
+    set(CPACK_PACKAGE_FILE_NAME "Dartmatic-${PROJECT_VERSION}-${CMAKE_SYSTEM_PROCESSOR}")
+endif()
+
+if(WIN32)
+    # The sim build is a demo: a folder you unzip and run, with no installer,
+    # no shortcuts and nothing to uninstall. Anything that touches real
+    # hardware gets a proper installed presence.
+    if(DARTMATIC_VISION_SOURCE STREQUAL "sim" AND NOT DARTMATIC_BUILD_SERVER)
+        set(CPACK_GENERATOR "ZIP")
+    else()
+        set(CPACK_GENERATOR "NSIS")
+    endif()
+
+    set(CPACK_NSIS_PACKAGE_NAME     "Dartmatic ${_pkg_variant}")
+    set(CPACK_NSIS_DISPLAY_NAME     "Dartmatic ${_pkg_variant} ${PROJECT_VERSION}")
+    set(CPACK_NSIS_MODIFY_PATH      OFF)
+    set(CPACK_NSIS_ENABLE_UNINSTALL_BEFORE_INSTALL ON)
+
+    if(DARTMATIC_BUILD_APP)
+        set(CPACK_PACKAGE_EXECUTABLES "${PRJ_NAME}" "Dartmatic")
+        set(CPACK_NSIS_MUI_FINISHPAGE_RUN "${PRJ_NAME}.exe")
+    endif()
+
+    # The server listens on a TCP port, so Windows will put a firewall prompt in
+    # front of the first client that tries to connect — from another machine,
+    # where nobody is watching this one to click Allow. Adding the rule at
+    # install time is the difference between "it works" and a silent timeout.
+    if(DARTMATIC_BUILD_SERVER)
+        set(CPACK_NSIS_EXTRA_INSTALL_COMMANDS "
+            ExecWait 'netsh advfirewall firewall add rule name=\\\"Dartmatic Server\\\" dir=in action=allow program=\\\"$INSTDIR\\${SERVER_NAME}.exe\\\" enable=yes'
+        ")
+        set(CPACK_NSIS_EXTRA_UNINSTALL_COMMANDS "
+            ExecWait 'netsh advfirewall firewall delete rule name=\\\"Dartmatic Server\\\"'
+        ")
+    endif()
+else()
+    set(CPACK_GENERATOR "TGZ;DEB")
+    set(CPACK_PACKAGING_INSTALL_PREFIX "/opt/dartmatic")
+    set(CPACK_DEBIAN_PACKAGE_MAINTAINER "ippm12")
+    set(CPACK_DEBIAN_PACKAGE_SECTION    "games")
+    set(CPACK_DEBIAN_FILE_NAME          DEB-DEFAULT)
+    # Left to dpkg-shlibdeps: the Pi client links system OpenCV and SDL
+    # transitively and hand-listing them goes stale the first time a dependency
+    # moves.
+    set(CPACK_DEBIAN_PACKAGE_SHLIBDEPS ON)
+endif()
+
+include(CPack)

@@ -7,6 +7,7 @@
  */
 
 #include "common_inc.hpp"
+#include "dartmatic_version.hpp"
 #include "server/server.hpp"
 
 #include <atomic>
@@ -69,7 +70,8 @@ namespace
             "  --replay <dir>        Score saved {uuid}_camN.png triples and exit\n"
             "  --calibration <path>  Calibration for --replay (default:\n"
             "                        config/wire_calibration.txt under user data)\n"
-            "  -h, --help            Show this message\n",
+            "  -h, --help            Show this message\n"
+            "  --version             Print the version and exit\n",
             argv0);
     }
 
@@ -102,6 +104,11 @@ int main(int argc, char** argv)
         if(std::strcmp(a, "-h") == 0 || std::strcmp(a, "--help") == 0)
         {
             printUsage(argv[0]);
+            return 0;
+        }
+        else if(std::strcmp(a, "--version") == 0)
+        {
+            std::printf("%s %s\n", DARTMATIC_PRODUCT_NAME, DARTMATIC_VERSION_STRING);
             return 0;
         }
         else if(std::strcmp(a, "--port") == 0)
@@ -194,6 +201,10 @@ int main(int argc, char** argv)
     // export declares, and why a model refused to load. Without it a mismatched
     // export surfaces on the console as a bare "models did not load".
     setConsoleLog(DETECT_LOG_ID, LOGGING_LEVEL_INFO);
+
+    LOG_INFO(SERVER_LOG_ID, "{} {} starting", DARTMATIC_PRODUCT_NAME, DARTMATIC_VERSION_STRING);
+    LOG_INFO(SERVER_LOG_ID, "Data directory: {}{}", appDataPath(""),
+             isPortableInstall() ? " (portable)" : "");
 
     int exitCode = 0;
 
