@@ -82,6 +82,20 @@ std::string getNextPointLabel(uint32_t camIndex);
 bool warpCameraFrame(uint32_t camIndex, const cv::Mat& src, cv::Mat& dst);
 
 /**
+ * The same warp for a binary mask, sampled nearest-neighbour.
+ *
+ * Separate from warpCameraFrame because the interpolation is part of the
+ * contract, not a preference: DartModelTraining's precompute_real_masks.py
+ * thresholds at native resolution and then warps with INTER_NEAREST, so the
+ * conditioning masks the model was trained on are strictly 0 or 255. Bilinear
+ * would put a grey fringe on every dart edge and hand the model values it has
+ * never seen.
+ *
+ * Returns false if the camera is not yet calibrated.
+ */
+bool warpCameraMask(uint32_t camIndex, const cv::Mat& src, cv::Mat& dst);
+
+/**
  * Copy a camera's homography into `out` as 9 row-major doubles.
  *
  * Maps source-image pixels to the 720x720 canonical view — the same convention
@@ -96,13 +110,13 @@ bool getCameraHomography(uint32_t camIndex, double out[9]);
  * Save all calibrated points to a text file (./config/wire_calibration.txt
  * by default). Returns STATUS_OK on success.
  */
-Status saveWireCalibration(const std::string& path = "./config/wire_calibration.txt");
+Status saveWireCalibration(const std::string& path = appDataPath("config/wire_calibration.txt"));
 
 /**
  * Load wire calibration from a text file. Cameras with fewer than
  * WIRE_POINTS_PER_CAMERA points in the file are skipped. Recomputes the
  * homography for any fully-calibrated cameras.
  */
-Status loadWireCalibration(const std::string& path = "./config/wire_calibration.txt");
+Status loadWireCalibration(const std::string& path = appDataPath("config/wire_calibration.txt"));
 
 #endif // WIRE_CALIBRATION_HPP

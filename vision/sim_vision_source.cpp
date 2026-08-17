@@ -52,7 +52,7 @@ SimVisionSource::~SimVisionSource()
 Status SimVisionSource::init()
 {
     // Create the sim window
-    Status stat = createNewFrame("DartLens Simulator", SIM_WINDOW_WIDTH, SIM_WINDOW_HEIGHT, m_frameId);
+    Status stat = createNewFrame("Dartmatic Simulator", SIM_WINDOW_WIDTH, SIM_WINDOW_HEIGHT, m_frameId);
     if(IS_STATUS_NOT_OK(stat))
     {
         LOG_ERROR(VISION_LOG_ID, "Failed to create sim window");

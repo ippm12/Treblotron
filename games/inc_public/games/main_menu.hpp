@@ -85,6 +85,20 @@ class MainMenu : public Game
         bool        m_showNoPlayersWarning;
         bool        m_showSimWarning;
 
+        /**
+         * First-run panel: shown once, over the menu, when this build detects
+         * darts but no camera has been calibrated yet.
+         *
+         * An overlay rather than jumping straight into calibration. Calibration
+         * is 120 clicks and needs three cameras already aimed at the board — if
+         * they are not plugged in yet, being dropped into it is a dead end with
+         * no explanation. This says what is missing, and offers to go there.
+         */
+        bool m_showFirstRun;
+
+        /** Whether the check behind m_showFirstRun has run; see update(). */
+        bool m_firstRunChecked;
+
         // Fonts
         FontID m_titleFontId;
         FontID m_cardFontId;

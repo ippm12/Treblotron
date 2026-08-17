@@ -15,7 +15,7 @@
 #include <opencv2/imgproc.hpp>
 #include <opencv2/videoio.hpp>
 #include <opencv2/imgcodecs.hpp>
-#ifdef DARTLENS_HAVE_LOCAL_INFERENCE
+#ifdef DARTMATIC_HAVE_LOCAL_INFERENCE
 #include <opencv2/dnn.hpp>
 #endif
 
@@ -77,7 +77,7 @@ struct CameraSlot
     // shared reference to the previous contents (copy-on-write double buffer).
     cv::Mat          latestRaw;           // RGB, 1280x720ish from the sensor
     cv::Mat          latestWarped;        // RGB, 720x720, empty if not calibrated
-#ifdef DARTLENS_PASSTHROUGH_CAPTURE
+#ifdef DARTMATIC_PASSTHROUGH_CAPTURE
     // The UVC cameras already deliver MJPEG (see selectBestResolution), so a
     // client that only forwards frames to an inference server has no reason to
     // decode them and re-encode them — that costs CPU at both ends and puts a
@@ -92,7 +92,7 @@ struct CameraSlot
     // behaves exactly as it did before.
     std::atomic<bool> passthroughActive{false};
 #endif
-#ifdef DARTLENS_HAVE_LOCAL_INFERENCE
+#ifdef DARTMATIC_HAVE_LOCAL_INFERENCE
     // Pre-prepped seg-engine input plane for this camera — 1×(3*360*640) CV_32F.
     // Produced on the capture thread (resize + blobFromImage) so the inference
     // thread doesn't have to. Empty until the first frame is ready.
@@ -126,7 +126,7 @@ static std::atomic<uint32_t>       f_cameraCount{0};
 static std::thread       f_initThread;
 static std::atomic<bool> f_initRunning{false};
 
-// Reference count — both HailoVisionSource and CalibrationScreen independently
+// Reference count — the vision source and CalibrationScreen independently
 // call initializeCameraSystem(). The first call actually brings the camera
 // threads up; subsequent calls just bump the count. shutdown() only tears the
 // system down when the count hits zero. Without this, a second init() would
@@ -134,7 +134,7 @@ static std::atomic<bool> f_initRunning{false};
 static uint32_t          f_refCount = 0;
 
 
-#ifdef DARTLENS_PASSTHROUGH_CAPTURE
+#ifdef DARTMATIC_PASSTHROUGH_CAPTURE
 /**
  * JPEG quality used only when the driver refuses raw MJPEG and we have to
  * re-encode. 75 is a deliberate step down from the old 85: at that point we are
@@ -171,6 +171,53 @@ static constexpr int PROBE_COUNT = sizeof(PROBE_RESOLUTIONS) / sizeof(PROBE_RESO
 
 /// Select the highest resolution the camera supports at TARGET_FPS.
 /// Tries each candidate from highest to lowest; uses camera default as fallback.
+/**
+ * Open camera `index` using whichever capture backend suits this platform.
+ *
+ * The backend is named rather than left to OpenCV, because the fourcc request
+ * in selectBestResolution() only reaches the driver on some of them.
+ *
+ *   Linux    V4L2 — the only sensible choice, and the one that honours fourcc.
+ *   Windows  Media Foundation first, DirectShow second.
+ *
+ * In practice a MinGW build gets DirectShow: OpenCV defaults WITH_MSMF to OFF
+ * for MinGW because Media Foundation needs headers the toolchain does not
+ * ship, so cv::CAP_MSMF is not compiled in and the first open simply returns
+ * false. It is still tried first, because the ordering is the one we want the
+ * moment MSMF becomes available — under MSVC, or a future OpenCV — and asking
+ * for a backend that is absent costs nothing.
+ *
+ * Which one actually won is logged, since the two negotiate formats
+ * differently and that is the first thing worth knowing when a camera opens
+ * but hands back nothing usable.
+ *
+ * Returns true when the device opened; the caller still has to prove a frame
+ * can be read from it.
+ */
+static bool openCameraDevice(cv::VideoCapture& cap, int index)
+{
+#ifdef _WIN32
+    struct Backend { int id; const char* name; };
+    static constexpr Backend BACKENDS[] = {
+        { cv::CAP_MSMF,  "Media Foundation" },
+        { cv::CAP_DSHOW, "DirectShow"       },
+    };
+
+    for(const Backend& backend : BACKENDS)
+    {
+        if(cap.open(index, backend.id))
+        {
+            LOG_INFO(VISION_LOG_ID, "Device {} opened via {}", index, backend.name);
+            return true;
+        }
+    }
+    return false;
+#else
+    return cap.open(index, cv::CAP_V4L2);
+#endif
+}
+
+
 static void selectBestResolution(cv::VideoCapture& cap)
 {
     // UVC cameras on the Pi default to YUYV, which can't sustain our target
@@ -205,7 +252,7 @@ static void selectBestResolution(cv::VideoCapture& cap)
 }
 
 
-#ifdef DARTLENS_PASSTHROUGH_CAPTURE
+#ifdef DARTMATIC_PASSTHROUGH_CAPTURE
 /**
  * Try to make read() hand back the sensor's compressed MJPEG instead of a
  * decoded image.
@@ -270,10 +317,10 @@ static void captureLoop(CameraSlot* slot)
 {
     cv::Mat frame;
     cv::Mat rgb;
-#ifndef DARTLENS_HAVE_LOCAL_INFERENCE
+#ifndef DARTMATIC_HAVE_LOCAL_INFERENCE
     cv::Mat warped;
 #endif
-#ifdef DARTLENS_HAVE_LOCAL_INFERENCE
+#ifdef DARTMATIC_HAVE_LOCAL_INFERENCE
     // Reused scratch for the seg-input pipeline. resizedSeg is 360x640 RGB8;
     // segPlane is the 1×(3*360*640) CV_32F NCHW blob blobFromImage writes.
     cv::Mat resizedSeg;
@@ -292,7 +339,7 @@ static void captureLoop(CameraSlot* slot)
             }
             if(!ok) continue;
 
-#ifdef DARTLENS_PASSTHROUGH_CAPTURE
+#ifdef DARTMATIC_PASSTHROUGH_CAPTURE
             // With CAP_PROP_CONVERT_RGB=0 the V4L2 backend hands back the
             // sensor's compressed buffer as a single-row CV_8UC1 Mat. Confirm
             // it really is JPEG (SOI marker) rather than trusting the property
@@ -327,9 +374,9 @@ static void captureLoop(CameraSlot* slot)
                 cv::cvtColor(frame, rgb, cv::COLOR_BGR2RGB);
             }
 
-#ifndef DARTLENS_HAVE_LOCAL_INFERENCE
-            // Capture-thread warp — only used by the Hailo + sim vision sources
-            // and the calibration debug overlay. The TensorRT pipeline does its
+#ifndef DARTMATIC_HAVE_LOCAL_INFERENCE
+            // Capture-thread warp — only used by the calibration debug overlay
+            // and the network client's preview. A local inference build does its
             // own warp on the masked frame after segmentation, so paying the
             // ~5-15 ms of warpPerspective on this thread would be pure waste
             // there.
@@ -346,7 +393,7 @@ static void captureLoop(CameraSlot* slot)
             }
 #endif
 
-#ifdef DARTLENS_HAVE_LOCAL_INFERENCE
+#ifdef DARTMATIC_HAVE_LOCAL_INFERENCE
             // Pre-prep this camera's seg-engine input plane while the other
             // capture threads do the same for theirs. Cheap-by-comparison
             // resize, then blobFromImage produces tightly-packed NCHW float32
@@ -371,13 +418,13 @@ static void captureLoop(CameraSlot* slot)
             {
                 std::lock_guard<std::mutex> lock(slot->frameMutex);
                 slot->latestRaw = rgb.clone();
-#ifndef DARTLENS_HAVE_LOCAL_INFERENCE
+#ifndef DARTMATIC_HAVE_LOCAL_INFERENCE
                 if(haveWarp)
                 {
                     slot->latestWarped = warped.clone();
                 }
 #endif
-#ifdef DARTLENS_HAVE_LOCAL_INFERENCE
+#ifdef DARTMATIC_HAVE_LOCAL_INFERENCE
                 // segPlane is exclusive-owned by this thread; clone before
                 // publishing so the next iteration's blobFromImage doesn't
                 // race a reader that's still mid-memcpy.
@@ -408,13 +455,20 @@ static void captureLoop(CameraSlot* slot)
 
 
 // ============================================================================
-// NEON detection — warn loudly on every run if OpenCV wasn't built with NEON,
-// since warpPerspective scales ~20x between the scalar and NEON paths on the
-// Pi 5 and is the dominant cost in each capture thread.
+// SIMD sanity check for the capture threads.
+//
+// warpPerspective scales roughly 20x between the scalar and NEON paths on a
+// Pi 5 and is the dominant cost in each capture thread, so an OpenCV built
+// without NEON is worth shouting about — on ARM.
+//
+// On x86 the same warning is nonsense: NEON is an ARM instruction set, so it
+// is always absent, and telling a Windows user to "rebuild OpenCV with NEON
+// enabled for a major speedup" sends them after a speedup that does not exist.
 // ============================================================================
 
-static void logOpenCVNeonStatus()
+static void logOpenCVSimdStatus()
 {
+#if defined(__ARM_NEON) || defined(__aarch64__) || defined(_M_ARM64)
     if(cv::checkHardwareSupport(CV_CPU_NEON))
     {
         LOG_INFO(VISION_LOG_ID, "OpenCV runtime NEON support: YES");
@@ -427,9 +481,12 @@ static void logOpenCVNeonStatus()
     }
 
     // Runtime CPU feature detection can report NEON even when the OpenCV build
-    // itself wasn't compiled with NEON intrinsics in the hot paths (warpPerspective
-    // in particular). Dump the build info once so we can see the compile-time
-    // CPU_BASELINE / CPU_DISPATCH values and confirm warp is actually vectorized.
+    // itself wasn't compiled with NEON intrinsics in the hot paths
+    // (warpPerspective in particular), so the compile-time CPU_BASELINE /
+    // CPU_DISPATCH values are what actually answer the question. A hundred
+    // lines of build information is a fair price on the one platform where the
+    // answer decides whether the capture threads keep up; it is pure noise
+    // everywhere else, so it is not logged there.
     const cv::String info = cv::getBuildInformation();
     std::stringstream ss(info);
     std::string line;
@@ -437,6 +494,9 @@ static void logOpenCVNeonStatus()
     {
         LOG_INFO(VISION_LOG_ID, "cv::getBuildInformation | {}", line);
     }
+#else
+    LOG_INFO(VISION_LOG_ID, "OpenCV SIMD baseline: {}", cv::getCPUFeaturesLine());
+#endif
 }
 
 
@@ -451,7 +511,7 @@ Status initializeCameraSystem()
         return STATUS_OK;
     }
 
-    logOpenCVNeonStatus();
+    logOpenCVSimdStatus();
 
     initializeWireCalibration();
     // Load any saved wire calibration synchronously before the user can interact
@@ -471,18 +531,19 @@ Status initializeCameraSystem()
                 break;  // Shutdown requested before probing finished
             }
 
-            // Force the V4L2 backend. OpenCV's default auto-selection prefers
-            // GStreamer, which builds a v4l2src pipeline that silently ignores
-            // CAP_PROP_FOURCC — our MJPG request never reaches the driver and
-            // the pipeline fails to negotiate a format. V4L2 honors fourcc.
+            // Never OpenCV's auto-selection. On Linux it prefers GStreamer,
+            // which builds a v4l2src pipeline that silently ignores
+            // CAP_PROP_FOURCC — the MJPG request never reaches the driver and
+            // format negotiation fails. Naming a backend is what makes
+            // selectBestResolution's fourcc request mean anything.
             cv::VideoCapture cap;
-            if(!cap.open(idx, cv::CAP_V4L2))
+            if(!openCameraDevice(cap, idx))
             {
                 continue;
             }
 
             selectBestResolution(cap);
-#ifdef DARTLENS_PASSTHROUGH_CAPTURE
+#ifdef DARTMATIC_PASSTHROUGH_CAPTURE
             tryEnableRawMjpeg(cap, idx);
 #endif
 
@@ -510,7 +571,7 @@ Status initializeCameraSystem()
             // the log below reports 1280x720 rather than a JPEG byte count.
             int probeW = testFrame.cols;
             int probeH = testFrame.rows;
-#ifdef DARTLENS_PASSTHROUGH_CAPTURE
+#ifdef DARTMATIC_PASSTHROUGH_CAPTURE
             if(looksLikeJpeg(testFrame))
             {
                 const cv::Mat decoded = cv::imdecode(testFrame, cv::IMREAD_COLOR_RGB);
@@ -642,7 +703,7 @@ bool swapCameraSlots(uint32_t a, uint32_t b)
 // Internal: snapshot a Mat out of the slot (shallow copy under lock) and
 // memcpy it into an outFrame so the caller gets a standalone byte buffer.
 // Shared across the raw and warped accessors.
-#ifdef DARTLENS_PASSTHROUGH_CAPTURE
+#ifdef DARTMATIC_PASSTHROUGH_CAPTURE
 /**
  * Latest frame as decoded RGB, whichever mode the slot is in.
  *
@@ -689,7 +750,7 @@ static bool copyFrameOut(const cv::Mat& src, CameraFrame& outFrame)
 }
 
 
-#ifdef DARTLENS_PASSTHROUGH_CAPTURE
+#ifdef DARTMATIC_PASSTHROUGH_CAPTURE
 bool getCameraCompressedFrame(uint32_t index, std::vector<uint8_t>& out)
 {
     if(index >= f_cameraCount.load(std::memory_order_acquire)) return false;
@@ -738,7 +799,7 @@ bool getCameraFrame(uint32_t index, CameraFrame& outFrame)
     CameraSlot& slot = *f_cameras[index];
 
     cv::Mat snapshot;
-#ifdef DARTLENS_PASSTHROUGH_CAPTURE
+#ifdef DARTMATIC_PASSTHROUGH_CAPTURE
     if(!decodeLatestRgb(slot, snapshot)) return false;
 #else
     {
@@ -760,7 +821,7 @@ bool getCameraWarpedFrame(uint32_t index, CameraFrame& outFrame)
     CameraSlot& slot = *f_cameras[index];
 
     cv::Mat snapshot;
-#ifdef DARTLENS_PASSTHROUGH_CAPTURE
+#ifdef DARTMATIC_PASSTHROUGH_CAPTURE
     if(slot.passthroughActive.load(std::memory_order_acquire))
     {
         // The capture thread never decoded, so there is no cached warp. Only
@@ -785,7 +846,7 @@ bool getCameraWarpedFrame(uint32_t index, CameraFrame& outFrame)
 }
 
 
-#ifdef DARTLENS_HAVE_LOCAL_INFERENCE
+#ifdef DARTMATIC_HAVE_LOCAL_INFERENCE
 bool getCameraSegPlane(uint32_t index, float* out, size_t floatCount)
 {
     if(!out) return false;
@@ -848,7 +909,7 @@ Status saveAllCameraFrames(const std::string& outputDir)
     for(uint32_t i = 0; i < count; i++)
     {
         cv::Mat frameCopy;
-#ifdef DARTLENS_PASSTHROUGH_CAPTURE
+#ifdef DARTMATIC_PASSTHROUGH_CAPTURE
         // No lock here: decodeLatestRgb takes frameMutex itself, and holding it
         // across that call self-deadlocks on a non-recursive std::mutex — which
         // froze the whole app the moment anyone hit Save Capture.

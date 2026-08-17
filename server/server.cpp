@@ -74,6 +74,17 @@ namespace
      */
     constexpr int SOCKET_BUFFER_BYTES = 4 * 1024 * 1024;
 
+    /**
+     * How many times --replay feeds one still capture through the detector.
+     *
+     * A board holds at most three darts and each needs a few identical passes
+     * to clear the confirm streak, so this is that budget plus room for the
+     * passes that find nothing. It is a ceiling, not a target — the loop stops
+     * as soon as three darts are found.
+     */
+    constexpr uint32_t REPLAY_MAX_PASSES  = 24;
+    constexpr uint32_t MAX_REPLAY_DARTS   = 3;
+
 
     void setBuildStatus(const std::string& s)
     {
@@ -1089,7 +1100,19 @@ Status runServerReplay(const DartServerConfig& config,
     {
         LOG_INFO(SERVER_LOG_ID, "  [{:3.0f}%] {}", pct * 100.0f, phase);
     };
-    if(IS_STATUS_NOT_OK(f_detector.build(detectorConfig(), onProgress, noAbort)))
+
+    // The hold gate rejects a dart that is still in flight, which a still image
+    // cannot contain. Left at its live value it would just make every replay
+    // wait 300 ms of wall clock per dart for no information.
+    DartDetectorConfig replayConfig = detectorConfig();
+    replayConfig.tuning.confirmHoldMs = 0;
+
+    // A capture is one frozen instant, so there is no "what changed since the
+    // last dart" for the conditioning to be built from. See the field's comment
+    // — without this a three-dart capture replays as one dart.
+    replayConfig.stillFrameConditioning = true;
+
+    if(IS_STATUS_NOT_OK(f_detector.build(replayConfig, onProgress, noAbort)))
     {
         LOG_CRITICAL(SERVER_LOG_ID, "replay: models did not load");
         return STATUS_ERROR_GENERIC;
@@ -1113,30 +1136,57 @@ Status runServerReplay(const DartServerConfig& config,
         }
         if(loaded == 0) continue;
 
-        const auto t0 = std::chrono::steady_clock::now();
-        const bool ran = f_detector.run(frames, nullptr, result);
-        const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(
-            std::chrono::steady_clock::now() - t0).count();
+        // Each set is an independent board, so it starts from an empty one.
+        // Without this, darts confirmed in the previous capture stay in the
+        // conditioning and the next capture is scored against someone else's
+        // board.
+        f_detector.reset();
 
-        if(!ran)
-        {
-            LOG_WARNING(SERVER_LOG_ID, "{}: inference did not run ({} images loaded)",
-                        uuid, loaded);
-            continue;
-        }
-
+        // A capture is one still frame of a board that may hold several darts,
+        // and the detector finds at most one per cycle — it has to see the
+        // first one, condition on it, and look again. Replaying a set once
+        // therefore only ever reports the first dart, and never exercises the
+        // conditioning channels at all, which is precisely the part of the
+        // pipeline a replay is worth running to check.
+        //
+        // Repeat until a pass produces nothing: the confirm streak needs a few
+        // identical passes per dart, and the run stops on its own once the
+        // model says there is nothing left.
         std::string darts;
-        for(const DartDetection& d : result.newDarts)
+        uint32_t    found  = 0;
+        uint32_t    passes = 0;
+        long long   totalMs = 0;
+
+        for(uint32_t pass = 0; pass < REPLAY_MAX_PASSES; pass++)
         {
-            char buf[64];
-            std::snprintf(buf, sizeof(buf), " (angle %.1f r %.3f)",
-                          static_cast<double>(d.angle),
-                          static_cast<double>(d.normalizedRadius));
-            darts += buf;
+            const auto t0 = std::chrono::steady_clock::now();
+            const bool ran = f_detector.run(frames, nullptr, result);
+            totalMs += std::chrono::duration_cast<std::chrono::milliseconds>(
+                std::chrono::steady_clock::now() - t0).count();
+            passes++;
+
+            if(!ran)
+            {
+                LOG_WARNING(SERVER_LOG_ID, "{}: inference did not run ({} images loaded)",
+                            uuid, loaded);
+                break;
+            }
+
+            for(const DartDetection& d : result.newDarts)
+            {
+                char buf[64];
+                std::snprintf(buf, sizeof(buf), " (angle %.1f r %.3f)",
+                              static_cast<double>(d.angle),
+                              static_cast<double>(d.normalizedRadius));
+                darts += buf;
+                found++;
+            }
+            if(found >= MAX_REPLAY_DARTS) break;
         }
-        LOG_INFO(SERVER_LOG_ID, "{}: {} ms clear={}{} — {}",
-                 uuid, ms, result.boardClear ? "Y" : "N",
-                 darts.empty() ? std::string(" no new dart") : darts,
+
+        LOG_INFO(SERVER_LOG_ID, "{}: {} dart(s) in {} passes, {} ms clear={}{} — {}",
+                 uuid, found, passes, totalMs, result.boardClear ? "Y" : "N",
+                 darts.empty() ? std::string(" none") : darts,
                  result.status);
     }
 

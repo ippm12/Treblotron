@@ -7,7 +7,7 @@
  * queue and the atomics, exactly like the local source.
  *
  * The server address comes from vision_link (./config/server.txt, seeded from
- * DARTLENS_SERVER on first run) and is re-read on every reconnect, so editing it
+ * DARTMATIC_SERVER on first run) and is re-read on every reconnect, so editing it
  * in the settings screen takes effect within a retry interval without a restart.
  */
 

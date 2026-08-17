@@ -1,6 +1,8 @@
 build/
 # CMakePresets puts each configuration in its own build-<preset> directory.
 build-*/
+# Release artifacts assembled by scripts/release.ps1.
+dist/
 # Compiled TensorRT engines are host-specific and rebuilt on demand.
 *.trt
 logs/

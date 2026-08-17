@@ -18,16 +18,13 @@
 #include <cstdio>
 #include <cstring>
 
-#ifdef DARTLENS_USE_SIM
+#ifdef DARTMATIC_USE_SIM
 #include "sim_vision_source.hpp"
 #endif
-#ifdef DARTLENS_USE_HAILO
-#include "hailo_vision_source.hpp"
-#endif
-#ifdef DARTLENS_USE_LOCAL
+#ifdef DARTMATIC_USE_LOCAL
 #include "local_vision_source.hpp"
 #endif
-#ifdef DARTLENS_USE_NETWORK
+#ifdef DARTMATIC_USE_NETWORK
 #include "network_vision_source.hpp"
 #endif
 
@@ -59,19 +56,16 @@ static DartPositionCallback f_onDartPositionCalculated;
  * Which vision source this binary was compiled with.
  *
  * Named on stdout at startup because the alternative is guessing. Every source
- * fails in its own way when it is the wrong one for the hardware — the Hailo
- * source, for instance, reports "failed to create vdevice" when there is no
- * accelerator — and it is easy to spend a while debugging that before noticing
- * you were running a stale binary from a previous build directory.
+ * fails in its own way when it is the wrong one for the hardware, and it is easy
+ * to spend a while debugging that before noticing you were running a stale
+ * binary from a previous build directory.
  */
 static constexpr const char* VISION_SOURCE_NAME =
-#if   defined(DARTLENS_USE_SIM)
+#if   defined(DARTMATIC_USE_SIM)
     "sim (simulated darts, no cameras)";
-#elif defined(DARTLENS_USE_HAILO)
-    "hailo (local inference on a Hailo accelerator)";
-#elif defined(DARTLENS_USE_LOCAL)
+#elif defined(DARTMATIC_USE_LOCAL)
     "local (local inference on this machine)";
-#elif defined(DARTLENS_USE_NETWORK)
+#elif defined(DARTMATIC_USE_NETWORK)
     "network (cameras here, inference on a remote server)";
 #else
     "none";
@@ -86,19 +80,24 @@ Status initializeVisionModule()
     // the settings overlay is how you fix it. Both loads happen before any
     // source is constructed, so a source that reads settings during init()
     // sees the user's values rather than the defaults.
-    loadInferenceServerAddress();
+    //
+    // Only asked for on builds that actually connect to one. Loading it
+    // unconditionally meant a single-PC install logged "No inference server
+    // configured — set one from the settings screen" on every launch, sending
+    // the user to look for a setting that does not exist in their build.
+    if(visionUsesRemoteServer())
+    {
+        loadInferenceServerAddress();
+    }
     loadVisionSettings();
 
-#ifdef DARTLENS_USE_SIM
+#ifdef DARTMATIC_USE_SIM
     f_visionSource = std::make_shared<SimVisionSource>();
 #endif
-#ifdef DARTLENS_USE_HAILO
-    f_visionSource = std::make_shared<HailoVisionSource>();
-#endif
-#ifdef DARTLENS_USE_LOCAL
+#ifdef DARTMATIC_USE_LOCAL
     f_visionSource = std::make_shared<LocalVisionSource>();
 #endif
-#ifdef DARTLENS_USE_NETWORK
+#ifdef DARTMATIC_USE_NETWORK
     f_visionSource = std::make_shared<NetworkVisionSource>();
 #endif
 
@@ -254,7 +253,7 @@ std::string getVisionDetectionStatus()
 
 bool visionHasDetector()
 {
-#if defined(DARTLENS_USE_HAILO) || defined(DARTLENS_USE_LOCAL) || defined(DARTLENS_USE_NETWORK)
+#if defined(DARTMATIC_USE_LOCAL) || defined(DARTMATIC_USE_NETWORK)
     return true;
 #else
     return false;
@@ -264,7 +263,7 @@ bool visionHasDetector()
 
 bool visionUsesRemoteServer()
 {
-#ifdef DARTLENS_USE_NETWORK
+#ifdef DARTMATIC_USE_NETWORK
     return true;
 #else
     return false;
@@ -362,7 +361,7 @@ void presentVisionLoadingFrame(float deltaTime)
         // The network source is not building anything — it is waiting on a
         // server. Saying "building vision model" there sends people looking
         // for a problem that does not exist.
-#ifdef DARTLENS_USE_NETWORK
+#ifdef DARTMATIC_USE_NETWORK
         const std::string busyTitle = "Connecting to inference server";
 #else
         const std::string busyTitle = "Building vision model";
@@ -437,7 +436,7 @@ void presentVisionLoadingFrame(float deltaTime)
     if(f_loadingBodyFont != INVALID_FONT_ID)
     {
         auto sub = std::make_shared<RenderText>();
-#ifdef DARTLENS_USE_NETWORK
+#ifdef DARTMATIC_USE_NETWORK
         sub->m_text     = "(the game will start anyway — press F1 to change the address)";
 #else
         sub->m_text     = "(first-run only — subsequent launches are instant)";
