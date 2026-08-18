@@ -1,0 +1,5 @@
+// Generated from app.rc.in -- do not edit the copy in the build tree.
+//
+// Resource ID 1 matters: Windows shows the numerically lowest ICON
+// resource as the file icon, so this has to stay first.
+1 ICON "@DARTMATIC_ICON_PATH@"

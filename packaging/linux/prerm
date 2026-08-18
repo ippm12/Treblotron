@@ -1,0 +1,21 @@
+#!/bin/sh
+# Only the links this package created. Everything under /opt/dartmatic is
+# dpkg's to remove, and per-user config in ~/.local/share/dartmatic is
+# deliberately left alone -- calibration is a long job to redo.
+set -e
+
+case "$1" in
+    remove|upgrade|deconfigure)
+        [ -L /usr/bin/dartmatic ] && rm -f /usr/bin/dartmatic
+        [ -L /usr/share/applications/dartmatic.desktop ] \
+            && rm -f /usr/share/applications/dartmatic.desktop
+        ;;
+    failed-upgrade)
+        ;;
+    *)
+        echo "prerm called with unknown argument \`$1'" >&2
+        exit 1
+        ;;
+esac
+
+exit 0

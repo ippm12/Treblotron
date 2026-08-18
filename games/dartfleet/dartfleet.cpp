@@ -8,6 +8,7 @@
 #include "dart/dart_board_geometry.hpp"
 #include "frame/render_queue.hpp"
 #include "game_lib/game_manager.hpp"
+#include "game_lib/palette.hpp"
 #include "game_lib/components/render_shape.hpp"
 #include "game_lib/components/render_text.hpp"
 #include "game_lib/components/render_image.hpp"
@@ -73,16 +74,16 @@ static constexpr uint32_t Z_HINTS        = 90;
 static constexpr uint32_t Z_NO_PEEK      = 1000;
 
 // Colors
-static constexpr Color COLOR_TEAM0       = { 100, 180, 255 };  // light blue
-static constexpr Color COLOR_TEAM1       = { 255, 160, 100 };  // soft orange
-static constexpr Color COLOR_HIT_ORANGE  = { 255, 140,  40 };
-static constexpr Color COLOR_MISS_PURPLE = { 180,  90, 220 };
+static constexpr Color COLOR_TEAM0       = Palette::TEAM0;
+static constexpr Color COLOR_TEAM1       = Palette::TEAM1;
+static constexpr Color COLOR_HIT_ORANGE  = Palette::WARNING;
+static constexpr Color COLOR_MISS_PURPLE = Palette::MARKER;
 static constexpr Color COLOR_SHIP_HULL   = {  60,  60,  70 };
-static constexpr Color COLOR_VALID       = { 120, 220, 120 };
-static constexpr Color COLOR_INVALID     = { 240,  90,  90 };
-static constexpr Color COLOR_DIM         = { 130, 130, 140 };
-static constexpr Color COLOR_WHITE       = { 240, 240, 240 };
-static constexpr Color COLOR_HEADER_DIM  = { 160, 160, 160 };
+static constexpr Color COLOR_VALID       = Palette::CONFIRM;
+static constexpr Color COLOR_INVALID     = Palette::INVALID;
+static constexpr Color COLOR_DIM         = Palette::TEXT_DIM;
+static constexpr Color COLOR_WHITE       = Palette::TEXT;
+static constexpr Color COLOR_HEADER_DIM  = Palette::TEXT_DIM;
 
 
 // ============================================================================

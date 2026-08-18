@@ -69,7 +69,7 @@ Cameras straight into a Windows machine, GPU does the rest.
 A Raspberry Pi runs the cameras and the screen; a PC on your network runs the
 models.
 
-`Dartmatic-Server-*.exe` + build on the Pi
+`Dartmatic-Server-*.exe` + `dartmatic_*_arm64.deb`
 
 </td>
 <td width="33%" valign="top">

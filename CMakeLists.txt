@@ -292,7 +292,25 @@ endif()
 # ============================================================================
 
 if(DARTMATIC_BUILD_APP)
-    add_executable(${PRJ_NAME} startup.cpp)
+    # ---- Windows executable icon --------------------------------------
+    #
+    # Without an embedded icon the shipped exe shows the generic MinGW
+    # placeholder in Explorer, the taskbar and Alt-Tab -- the installer icon
+    # does not cover any of those. windres compiles the .rc; the path is
+    # configured in rather than hard-coded so the build tree stays relocatable.
+    set(_dm_app_sources startup.cpp)
+    if(WIN32)
+        enable_language(RC)
+        set(DARTMATIC_ICON_PATH "${PROJECT_SOURCE_DIR}/assets/branding/icon.ico")
+        # windres reads the path out of a C string, so backslashes would be
+        # escapes. Forward slashes work and avoid the whole question.
+        string(REPLACE "\\" "/" DARTMATIC_ICON_PATH "${DARTMATIC_ICON_PATH}")
+        configure_file("${PROJECT_SOURCE_DIR}/packaging/windows/app.rc.in"
+                       "${PROJECT_BINARY_DIR}/app.rc" @ONLY)
+        list(APPEND _dm_app_sources "${PROJECT_BINARY_DIR}/app.rc")
+    endif()
+
+    add_executable(${PRJ_NAME} ${_dm_app_sources})
     dartmatic_configure_target(${PRJ_NAME})
 
     set(APP_MODULES_LIST "debug" "frame" "dart" "players" "game_lib" "games"
@@ -705,6 +723,12 @@ endif()
 # "Failed to load image" line and a blank input hint, which is why the list can
 # be maintained by hand without becoming a trap.
 if(DARTMATIC_BUILD_APP)
+    # The window icon is loaded at runtime, so it has to be in the installed
+    # asset tree as well as the platform icon locations.
+    install(FILES "${PROJECT_SOURCE_DIR}/assets/branding/icon-256.png"
+            DESTINATION "${DARTMATIC_INSTALL_BIN}/assets/branding"
+            COMPONENT dartmatic)
+
     install(FILES "${PROJECT_SOURCE_DIR}/assets/fonts/Roboto-Regular.ttf"
             DESTINATION "${DARTMATIC_INSTALL_BIN}/assets/fonts"
             COMPONENT dartmatic)
@@ -799,6 +823,26 @@ if(WIN32)
                 COMPONENT dartmatic)
         endif()
     endif()
+endif()
+
+# ---- Linux desktop integration ---------------------------------------------
+#
+# Installed inside the package prefix; the postinst symlinks it into
+# /usr/share/applications. Putting it there directly would mean an absolute
+# DESTINATION escaping CPACK_PACKAGING_INSTALL_PREFIX, which the archive
+# generators handle differently from DEB.
+if(UNIX AND NOT APPLE AND DARTMATIC_BUILD_APP)
+    install(FILES "${PROJECT_SOURCE_DIR}/packaging/linux/dartmatic.desktop"
+            DESTINATION "share/applications"
+            COMPONENT dartmatic)
+    # Named for the product at install time, because the .desktop Icon= key and
+    # the installed filename have to agree. The source file stays name-neutral
+    # so a rename never has to touch the branding directory.
+    string(TOLOWER "${PRJ_NAME}" _dm_icon_name)
+    install(FILES "${PROJECT_SOURCE_DIR}/assets/branding/icon-256.png"
+            DESTINATION "share/icons/hicolor/256x256/apps"
+            RENAME "${_dm_icon_name}.png"
+            COMPONENT dartmatic)
 endif()
 
 install(FILES "${PROJECT_SOURCE_DIR}/LICENSE"
@@ -932,6 +976,10 @@ if(WIN32)
         set(CPACK_COMPONENT_INCLUDE_TOPLEVEL_DIRECTORY 0)
     endif()
 
+    set(CPACK_NSIS_MUI_ICON   "${PROJECT_SOURCE_DIR}/assets/branding/icon.ico")
+    set(CPACK_NSIS_MUI_UNIICON "${PROJECT_SOURCE_DIR}/assets/branding/icon.ico")
+    set(CPACK_NSIS_INSTALLED_ICON_NAME
+        "${DARTMATIC_INSTALL_BIN}\\\\${PRJ_NAME}.exe")
     set(CPACK_NSIS_PACKAGE_NAME     "Dartmatic ${_pkg_variant}")
     set(CPACK_NSIS_DISPLAY_NAME     "Dartmatic ${_pkg_variant} ${PROJECT_VERSION}")
     set(CPACK_NSIS_MODIFY_PATH      OFF)
@@ -971,6 +1019,18 @@ else()
     set(CPACK_DEBIAN_PACKAGE_MAINTAINER "ippm12")
     set(CPACK_DEBIAN_PACKAGE_SECTION    "games")
     set(CPACK_DEBIAN_FILE_NAME          DEB-DEFAULT)
+
+    # Debian package names are lowercase, and there is only ever one component
+    # here -- leaving component install on would emit "Dartmatic-dartmatic_..."
+    # instead of the "dartmatic_0.1.0_arm64.deb" a user expects to download.
+    set(CPACK_DEB_COMPONENT_INSTALL     OFF)
+    set(CPACK_DEBIAN_PACKAGE_NAME       "dartmatic")
+    set(CPACK_DEBIAN_PACKAGE_HOMEPAGE   "https://github.com/ippm12/Dartmatic")
+
+    # /opt is outside PATH and outside the desktop menu, so the package links
+    # itself into both on install and unlinks on removal.
+    set(CPACK_DEBIAN_PACKAGE_CONTROL_EXTRA
+        "${PROJECT_SOURCE_DIR}/packaging/linux/postinst;${PROJECT_SOURCE_DIR}/packaging/linux/prerm")
     # Left to dpkg-shlibdeps: the Pi client links system OpenCV and SDL
     # transitively and hand-listing them goes stale the first time a dependency
     # moves.

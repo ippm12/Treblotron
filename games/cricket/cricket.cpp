@@ -8,6 +8,7 @@
 #include "dart/dart_defs.hpp"
 #include "frame/render_queue.hpp"
 #include "game_lib/game_manager.hpp"
+#include "game_lib/palette.hpp"
 #include "game_lib/game_helpers.hpp"
 #include "vision/vision.hpp"
 #include "game_lib/components/render_shape.hpp"
@@ -35,8 +36,8 @@ static constexpr float    MARKS_ROW_H        = 60.0f;
 static constexpr float    MARKS_LABEL_W      = 60.0f;
 
 // Board segment colors for Cricket states
-static constexpr Color COLOR_CLOSED     = {60, 100, 200};   // Current player closed (blue)
-static constexpr Color COLOR_THREATENED = {220, 140, 30};   // Opponent closed, player hasn't (orange)
+static constexpr Color COLOR_CLOSED     = Palette::TEAM0;    // current player closed
+static constexpr Color COLOR_THREATENED = Palette::TEAM1;    // opponent closed, player has not
 static constexpr Color COLOR_HIT_FLASH  = {255, 255, 200};  // Dart hit flash (yellow)
 
 

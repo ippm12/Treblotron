@@ -1,0 +1,31 @@
+#!/bin/sh
+# Files live under /opt/dartmatic, which is outside $PATH and outside the
+# places a desktop environment looks. Link them into both so the package
+# behaves like something installed rather than something unpacked.
+set -e
+
+BIN=/opt/dartmatic/bin/Dartmatic
+LINK=/usr/bin/dartmatic
+DESKTOP=/opt/dartmatic/share/applications/dartmatic.desktop
+DESKTOP_LINK=/usr/share/applications/dartmatic.desktop
+
+case "$1" in
+    configure)
+        [ -x "$BIN" ] && ln -sf "$BIN" "$LINK"
+        if [ -f "$DESKTOP" ]; then
+            mkdir -p /usr/share/applications
+            ln -sf "$DESKTOP" "$DESKTOP_LINK"
+            if command -v update-desktop-database >/dev/null 2>&1; then
+                update-desktop-database -q /usr/share/applications || true
+            fi
+        fi
+        ;;
+    abort-upgrade|abort-remove|abort-deconfigure)
+        ;;
+    *)
+        echo "postinst called with unknown argument \`$1'" >&2
+        exit 1
+        ;;
+esac
+
+exit 0

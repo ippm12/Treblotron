@@ -82,27 +82,58 @@ a different firewall, allow inbound TCP 9876.
 
 ### On the Pi
 
-There is no prebuilt Pi package yet; build it once:
+Download `dartmatic_0.1.0_arm64.deb` from the
+[Releases page](https://github.com/ippm12/Dartmatic/releases) and install it:
 
 ```bash
-sudo apt install -y build-essential cmake ninja-build git \
+sudo apt install ./dartmatic_0.1.0_arm64.deb
+```
+
+`apt` pulls in what it needs — SDL3, OpenCV and the rest are recorded as
+dependencies of the package. Nothing is compiled, and you do not need the
+source.
+
+Then launch **Dartmatic** from the Games menu, or from a terminal:
+
+```bash
+dartmatic
+```
+
+The client carries no models at all: they live on the other end of the socket,
+which is why the package is small and why the Pi needs no GPU.
+
+<details>
+<summary>Building the package yourself</summary>
+
+Only needed if you are cutting a release, or running an architecture the
+release does not cover. It has to be built **on** an arm64 machine — there is
+no cross-compilation setup in this repo.
+
+```bash
+sudo apt install -y build-essential cmake ninja-build git dpkg-dev \
                     libsdl3-dev libgl1-mesa-dev
 
-git clone --recurse-submodules <repository-url> dartmatic
+git clone --recurse-submodules https://github.com/ippm12/Dartmatic.git dartmatic
 cd dartmatic
 cmake --preset app-network
 cmake --build build-app-network -j4
+
+cd build-app-network && cpack
 ```
 
-The first build takes a while — OpenCV is a submodule and is compiled from
-source. The Pi builds a trimmed set and no inference backend at all, because
-the models live on the other end of the socket.
+`dpkg-dev` is needed only for that last step: `cpack` calls `dpkg-shlibdeps` to
+work out the dependency list, rather than hard-coding one that would go stale.
+The first build takes a while, since OpenCV is a submodule compiled from
+source.
 
-Then run it:
+You get both `dartmatic_0.1.0_arm64.deb` and a `.tar.gz` of the same tree. To
+run straight out of the build directory without installing anything:
 
 ```bash
 ./build-app-network/bin/Dartmatic
 ```
+
+</details>
 
 Set the server address from inside the app: **Vision** card on the main menu,
 or **F1** at any time. It is saved, so you only do this once. `DARTMATIC_SERVER=host:port`

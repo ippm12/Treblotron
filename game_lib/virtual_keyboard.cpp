@@ -7,6 +7,7 @@
 #include "game_lib/virtual_keyboard.hpp"
 #include "game_lib/components/render_shape.hpp"
 #include "game_lib/components/render_text.hpp"
+#include "game_lib/palette.hpp"
 #include "game_lib/components/render_image.hpp"
 #include "frame/render_queue.hpp"
 #include "frame/image.hpp"
@@ -36,16 +37,16 @@ static constexpr float KB_TEXT_Y    = 390.0f;   // Text buffer display Y
 static constexpr float KB_ORIGIN_Y  = 480.0f;   // Top of first key row
 
 // Colors
-static constexpr Color COL_BG          = {20, 20, 30};
-static constexpr Color COL_KEY_NORMAL  = {55, 55, 65};
-static constexpr Color COL_KEY_SELECT  = {70, 70, 120};
+static constexpr Color COL_BG          = Palette::BG;
+static constexpr Color COL_KEY_NORMAL  = Palette::BG_RAISED;
+static constexpr Color COL_KEY_SELECT  = Palette::BG_SELECT;
 static constexpr Color COL_KEY_ACTION  = {50, 65, 55};
 static constexpr Color COL_KEY_CONFIRM = {40, 100, 60};
 static constexpr Color COL_KEY_SHIFT   = {80, 80, 60};
-static constexpr Color COL_TEXT_NORMAL = {180, 180, 190};
-static constexpr Color COL_TEXT_SELECT = {255, 255, 255};
-static constexpr Color COL_TEXT_BUFFER = {255, 255, 255};
-static constexpr Color COL_CONFIRM_TXT = {100, 255, 130};
+static constexpr Color COL_TEXT_NORMAL = Palette::TEXT_DIM;
+static constexpr Color COL_TEXT_SELECT = Palette::TEXT;
+static constexpr Color COL_TEXT_BUFFER = Palette::TEXT;
+static constexpr Color COL_CONFIRM_TXT = Palette::CONFIRM;
 
 
 // ============================================================================

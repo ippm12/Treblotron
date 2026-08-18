@@ -7,6 +7,7 @@
 
 #include "games/main_menu.hpp"
 #include "vision/vision.hpp"
+#include "game_lib/palette.hpp"
 #include "vision/vision_link.hpp"
 #include "detect/wire_calibration.hpp"
 #include "calibration.hpp"
@@ -530,7 +531,7 @@ void MainMenu::renderCardGrid()
             float cardY = TOP_MARGIN + row * (CARD_H + CARD_GAP);
 
             // Card background
-            Color bgColor = isSelected ? Color{70, 70, 120} : Color{55, 55, 65};
+            Color bgColor = isSelected ? Palette::BG_SELECT : Palette::BG_RAISED;
             auto bg = std::make_shared<RenderShape>();
             bg->m_type   = ShapeType::Box;
             bg->m_color  = bgColor;
@@ -821,8 +822,8 @@ void MainMenu::renderCardGrid()
             "Cameras detected:  " + std::to_string(cams) + " of "
             + std::to_string(EXPECTED_CAMERA_COUNT);
         centred(camLine, m_smallFontId, smallFont, panelY + 150.0f,
-                cams >= EXPECTED_CAMERA_COUNT ? Color{120, 210, 140}
-                                              : Color{255, 200, 80});
+                cams >= EXPECTED_CAMERA_COUNT ? Palette::CONFIRM
+                                              : Palette::WARNING);
 
         centred("Board calibration:  not done yet", m_smallFontId, smallFont,
                 panelY + 192.0f, {255, 200, 80});
@@ -834,7 +835,7 @@ void MainMenu::renderCardGrid()
                         ? std::string("not set - use the Vision card")
                         : address),
                     m_smallFontId, smallFont, panelY + 234.0f,
-                    address.empty() ? Color{255, 200, 80} : Color{120, 210, 140});
+                    address.empty() ? Palette::WARNING : Palette::CONFIRM);
         }
 
         centred("Calibration takes a few minutes and only has to be done once,",
@@ -1007,7 +1008,7 @@ void MainMenu::renderGameSettings()
         // Setting name
         auto nameText = std::make_shared<RenderText>();
         nameText->m_text     = desc.settings[i].name;
-        nameText->m_color    = isSelected ? Color{255, 255, 255} : Color{180, 180, 190};
+        nameText->m_color    = isSelected ? Palette::TEXT : Palette::TEXT_DIM;
         nameText->m_fontId   = m_cardFontId;
         nameText->m_rotation = 0.0f;
         nameText->m_scaleX   = 1.0f;
@@ -1023,7 +1024,7 @@ void MainMenu::renderGameSettings()
 
         auto optText = std::make_shared<RenderText>();
         optText->m_text     = optionLabel;
-        optText->m_color    = isSelected ? Color{100, 200, 255} : Color{140, 140, 150};
+        optText->m_color    = isSelected ? Palette::SELECT : Palette::TEXT_MUTED;
         optText->m_fontId   = m_cardFontId;
         optText->m_rotation = 0.0f;
         optText->m_scaleX   = 1.0f;
@@ -1054,7 +1055,7 @@ void MainMenu::renderGameSettings()
 
         auto btnText = std::make_shared<RenderText>();
         btnText->m_text     = "Start Game";
-        btnText->m_color    = isSelected ? Color{100, 255, 130} : Color{120, 180, 130};
+        btnText->m_color    = isSelected ? Palette::CONFIRM : Palette::TEXT_DIM;
         btnText->m_fontId   = m_cardFontId;
         btnText->m_rotation = 0.0f;
         btnText->m_scaleX   = 1.0f;
@@ -1734,7 +1735,7 @@ void MainMenu::renderPlayerSettings()
 
         auto nameText = std::make_shared<RenderText>();
         nameText->m_text     = name;
-        nameText->m_color    = isSelected ? Color{255, 255, 255} : Color{180, 180, 190};
+        nameText->m_color    = isSelected ? Palette::TEXT : Palette::TEXT_DIM;
         nameText->m_fontId   = m_cardFontId;
         nameText->m_rotation = 0.0f;
         nameText->m_scaleX   = 1.0f;
@@ -1760,7 +1761,7 @@ void MainMenu::renderPlayerSettings()
 
             auto teamText = std::make_shared<RenderText>();
             teamText->m_text     = teamLabel;
-            teamText->m_color    = isSelected ? Color{100, 200, 255} : Color{120, 120, 140};
+            teamText->m_color    = isSelected ? Palette::SELECT : Palette::TEXT_MUTED;
             teamText->m_fontId   = m_cardFontId;
             teamText->m_rotation = 0.0f;
             teamText->m_scaleX   = 1.0f;
@@ -1816,7 +1817,7 @@ void MainMenu::renderPlayerSettings()
 
             auto addText = std::make_shared<RenderText>();
             addText->m_text     = addLabel;
-            addText->m_color    = isSelected ? Color{100, 255, 130} : Color{100, 170, 120};
+            addText->m_color    = isSelected ? Palette::CONFIRM : Palette::TEXT_DIM;
             addText->m_fontId   = m_cardFontId;
             addText->m_rotation = 0.0f;
             addText->m_scaleX   = 1.0f;
@@ -1914,7 +1915,7 @@ void MainMenu::renderPlayerSettings()
 
         auto nameText = std::make_shared<RenderText>();
         nameText->m_text     = teamName;
-        nameText->m_color    = isSelected ? Color{255, 255, 255} : Color{180, 180, 190};
+        nameText->m_color    = isSelected ? Palette::TEXT : Palette::TEXT_DIM;
         nameText->m_fontId   = m_cardFontId;
         nameText->m_rotation = 0.0f;
         nameText->m_scaleX   = 1.0f;
@@ -1969,7 +1970,7 @@ void MainMenu::renderPlayerSettings()
 
             auto addText = std::make_shared<RenderText>();
             addText->m_text     = addLabel;
-            addText->m_color    = isSelected ? Color{100, 255, 130} : Color{100, 170, 120};
+            addText->m_color    = isSelected ? Palette::CONFIRM : Palette::TEXT_DIM;
             addText->m_fontId   = m_cardFontId;
             addText->m_rotation = 0.0f;
             addText->m_scaleX   = 1.0f;
