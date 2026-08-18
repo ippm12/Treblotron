@@ -10,11 +10,11 @@ set -e
 
 case "$1" in
     remove|upgrade|deconfigure)
-        if [ -L /usr/bin/treblotron ]; then
-            rm -f /usr/bin/treblotron
+        if [ -L @DEB_LINK@ ]; then
+            rm -f @DEB_LINK@
         fi
-        if [ -L /usr/share/applications/treblotron.desktop ]; then
-            rm -f /usr/share/applications/treblotron.desktop
+        if [ -L @DEB_DESKTOP_LINK@ ]; then
+            rm -f @DEB_DESKTOP_LINK@
         fi
         ;;
     failed-upgrade)

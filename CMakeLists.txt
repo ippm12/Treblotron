@@ -1078,10 +1078,38 @@ else()
     set(CPACK_DEBIAN_PACKAGE_HOMEPAGE   "https://github.com/ippm12/Treblotron")
 
     # /opt is outside PATH and outside the desktop menu, so the package links
-    # itself into both on install and unlinks on removal. Component-scoped,
-    # because that is the only form CPack reads once COMPONENT_INSTALL is on.
+    # itself into both on install and unlinks on removal.
+    #
+    # The scripts are generated rather than checked in with literal paths: a
+    # postinst looking for a binary that install() put somewhere else does
+    # nothing, silently, and the symptom is a package that installs cleanly and
+    # provides no command. Substituting the same variables install() uses makes
+    # that impossible.
+    string(TOLOWER "${PRJ_NAME}" _dm_lower)
+    set(DEB_BIN          "${CPACK_PACKAGING_INSTALL_PREFIX}/${TREBLOTRON_INSTALL_BIN}/${PRJ_NAME}")
+    set(DEB_LINK         "/usr/bin/${_dm_lower}")
+    set(DEB_DESKTOP      "${CPACK_PACKAGING_INSTALL_PREFIX}/share/applications/${_dm_lower}.desktop")
+    set(DEB_DESKTOP_LINK "/usr/share/applications/${_dm_lower}.desktop")
+
+    foreach(_dm_script postinst prerm)
+        configure_file(
+            "${PROJECT_SOURCE_DIR}/packaging/linux/${_dm_script}.in"
+            "${PROJECT_BINARY_DIR}/packaging/${_dm_script}"
+            @ONLY)
+        # dpkg refuses a control script that is not executable, and
+        # configure_file does not carry the source permissions over.
+        file(CHMOD "${PROJECT_BINARY_DIR}/packaging/${_dm_script}"
+             PERMISSIONS
+                 OWNER_READ OWNER_WRITE OWNER_EXECUTE
+                 GROUP_READ GROUP_EXECUTE
+                 WORLD_READ WORLD_EXECUTE)
+    endforeach()
+
+    # Component-scoped, because that is the only form CPack reads once
+    # CPACK_DEB_COMPONENT_INSTALL is on -- the unscoped variable is ignored, and
+    # the package ships with no maintainer scripts at all.
     set(CPACK_DEBIAN_TREBLOTRON_PACKAGE_CONTROL_EXTRA
-        "${PROJECT_SOURCE_DIR}/packaging/linux/postinst;${PROJECT_SOURCE_DIR}/packaging/linux/prerm")
+        "${PROJECT_BINARY_DIR}/packaging/postinst;${PROJECT_BINARY_DIR}/packaging/prerm")
     # Left to dpkg-shlibdeps: the Pi client links system OpenCV and SDL
     # transitively and hand-listing them goes stale the first time a dependency
     # moves.

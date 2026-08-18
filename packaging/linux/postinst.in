@@ -1,5 +1,10 @@
 #!/bin/sh
-# Files live under /opt/treblotron, which is outside $PATH and outside the
+# Generated from postinst.in -- edit the template, never the copy in the
+# build tree. The paths are substituted from CMake so they cannot drift
+# from where install() actually puts things, which is a failure that shows
+# up as a package that installs cleanly and provides no command.
+#
+# Files live under the package prefix, which is outside $PATH and outside the
 # places a desktop environment looks. Link them into both so the package
 # behaves like something installed rather than something unpacked.
 #
@@ -9,10 +14,10 @@
 # configuration.
 set -e
 
-BIN=/opt/treblotron/bin/Treblotron
-LINK=/usr/bin/treblotron
-DESKTOP=/opt/treblotron/share/applications/treblotron.desktop
-DESKTOP_LINK=/usr/share/applications/treblotron.desktop
+BIN=@DEB_BIN@
+LINK=@DEB_LINK@
+DESKTOP=@DEB_DESKTOP@
+DESKTOP_LINK=@DEB_DESKTOP_LINK@
 
 case "$1" in
     configure)
