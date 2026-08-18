@@ -2,13 +2,20 @@
 # Only the links this package created. Everything under /opt/treblotron is
 # dpkg's to remove, and per-user config in ~/.local/share/treblotron is
 # deliberately left alone -- calibration is a long job to redo.
+#
+# `if` rather than `[ ... ] && rm`: under `set -e` the short form aborts the
+# script when the link is already absent, which makes `apt remove` fail and
+# strands the package half-removed.
 set -e
 
 case "$1" in
     remove|upgrade|deconfigure)
-        [ -L /usr/bin/treblotron ] && rm -f /usr/bin/treblotron
-        [ -L /usr/share/applications/treblotron.desktop ] \
-            && rm -f /usr/share/applications/treblotron.desktop
+        if [ -L /usr/bin/treblotron ]; then
+            rm -f /usr/bin/treblotron
+        fi
+        if [ -L /usr/share/applications/treblotron.desktop ]; then
+            rm -f /usr/share/applications/treblotron.desktop
+        fi
         ;;
     failed-upgrade)
         ;;

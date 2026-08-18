@@ -2,6 +2,11 @@
 # Files live under /opt/treblotron, which is outside $PATH and outside the
 # places a desktop environment looks. Link them into both so the package
 # behaves like something installed rather than something unpacked.
+#
+# Every conditional below is an `if`, not `[ ... ] && cmd`. Under `set -e` an
+# AND-list whose test fails returns non-zero and takes the script with it, so
+# the shorter form turns "the file is not there" into a failed package
+# configuration.
 set -e
 
 BIN=/opt/treblotron/bin/Treblotron
@@ -11,7 +16,13 @@ DESKTOP_LINK=/usr/share/applications/treblotron.desktop
 
 case "$1" in
     configure)
-        [ -x "$BIN" ] && ln -sf "$BIN" "$LINK"
+        if [ -x "$BIN" ]; then
+            ln -sf "$BIN" "$LINK"
+        else
+            echo "treblotron: expected the binary at $BIN, but it is not there;" >&2
+            echo "treblotron: no $LINK command was created." >&2
+        fi
+
         if [ -f "$DESKTOP" ]; then
             mkdir -p /usr/share/applications
             ln -sf "$DESKTOP" "$DESKTOP_LINK"
