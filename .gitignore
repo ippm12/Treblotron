@@ -27,3 +27,6 @@ CMakeUserPresets.json
 # ONNX Runtime is fetched at configure time for the directml backend.
 external_libs/onnxruntime/
 external_libs/directml/
+
+# Python bytecode from the figure scripts
+__pycache__/
