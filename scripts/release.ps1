@@ -96,34 +96,77 @@ foreach ($name in $Only) {
 
     Write-Host "`n=== $name ($($cfg.Preset)) ===" -ForegroundColor Cyan
 
-    cmake --preset $cfg.Preset | Out-Null
-    if ($LASTEXITCODE -ne 0) { throw "configure failed for $($cfg.Preset)" }
+    # Output is captured rather than discarded. Piping the build to Out-Null
+    # loses the compiler error along with everything else, leaving "build
+    # failed" and nothing to act on -- and a cold build compiles OpenCV from
+    # source, so it also means twenty silent minutes that look like a hang.
+    $log = Join-Path ([System.IO.Path]::GetTempPath()) "treblotron-$name.log"
+    $lines = [System.Collections.Generic.List[string]]::new()
 
-    cmake --build $cfg.Dir | Out-Null
-    if ($LASTEXITCODE -ne 0) { throw "build failed for $($cfg.Preset)" }
+    function Invoke-Stage([string] $what, [scriptblock] $cmd) {
+        $script:lines.Clear()
+        $last = 0
+        & $cmd 2>&1 | ForEach-Object {
+            $text = [string] $_
+            $script:lines.Add($text)
+            # Ninja prefixes each step with [done/total]; report every 5%.
+            if ($text -match '^\[(\d+)/(\d+)\]') {
+                $cur = [int] $Matches[1]
+                $tot = [int] $Matches[2]
+                if ($tot -gt 0 -and ($cur - $script:lastReported) -ge [math]::Max(1, [int]($tot / 20))) {
+                    $script:lastReported = $cur
+                    $pct = [int](100 * $cur / $tot)
+                    Write-Host ("`r  {0}  {1,5}/{2}  {3,3}%   " -f $what, $cur, $tot, $pct) -NoNewline
+                }
+            }
+        }
+        Write-Host ""
+        if ($LASTEXITCODE -ne 0) {
+            Set-Content -Path $log -Value $script:lines -Encoding utf8
+            Write-Host ($script:lines | Select-Object -Last 30) -ForegroundColor Red
+            throw "$what failed for $($cfg.Preset) -- full output: $log"
+        }
+    }
+
+    $script:lastReported = 0
+    Invoke-Stage "configure" { cmake --preset $cfg.Preset }
+
+    $script:lastReported = 0
+    Invoke-Stage "build" { cmake --build $cfg.Dir }
 
     # A release binary that only runs where it was built is the failure mode
     # this whole exercise exists to prevent, so it is checked every time rather
     # than trusted. A stripped-down PATH stands in for a machine that has never
     # had a compiler on it.
+    #
+    # The check runs against a real install tree, not the build directory. The
+    # two are not the same set of files -- the build tree is assembled by
+    # POST_BUILD copies, the installed one by install() rules -- and it is the
+    # installed one that ships. Testing the build tree can pass while the
+    # installer is missing a DLL, which is precisely the bug worth catching.
     if (-not $SkipVerify) {
-        $exe = Join-Path $repo "$($cfg.Dir)\bin\$($cfg.Exe)"
-        $saved = $env:PATH
+        $stage = Join-Path ([System.IO.Path]::GetTempPath()) "treblotron-verify-$name"
+        if (Test-Path $stage) { Remove-Item $stage -Recurse -Force }
+
+        cmake --install $cfg.Dir --prefix $stage | Out-Null
+        if ($LASTEXITCODE -ne 0) { throw "install to staging failed for $($cfg.Preset)" }
+
+        $exe = Join-Path $stage "bin\$($cfg.Exe)"
+        if (-not (Test-Path $exe)) { throw "$($cfg.Exe) is not in the install tree at $stage" }
+
+        # Resolve the import graph rather than launching. A missing DLL raises a
+        # modal "code execution cannot proceed" dialog, and a process sitting on
+        # that dialog has not exited -- so launching reports success and hangs an
+        # unattended build. See cmake/check_runtime_deps.cmake.
         try {
-            $env:PATH = "$env:SystemRoot\system32;$env:SystemRoot"
-            if ($name -eq "server") {
-                & $exe --version | Out-Null
-                if ($LASTEXITCODE -ne 0) { throw "$($cfg.Exe) will not start without the toolchain on PATH" }
-            } else {
-                $p = Start-Process -FilePath $exe -PassThru
-                Start-Sleep -Seconds 5
-                $p.Refresh()
-                if ($p.HasExited) { throw "$($cfg.Exe) exited immediately without the toolchain on PATH (code $($p.ExitCode))" }
-                $p.Kill()
+            cmake "-DBIN_DIR=$stage/bin" "-DEXECUTABLES=$($cfg.Exe)" `
+                  -P (Join-Path $repo "cmake\check_runtime_deps.cmake")
+            if ($LASTEXITCODE -ne 0) {
+                throw "$($cfg.Exe) depends on libraries the installer does not ship"
             }
-            Write-Host "  starts on a clean PATH" -ForegroundColor Green
+            Write-Host "  installed tree is self-contained" -ForegroundColor Green
         } finally {
-            $env:PATH = $saved
+            Remove-Item $stage -Recurse -Force -ErrorAction SilentlyContinue
         }
     }
 

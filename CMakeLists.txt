@@ -668,6 +668,23 @@ if(WIN32)
                     $<IF:$<BOOL:$<TARGET_RUNTIME_DLLS:${_t}>>,copy_if_different,true>
                     "$<TARGET_RUNTIME_DLLS:${_t}>" "$<TARGET_FILE_DIR:${_t}>"
             COMMAND_EXPAND_LISTS)
+
+        # ...then the DLLs those DLLs need. $<TARGET_RUNTIME_DLLS> does not
+        # recurse, so it delivers SDL3_ttf.dll and stops -- leaving its own
+        # import of libwinpthread-1.dll to be satisfied by MSYS2 being on PATH,
+        # which is true here and nowhere else. Runs after the copy above,
+        # because it inspects what that copy produced.
+        if(MINGW)
+            get_filename_component(_dm_toolchain_bin "${CMAKE_CXX_COMPILER}" DIRECTORY)
+            add_custom_command(TARGET ${_t} POST_BUILD
+                COMMAND ${CMAKE_COMMAND}
+                        -DBIN_DIR=$<TARGET_FILE_DIR:${_t}>
+                        -DEXECUTABLE=$<TARGET_FILE:${_t}>
+                        -DTOOLCHAIN_BIN=${_dm_toolchain_bin}
+                        -P "${PROJECT_SOURCE_DIR}/cmake/bundle_runtime_deps.cmake"
+                COMMENT "Bundling toolchain DLLs for ${_t}"
+                VERBATIM)
+        endif()
     endforeach()
 endif()
 
