@@ -13,6 +13,21 @@ foreach(_t IN LISTS TREBLOTRON_TARGETS)
 endforeach()
 
 if(TREBLOTRON_BUILD_APP)
+    # Off Windows these all build shared by default, which is why the Windows
+    # tree ships SDL3.dll, SDL3_ttf.dll and SDL3_image.dll. A .deb carrying
+    # private .so files needs an install rule per library plus RPATH so the
+    # binary can find them under /opt -- and the component filtering that keeps
+    # third-party files out of the package would exclude them anyway. Linking
+    # them in instead makes the package a single self-contained binary. All are
+    # zlib/MIT licensed, so static linking carries no obligation.
+    if(NOT WIN32)
+        set(_treblotron_shared_saved ${BUILD_SHARED_LIBS})
+        set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
+        set(SDL_SHARED  OFF CACHE BOOL "" FORCE)
+        set(SDL_STATIC  ON  CACHE BOOL "" FORCE)
+        set(SDLTTF_VENDORED ON CACHE BOOL "" FORCE)
+    endif()
+
     # SDL
     add_subdirectory(SDL)
 
@@ -30,8 +45,22 @@ if(TREBLOTRON_BUILD_APP)
     target_link_libraries(${PRJ_NAME} PRIVATE SDL3_image::SDL3_image)
 
     # SDL3 linked last — SDL_ttf and SDL_image static libs need its symbols,
-    # and GNU ld resolves left-to-right
-    target_link_libraries(${PRJ_NAME} PRIVATE SDL3::SDL3)
+    # and GNU ld resolves left-to-right.
+    #
+    # SDL3::SDL3 names the shared library; when only the static one is built
+    # that target does not exist, so ask for whichever is present rather than
+    # assuming.
+    if(TARGET SDL3::SDL3)
+        target_link_libraries(${PRJ_NAME} PRIVATE SDL3::SDL3)
+    elseif(TARGET SDL3::SDL3-static)
+        target_link_libraries(${PRJ_NAME} PRIVATE SDL3::SDL3-static)
+    else()
+        message(FATAL_ERROR "Neither SDL3::SDL3 nor SDL3::SDL3-static exists")
+    endif()
+
+    if(NOT WIN32)
+        set(BUILD_SHARED_LIBS ${_treblotron_shared_saved} CACHE BOOL "" FORCE)
+    endif()
 endif()
 
 # ----------------------------------------------------------------------------

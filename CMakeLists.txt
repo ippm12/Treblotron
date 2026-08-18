@@ -1060,16 +1060,27 @@ else()
     set(CPACK_DEBIAN_PACKAGE_SECTION    "games")
     set(CPACK_DEBIAN_FILE_NAME          DEB-DEFAULT)
 
-    # Debian package names are lowercase, and there is only ever one component
-    # here -- leaving component install on would emit "Treblotron-treblotron_..."
-    # instead of the "treblotron_0.1.0_arm64.deb" a user expects to download.
-    set(CPACK_DEB_COMPONENT_INSTALL     OFF)
-    set(CPACK_DEBIAN_PACKAGE_NAME       "treblotron")
+    # Component install has to stay ON. It is the only thing that limits the
+    # payload to our own files: OpenCV and flecs carry their own install()
+    # rules, which land in the Unspecified component, and a monolithic install
+    # packages every component regardless of CPACK_COMPONENTS_ALL. That is how
+    # share/opencv4/lbpcascades and lib/libflecs.so ended up in the .deb -- and
+    # dpkg-shlibdeps then fails outright, because no Debian package provides
+    # libflecs.so so it cannot derive a dependency for it.
+    #
+    # The component-scoped names below keep the filename the plain
+    # "treblotron_0.1.0_arm64.deb" a user expects, rather than CPack's default
+    # "Treblotron-treblotron_...".
+    set(CPACK_DEB_COMPONENT_INSTALL              ON)
+    set(CPACK_DEBIAN_TREBLOTRON_PACKAGE_NAME     "treblotron")
+    set(CPACK_DEBIAN_TREBLOTRON_FILE_NAME        DEB-DEFAULT)
+    set(CPACK_DEBIAN_PACKAGE_NAME                "treblotron")
     set(CPACK_DEBIAN_PACKAGE_HOMEPAGE   "https://github.com/ippm12/Treblotron")
 
     # /opt is outside PATH and outside the desktop menu, so the package links
-    # itself into both on install and unlinks on removal.
-    set(CPACK_DEBIAN_PACKAGE_CONTROL_EXTRA
+    # itself into both on install and unlinks on removal. Component-scoped,
+    # because that is the only form CPack reads once COMPONENT_INSTALL is on.
+    set(CPACK_DEBIAN_TREBLOTRON_PACKAGE_CONTROL_EXTRA
         "${PROJECT_SOURCE_DIR}/packaging/linux/postinst;${PROJECT_SOURCE_DIR}/packaging/linux/prerm")
     # Left to dpkg-shlibdeps: the Pi client links system OpenCV and SDL
     # transitively and hand-listing them goes stale the first time a dependency
