@@ -75,7 +75,7 @@ static Status createAsyncLog(LogID logID, LogLevel logLevel, std::string& name)
         // appDataPath creates the directory, which basic_file_sink_mt will not
         // do for a path whose parent is missing.
         std::string log_filename =
-            appDataPath("logs/dartmatic_" + logger_name + ".log");
+            appDataPath("logs/treblotron_" + logger_name + ".log");
 
         auto file_sink = std::make_shared<spdlog::sinks::basic_file_sink_mt>(log_filename, true);
         auto console_sink = std::make_shared<spdlog::sinks::stdout_color_sink_mt>();

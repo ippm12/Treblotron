@@ -15,7 +15,7 @@
 #include <opencv2/imgproc.hpp>
 #include <opencv2/videoio.hpp>
 #include <opencv2/imgcodecs.hpp>
-#ifdef DARTMATIC_HAVE_LOCAL_INFERENCE
+#ifdef TREBLOTRON_HAVE_LOCAL_INFERENCE
 #include <opencv2/dnn.hpp>
 #endif
 
@@ -77,7 +77,7 @@ struct CameraSlot
     // shared reference to the previous contents (copy-on-write double buffer).
     cv::Mat          latestRaw;           // RGB, 1280x720ish from the sensor
     cv::Mat          latestWarped;        // RGB, 720x720, empty if not calibrated
-#ifdef DARTMATIC_PASSTHROUGH_CAPTURE
+#ifdef TREBLOTRON_PASSTHROUGH_CAPTURE
     // The UVC cameras already deliver MJPEG (see selectBestResolution), so a
     // client that only forwards frames to an inference server has no reason to
     // decode them and re-encode them — that costs CPU at both ends and puts a
@@ -92,7 +92,7 @@ struct CameraSlot
     // behaves exactly as it did before.
     std::atomic<bool> passthroughActive{false};
 #endif
-#ifdef DARTMATIC_HAVE_LOCAL_INFERENCE
+#ifdef TREBLOTRON_HAVE_LOCAL_INFERENCE
     // Pre-prepped seg-engine input plane for this camera — 1×(3*360*640) CV_32F.
     // Produced on the capture thread (resize + blobFromImage) so the inference
     // thread doesn't have to. Empty until the first frame is ready.
@@ -134,7 +134,7 @@ static std::atomic<bool> f_initRunning{false};
 static uint32_t          f_refCount = 0;
 
 
-#ifdef DARTMATIC_PASSTHROUGH_CAPTURE
+#ifdef TREBLOTRON_PASSTHROUGH_CAPTURE
 /**
  * JPEG quality used only when the driver refuses raw MJPEG and we have to
  * re-encode. 75 is a deliberate step down from the old 85: at that point we are
@@ -252,7 +252,7 @@ static void selectBestResolution(cv::VideoCapture& cap)
 }
 
 
-#ifdef DARTMATIC_PASSTHROUGH_CAPTURE
+#ifdef TREBLOTRON_PASSTHROUGH_CAPTURE
 /**
  * Try to make read() hand back the sensor's compressed MJPEG instead of a
  * decoded image.
@@ -317,10 +317,10 @@ static void captureLoop(CameraSlot* slot)
 {
     cv::Mat frame;
     cv::Mat rgb;
-#ifndef DARTMATIC_HAVE_LOCAL_INFERENCE
+#ifndef TREBLOTRON_HAVE_LOCAL_INFERENCE
     cv::Mat warped;
 #endif
-#ifdef DARTMATIC_HAVE_LOCAL_INFERENCE
+#ifdef TREBLOTRON_HAVE_LOCAL_INFERENCE
     // Reused scratch for the seg-input pipeline. resizedSeg is 360x640 RGB8;
     // segPlane is the 1×(3*360*640) CV_32F NCHW blob blobFromImage writes.
     cv::Mat resizedSeg;
@@ -339,7 +339,7 @@ static void captureLoop(CameraSlot* slot)
             }
             if(!ok) continue;
 
-#ifdef DARTMATIC_PASSTHROUGH_CAPTURE
+#ifdef TREBLOTRON_PASSTHROUGH_CAPTURE
             // With CAP_PROP_CONVERT_RGB=0 the V4L2 backend hands back the
             // sensor's compressed buffer as a single-row CV_8UC1 Mat. Confirm
             // it really is JPEG (SOI marker) rather than trusting the property
@@ -374,7 +374,7 @@ static void captureLoop(CameraSlot* slot)
                 cv::cvtColor(frame, rgb, cv::COLOR_BGR2RGB);
             }
 
-#ifndef DARTMATIC_HAVE_LOCAL_INFERENCE
+#ifndef TREBLOTRON_HAVE_LOCAL_INFERENCE
             // Capture-thread warp — only used by the calibration debug overlay
             // and the network client's preview. A local inference build does its
             // own warp on the masked frame after segmentation, so paying the
@@ -393,7 +393,7 @@ static void captureLoop(CameraSlot* slot)
             }
 #endif
 
-#ifdef DARTMATIC_HAVE_LOCAL_INFERENCE
+#ifdef TREBLOTRON_HAVE_LOCAL_INFERENCE
             // Pre-prep this camera's seg-engine input plane while the other
             // capture threads do the same for theirs. Cheap-by-comparison
             // resize, then blobFromImage produces tightly-packed NCHW float32
@@ -418,13 +418,13 @@ static void captureLoop(CameraSlot* slot)
             {
                 std::lock_guard<std::mutex> lock(slot->frameMutex);
                 slot->latestRaw = rgb.clone();
-#ifndef DARTMATIC_HAVE_LOCAL_INFERENCE
+#ifndef TREBLOTRON_HAVE_LOCAL_INFERENCE
                 if(haveWarp)
                 {
                     slot->latestWarped = warped.clone();
                 }
 #endif
-#ifdef DARTMATIC_HAVE_LOCAL_INFERENCE
+#ifdef TREBLOTRON_HAVE_LOCAL_INFERENCE
                 // segPlane is exclusive-owned by this thread; clone before
                 // publishing so the next iteration's blobFromImage doesn't
                 // race a reader that's still mid-memcpy.
@@ -543,7 +543,7 @@ Status initializeCameraSystem()
             }
 
             selectBestResolution(cap);
-#ifdef DARTMATIC_PASSTHROUGH_CAPTURE
+#ifdef TREBLOTRON_PASSTHROUGH_CAPTURE
             tryEnableRawMjpeg(cap, idx);
 #endif
 
@@ -571,7 +571,7 @@ Status initializeCameraSystem()
             // the log below reports 1280x720 rather than a JPEG byte count.
             int probeW = testFrame.cols;
             int probeH = testFrame.rows;
-#ifdef DARTMATIC_PASSTHROUGH_CAPTURE
+#ifdef TREBLOTRON_PASSTHROUGH_CAPTURE
             if(looksLikeJpeg(testFrame))
             {
                 const cv::Mat decoded = cv::imdecode(testFrame, cv::IMREAD_COLOR_RGB);
@@ -703,7 +703,7 @@ bool swapCameraSlots(uint32_t a, uint32_t b)
 // Internal: snapshot a Mat out of the slot (shallow copy under lock) and
 // memcpy it into an outFrame so the caller gets a standalone byte buffer.
 // Shared across the raw and warped accessors.
-#ifdef DARTMATIC_PASSTHROUGH_CAPTURE
+#ifdef TREBLOTRON_PASSTHROUGH_CAPTURE
 /**
  * Latest frame as decoded RGB, whichever mode the slot is in.
  *
@@ -750,7 +750,7 @@ static bool copyFrameOut(const cv::Mat& src, CameraFrame& outFrame)
 }
 
 
-#ifdef DARTMATIC_PASSTHROUGH_CAPTURE
+#ifdef TREBLOTRON_PASSTHROUGH_CAPTURE
 bool getCameraCompressedFrame(uint32_t index, std::vector<uint8_t>& out)
 {
     if(index >= f_cameraCount.load(std::memory_order_acquire)) return false;
@@ -799,7 +799,7 @@ bool getCameraFrame(uint32_t index, CameraFrame& outFrame)
     CameraSlot& slot = *f_cameras[index];
 
     cv::Mat snapshot;
-#ifdef DARTMATIC_PASSTHROUGH_CAPTURE
+#ifdef TREBLOTRON_PASSTHROUGH_CAPTURE
     if(!decodeLatestRgb(slot, snapshot)) return false;
 #else
     {
@@ -821,7 +821,7 @@ bool getCameraWarpedFrame(uint32_t index, CameraFrame& outFrame)
     CameraSlot& slot = *f_cameras[index];
 
     cv::Mat snapshot;
-#ifdef DARTMATIC_PASSTHROUGH_CAPTURE
+#ifdef TREBLOTRON_PASSTHROUGH_CAPTURE
     if(slot.passthroughActive.load(std::memory_order_acquire))
     {
         // The capture thread never decoded, so there is no cached warp. Only
@@ -846,7 +846,7 @@ bool getCameraWarpedFrame(uint32_t index, CameraFrame& outFrame)
 }
 
 
-#ifdef DARTMATIC_HAVE_LOCAL_INFERENCE
+#ifdef TREBLOTRON_HAVE_LOCAL_INFERENCE
 bool getCameraSegPlane(uint32_t index, float* out, size_t floatCount)
 {
     if(!out) return false;
@@ -909,7 +909,7 @@ Status saveAllCameraFrames(const std::string& outputDir)
     for(uint32_t i = 0; i < count; i++)
     {
         cv::Mat frameCopy;
-#ifdef DARTMATIC_PASSTHROUGH_CAPTURE
+#ifdef TREBLOTRON_PASSTHROUGH_CAPTURE
         // No lock here: decodeLatestRgb takes frameMutex itself, and holding it
         // across that call self-deadlocks on a non-recursive std::mutex — which
         // froze the whole app the moment anyone hit Save Capture.

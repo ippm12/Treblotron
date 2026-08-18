@@ -1,10 +1,10 @@
 [Desktop Entry]
 Type=Application
-Name=Dartmatic
+Name=Treblotron
 GenericName=Dartboard Scorer
 Comment=Play darts. It keeps score.
-Exec=/opt/dartmatic/bin/Dartmatic
-Icon=dartmatic
+Exec=/opt/treblotron/bin/Treblotron
+Icon=treblotron
 Terminal=false
 Categories=Game;
 Keywords=darts;dartboard;score;

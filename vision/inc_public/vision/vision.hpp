@@ -24,7 +24,7 @@
 
 /**
  * Initialize the vision module. Creates the appropriate vision source
- * based on build configuration (sim when DARTMATIC_USE_SIM is defined).
+ * based on build configuration (sim when TREBLOTRON_USE_SIM is defined).
  * Must be called after initializeFrameModule() and initializeGameManager().
  */
 Status initializeVisionModule();
@@ -219,7 +219,7 @@ uint64_t getCameraFrameSequence(uint32_t index);
  */
 bool getCameraWarpedFrame(uint32_t index, CameraFrame& outFrame);
 
-#ifdef DARTMATIC_PASSTHROUGH_CAPTURE
+#ifdef TREBLOTRON_PASSTHROUGH_CAPTURE
 /**
  * Copies the latest frame for a camera as JPEG bytes, ready to put on a wire.
  *
@@ -232,7 +232,7 @@ bool getCameraWarpedFrame(uint32_t index, CameraFrame& outFrame);
 bool getCameraCompressedFrame(uint32_t index, std::vector<uint8_t>& out);
 #endif
 
-#ifdef DARTMATIC_HAVE_LOCAL_INFERENCE
+#ifdef TREBLOTRON_HAVE_LOCAL_INFERENCE
 /**
  * Copies the latest dart-segmentation input plane for the given camera into the
  * caller-provided buffer (NCHW float32, shape (3, 360, 640) — i.e. 3*360*640

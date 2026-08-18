@@ -7,7 +7,7 @@
  */
 
 #include "common_inc.hpp"
-#include "dartmatic_version.hpp"
+#include "treblotron_version.hpp"
 #include "server/server.hpp"
 
 #include <atomic>
@@ -33,8 +33,8 @@ namespace
             "                        (default: detect/models beside this program)\n"
             "\n"
             "Configuration, captures and logs are written under your user data\n"
-            "directory (%%LOCALAPPDATA%%\\Dartmatic on Windows, ~/.local/share/\n"
-            "dartmatic elsewhere), so this works when installed read-only. Put a\n"
+            "directory (%%LOCALAPPDATA%%\\Treblotron on Windows, ~/.local/share/\n"
+            "treblotron elsewhere), so this works when installed read-only. Put a\n"
             "file named portable.txt beside the program to keep everything local\n"
             "to its own folder instead.\n"
             "\n"
@@ -108,7 +108,7 @@ int main(int argc, char** argv)
         }
         else if(std::strcmp(a, "--version") == 0)
         {
-            std::printf("%s %s\n", DARTMATIC_PRODUCT_NAME, DARTMATIC_VERSION_STRING);
+            std::printf("%s %s\n", TREBLOTRON_PRODUCT_NAME, TREBLOTRON_VERSION_STRING);
             return 0;
         }
         else if(std::strcmp(a, "--port") == 0)
@@ -202,7 +202,7 @@ int main(int argc, char** argv)
     // export surfaces on the console as a bare "models did not load".
     setConsoleLog(DETECT_LOG_ID, LOGGING_LEVEL_INFO);
 
-    LOG_INFO(SERVER_LOG_ID, "{} {} starting", DARTMATIC_PRODUCT_NAME, DARTMATIC_VERSION_STRING);
+    LOG_INFO(SERVER_LOG_ID, "{} {} starting", TREBLOTRON_PRODUCT_NAME, TREBLOTRON_VERSION_STRING);
     LOG_INFO(SERVER_LOG_ID, "Data directory: {}{}", appDataPath(""),
              isPortableInstall() ? " (portable)" : "");
 

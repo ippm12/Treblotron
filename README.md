@@ -1,10 +1,10 @@
 <div align="center">
 
-# Dartmatic
+# Treblotron
 
 **Play darts. It keeps score.**
 
-Point three cameras at a dartboard and Dartmatic works out where every dart
+Point three cameras at a dartboard and Treblotron works out where every dart
 landed — no mat, no sensors, no electronic board. Then it gives you games you
 cannot play anywhere else.
 
@@ -23,7 +23,7 @@ cannot play anywhere else.
   played — darts landing, ships sinking. Second best is the calibration screen
   with three live camera previews.
 
-![Dartmatic scoring a leg](docs/images/hero.gif)
+![Treblotron scoring a leg](docs/images/hero.gif)
 -->
 
 ---
@@ -31,7 +31,7 @@ cannot play anywhere else.
 ## Why
 
 Automatic scoring already exists, and it is aimed at serious players: averages,
-checkout percentages, tournament brackets. Dartmatic is aimed at the other
+checkout percentages, tournament brackets. Treblotron is aimed at the other
 evening — the one where four people are in a garage and nobody wants to do
 arithmetic.
 
@@ -60,7 +60,7 @@ Three ways to run it. **[Full setup guide →](docs/SETUP.md)**
 Cameras straight into a Windows machine, GPU does the rest.
 **Simplest — start here.**
 
-`Dartmatic-*-Setup.exe`
+`Treblotron-*-Setup.exe`
 
 </td>
 <td width="33%" valign="top">
@@ -69,7 +69,7 @@ Cameras straight into a Windows machine, GPU does the rest.
 A Raspberry Pi runs the cameras and the screen; a PC on your network runs the
 models.
 
-`Dartmatic-Server-*.exe` + `dartmatic_*_arm64.deb`
+`Treblotron-Server-*.exe` + `treblotron_*_arm64.deb`
 
 </td>
 <td width="33%" valign="top">
@@ -77,7 +77,7 @@ models.
 ### No hardware
 Clickable dartboard instead of cameras. Every game playable.
 
-`Dartmatic-Demo.zip`
+`Treblotron-Demo.zip`
 
 </td>
 </tr>
@@ -249,7 +249,7 @@ dart present, never a dart at a time — it cannot label instances, and neither 
 anything else at runtime. It does not need to: darts arrive one at a time, so
 whatever the mask gained since the last dart was counted *is* the new dart. Every
 conditioning mask in the figure is that difference, and it is exactly the
-derivation the model was trained on. Dartmatic captures it the moment a dart is
+derivation the model was trained on. Treblotron captures it the moment a dart is
 confirmed, since the earlier mask is gone by the next cycle.
 
 **A frozen frame has no "since",** which is what the bottom strip shows and why
@@ -440,8 +440,8 @@ Two independent options drive everything:
 
 | option | values | meaning |
 |---|---|---|
-| `DARTMATIC_VISION_SOURCE` | `sim`, `local`, `network` | where dart events come from |
-| `DARTMATIC_INFER_BACKEND` | `none`, `directml`, `cpu`, `tensorrt` | what executes a forward pass |
+| `TREBLOTRON_VISION_SOURCE` | `sim`, `local`, `network` | where dart events come from |
+| `TREBLOTRON_INFER_BACKEND` | `none`, `directml`, `cpu`, `tensorrt` | what executes a forward pass |
 
 They are separate because one backend serves two binaries: the game detecting
 locally, and the headless server detecting on behalf of a remote client.
@@ -473,7 +473,7 @@ download and adds no redistribution obligation.
 The catch is that the inbox copy tracks the OS version: an older Windows 10 can
 carry a DirectML too old for the pinned ONNX Runtime, in which case the backend
 reports itself as `ONNX Runtime (CPU — DirectML unavailable)` and runs about
-thirteen times slower. `-DDARTMATIC_FETCH_DIRECTML=ON` ships the
+thirteen times slower. `-DTREBLOTRON_FETCH_DIRECTML=ON` ships the
 redistributable instead, at a one-time ~200 MB download for one 18 MB DLL.
 
 Note that Windows also ships its **own** `onnxruntime.dll` in System32. It is

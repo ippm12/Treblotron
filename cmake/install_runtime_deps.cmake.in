@@ -18,11 +18,11 @@
 # Configured from CMakeLists.txt; edit the .in, never the generated copy.
 
 # Where the binaries and their DLLs were installed, which is not the install
-# root — see DARTMATIC_INSTALL_BIN in CMakeLists.txt.
-set(_dm_bin "${CMAKE_INSTALL_PREFIX}/@DARTMATIC_INSTALL_BIN@")
+# root — see TREBLOTRON_INSTALL_BIN in CMakeLists.txt.
+set(_dm_bin "${CMAKE_INSTALL_PREFIX}/@TREBLOTRON_INSTALL_BIN@")
 
 file(GLOB _dm_shipped_dlls "${_dm_bin}/*.dll")
-set(_dm_executables @DARTMATIC_INSTALLED_EXECUTABLES@)
+set(_dm_executables @TREBLOTRON_INSTALLED_EXECUTABLES@)
 
 list(TRANSFORM _dm_executables PREPEND "${_dm_bin}/")
 
@@ -32,9 +32,9 @@ file(GET_RUNTIME_DEPENDENCIES
      RESOLVED_DEPENDENCIES_VAR   _dm_resolved
      UNRESOLVED_DEPENDENCIES_VAR _dm_unresolved
      # The build output, where SDL and its companions land, plus the compiler's
-     # own bin directory for the GCC runtime. DARTMATIC_BIN_DIR is set by an
+     # own bin directory for the GCC runtime. TREBLOTRON_BIN_DIR is set by an
      # install(CODE) block just before this script runs.
-     DIRECTORIES                 "${DARTMATIC_BIN_DIR}" "@DARTMATIC_TOOLCHAIN_BIN@"
+     DIRECTORIES                 "${TREBLOTRON_BIN_DIR}" "@TREBLOTRON_TOOLCHAIN_BIN@"
      # Windows' own DLLs are not ours to redistribute and are present on every
      # target machine. Everything under the system directory is excluded by
      # path; the api-ms-/ext-ms- patterns catch the API-set stubs, which do not

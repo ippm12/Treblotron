@@ -615,7 +615,7 @@ Status DartDetector::build(const DartDetectorConfig& config,
     {
         LOG_ERROR(DETECT_LOG_ID,
                   "DartDetector::build — no inference backend compiled in "
-                  "(configure with -DDARTMATIC_INFER_BACKEND=tensorrt|cpu)");
+                  "(configure with -DTREBLOTRON_INFER_BACKEND=tensorrt|cpu)");
         return STATUS_ERROR_GENERIC;
     }
 

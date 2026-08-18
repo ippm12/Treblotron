@@ -31,7 +31,7 @@ import cv2
 ROOT = Path(__file__).resolve().parent.parent
 OUT = ROOT / "docs" / "images"
 ASSETS = Path(sys.argv[1]) if len(sys.argv) > 1 else Path(
-    os.environ.get("DARTMATIC_FIGASSETS") or ROOT / "build" / "figassets")
+    os.environ.get("TREBLOTRON_FIGASSETS") or ROOT / "build" / "figassets")
 
 BG, INK, MUTED, RULE = "#f6f8fa", "#1f2328", "#57606a", "#d0d7de"
 SLOT = ["#5078ff", "#5cdc78", "#ff7850"]          # matches figassets SLOT_BGR
@@ -59,10 +59,10 @@ JPEG_QUALITY = 86
 # crisp and compresses them smaller than JPEG would.
 FLAT_ASSETS = ("inst_", "tip_slot", "tipdetail_solid")
 
-# Any Chromium will do; $DARTMATIC_BROWSER wins, then whatever is on PATH, then
+# Any Chromium will do; $TREBLOTRON_BROWSER wins, then whatever is on PATH, then
 # the usual install locations.
 CHROME = [p for p in (
-    os.environ.get("DARTMATIC_BROWSER"),
+    os.environ.get("TREBLOTRON_BROWSER"),
     shutil.which("chrome"), shutil.which("chromium"),
     shutil.which("google-chrome"), shutil.which("msedge"),
     r"C:\Program Files\Google\Chrome\Application\chrome.exe",

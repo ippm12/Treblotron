@@ -22,22 +22,22 @@
       "description": "Clickable dartboard instead of cameras. No models, no inference backend, fastest build.",
       "binaryDir": "${sourceDir}/build",
       "cacheVariables": {
-        "DARTMATIC_BUILD_APP": "ON",
-        "DARTMATIC_BUILD_SERVER": "OFF",
-        "DARTMATIC_VISION_SOURCE": "sim",
-        "DARTMATIC_INFER_BACKEND": "none"
+        "TREBLOTRON_BUILD_APP": "ON",
+        "TREBLOTRON_BUILD_SERVER": "OFF",
+        "TREBLOTRON_VISION_SOURCE": "sim",
+        "TREBLOTRON_INFER_BACKEND": "none"
       }
     },
     {
       "name": "app-network",
       "inherits": "base",
       "displayName": "App — remote inference (Raspberry Pi)",
-      "description": "Cameras and UI here, models on a server. Point it with DARTMATIC_SERVER=host:port at runtime.",
+      "description": "Cameras and UI here, models on a server. Point it with TREBLOTRON_SERVER=host:port at runtime.",
       "cacheVariables": {
-        "DARTMATIC_BUILD_APP": "ON",
-        "DARTMATIC_BUILD_SERVER": "OFF",
-        "DARTMATIC_VISION_SOURCE": "network",
-        "DARTMATIC_INFER_BACKEND": "none",
+        "TREBLOTRON_BUILD_APP": "ON",
+        "TREBLOTRON_BUILD_SERVER": "OFF",
+        "TREBLOTRON_VISION_SOURCE": "network",
+        "TREBLOTRON_INFER_BACKEND": "none",
         "CMAKE_BUILD_TYPE": "Release"
       }
     },
@@ -47,10 +47,10 @@
       "displayName": "App — single PC, cameras and DirectML on one Windows box",
       "description": "The simplest setup there is: three USB cameras straight into this machine, GPU inference locally, no server and no networking.",
       "cacheVariables": {
-        "DARTMATIC_BUILD_APP": "ON",
-        "DARTMATIC_BUILD_SERVER": "OFF",
-        "DARTMATIC_VISION_SOURCE": "local",
-        "DARTMATIC_INFER_BACKEND": "directml",
+        "TREBLOTRON_BUILD_APP": "ON",
+        "TREBLOTRON_BUILD_SERVER": "OFF",
+        "TREBLOTRON_VISION_SOURCE": "local",
+        "TREBLOTRON_INFER_BACKEND": "directml",
         "CMAKE_BUILD_TYPE": "Release"
       }
     },
@@ -60,10 +60,10 @@
       "displayName": "App — simulated darts, release build for distribution",
       "description": "Same source as app-sim, built Release and stripped. This is what the downloadable demo zip is made from; use app-sim for day-to-day work.",
       "cacheVariables": {
-        "DARTMATIC_BUILD_APP": "ON",
-        "DARTMATIC_BUILD_SERVER": "OFF",
-        "DARTMATIC_VISION_SOURCE": "sim",
-        "DARTMATIC_INFER_BACKEND": "none",
+        "TREBLOTRON_BUILD_APP": "ON",
+        "TREBLOTRON_BUILD_SERVER": "OFF",
+        "TREBLOTRON_VISION_SOURCE": "sim",
+        "TREBLOTRON_INFER_BACKEND": "none",
         "CMAKE_BUILD_TYPE": "Release"
       }
     },
@@ -73,10 +73,10 @@
       "displayName": "App — local TensorRT inference (Jetson Orin) [UNSUPPORTED]",
       "description": "Never built against a real TensorRT. Kept compiling so the backend does not rot, but it is not part of a release and has not been verified on hardware.",
       "cacheVariables": {
-        "DARTMATIC_BUILD_APP": "ON",
-        "DARTMATIC_BUILD_SERVER": "OFF",
-        "DARTMATIC_VISION_SOURCE": "local",
-        "DARTMATIC_INFER_BACKEND": "tensorrt",
+        "TREBLOTRON_BUILD_APP": "ON",
+        "TREBLOTRON_BUILD_SERVER": "OFF",
+        "TREBLOTRON_VISION_SOURCE": "local",
+        "TREBLOTRON_INFER_BACKEND": "tensorrt",
         "CMAKE_BUILD_TYPE": "Release"
       }
     },
@@ -87,9 +87,9 @@
       "description": "Headless inference server on the local GPU. Works on AMD, Intel and NVIDIA alike. Fetches ONNX Runtime at configure time.",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release",
-        "DARTMATIC_BUILD_APP": "OFF",
-        "DARTMATIC_BUILD_SERVER": "ON",
-        "DARTMATIC_INFER_BACKEND": "directml"
+        "TREBLOTRON_BUILD_APP": "OFF",
+        "TREBLOTRON_BUILD_SERVER": "ON",
+        "TREBLOTRON_INFER_BACKEND": "directml"
       }
     },
     {
@@ -99,9 +99,9 @@
       "description": "Headless inference server. No SDL, no flecs, no games — builds only debug/dart/detect/net/server plus a trimmed OpenCV.",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release",
-        "DARTMATIC_BUILD_APP": "OFF",
-        "DARTMATIC_BUILD_SERVER": "ON",
-        "DARTMATIC_INFER_BACKEND": "cpu"
+        "TREBLOTRON_BUILD_APP": "OFF",
+        "TREBLOTRON_BUILD_SERVER": "ON",
+        "TREBLOTRON_INFER_BACKEND": "cpu"
       }
     },
     {
@@ -110,9 +110,9 @@
       "displayName": "Server — TensorRT inference (Jetson / CUDA host)",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release",
-        "DARTMATIC_BUILD_APP": "OFF",
-        "DARTMATIC_BUILD_SERVER": "ON",
-        "DARTMATIC_INFER_BACKEND": "tensorrt"
+        "TREBLOTRON_BUILD_APP": "OFF",
+        "TREBLOTRON_BUILD_SERVER": "ON",
+        "TREBLOTRON_INFER_BACKEND": "tensorrt"
       }
     }
   ],

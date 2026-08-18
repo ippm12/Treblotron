@@ -93,11 +93,11 @@ Status loadInferenceServerAddress(const std::string& path)
     // environment variable stays as a seed for scripted deployments that
     // predate the settings page.
     std::string chosen = fromFile;
-    const char* env = std::getenv("DARTMATIC_SERVER");
+    const char* env = std::getenv("TREBLOTRON_SERVER");
     if(chosen.empty() && env && *env)
     {
         chosen = trimmed(env);
-        LOG_INFO(VISION_LOG_ID, "Using inference server '{}' from DARTMATIC_SERVER", chosen);
+        LOG_INFO(VISION_LOG_ID, "Using inference server '{}' from TREBLOTRON_SERVER", chosen);
     }
 
     {

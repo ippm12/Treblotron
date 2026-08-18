@@ -10,7 +10,7 @@
  * genuinely overlap on the GPU — that's how the palm detector hides behind the
  * much heavier U-Net.
  *
- * This file is only compiled when DARTMATIC_INFER_BACKEND=tensorrt; the Windows
+ * This file is only compiled when TREBLOTRON_INFER_BACKEND=tensorrt; the Windows
  * and Raspberry Pi builds skip it entirely so the TensorRT / CUDA headers only
  * need to be available on the Jetson.
  */

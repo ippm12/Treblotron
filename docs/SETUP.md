@@ -1,4 +1,4 @@
-# Setting up Dartmatic
+# Setting up Treblotron
 
 Three ways to run it. Pick one — you do not need the others.
 
@@ -17,8 +17,8 @@ actually matters, and it is the same for all of them.
 
 Settings, calibration and captures are stored per user, not next to the program:
 
-- **Windows** — `%LOCALAPPDATA%\Dartmatic\`
-- **Linux** — `~/.local/share/dartmatic/`
+- **Windows** — `%LOCALAPPDATA%\Treblotron\`
+- **Linux** — `~/.local/share/treblotron/`
 
 ```
 config/wire_calibration.txt   the 120 points you clicked; the valuable one
@@ -43,9 +43,9 @@ beside the executable.
 Cameras and inference on the same Windows machine. No network, no second
 device.
 
-1. Run `Dartmatic-0.1.0-AMD64.exe`.
+1. Run `Treblotron-0.1.0-AMD64.exe`.
 2. Plug in three USB cameras and point them at the board.
-3. Launch Dartmatic. It will tell you how many cameras it found.
+3. Launch Treblotron. It will tell you how many cameras it found.
 4. Calibrate — see below.
 
 Inference runs on your GPU through DirectML, which works on AMD, Intel and
@@ -69,8 +69,8 @@ when you want a small, quiet machine at the board.
 
 ### On the Windows PC
 
-1. Run `Dartmatic-Server-0.1.0-AMD64.exe`.
-2. Start **Dartmatic Server** from the Start Menu. It listens on port 9876.
+1. Run `Treblotron-Server-0.1.0-AMD64.exe`.
+2. Start **Treblotron Server** from the Start Menu. It listens on port 9876.
 3. Note the PC's LAN address — `ipconfig`, the IPv4 address on your Wi-Fi or
    Ethernet adapter.
 
@@ -82,21 +82,21 @@ a different firewall, allow inbound TCP 9876.
 
 ### On the Pi
 
-Download `dartmatic_0.1.0_arm64.deb` from the
-[Releases page](https://github.com/ippm12/Dartmatic/releases) and install it:
+Download `treblotron_0.1.0_arm64.deb` from the
+[Releases page](https://github.com/ippm12/Treblotron/releases) and install it:
 
 ```bash
-sudo apt install ./dartmatic_0.1.0_arm64.deb
+sudo apt install ./treblotron_0.1.0_arm64.deb
 ```
 
 `apt` pulls in what it needs — SDL3, OpenCV and the rest are recorded as
 dependencies of the package. Nothing is compiled, and you do not need the
 source.
 
-Then launch **Dartmatic** from the Games menu, or from a terminal:
+Then launch **Treblotron** from the Games menu, or from a terminal:
 
 ```bash
-dartmatic
+treblotron
 ```
 
 The client carries no models at all: they live on the other end of the socket,
@@ -113,8 +113,8 @@ no cross-compilation setup in this repo.
 sudo apt install -y build-essential cmake ninja-build git dpkg-dev \
                     libsdl3-dev libgl1-mesa-dev
 
-git clone --recurse-submodules https://github.com/ippm12/Dartmatic.git dartmatic
-cd dartmatic
+git clone --recurse-submodules https://github.com/ippm12/Treblotron.git treblotron
+cd treblotron
 cmake --preset app-network
 cmake --build build-app-network -j4
 
@@ -126,17 +126,17 @@ work out the dependency list, rather than hard-coding one that would go stale.
 The first build takes a while, since OpenCV is a submodule compiled from
 source.
 
-You get both `dartmatic_0.1.0_arm64.deb` and a `.tar.gz` of the same tree. To
+You get both `treblotron_0.1.0_arm64.deb` and a `.tar.gz` of the same tree. To
 run straight out of the build directory without installing anything:
 
 ```bash
-./build-app-network/bin/Dartmatic
+./build-app-network/bin/Treblotron
 ```
 
 </details>
 
 Set the server address from inside the app: **Vision** card on the main menu,
-or **F1** at any time. It is saved, so you only do this once. `DARTMATIC_SERVER=host:port`
+or **F1** at any time. It is saved, so you only do this once. `TREBLOTRON_SERVER=host:port`
 still works as a starting value for scripted installs.
 
 ### Checking the link
@@ -157,7 +157,7 @@ without abandoning a game.
 
 ## Demo
 
-`Dartmatic-Demo-0.1.0-AMD64.zip` — unzip and run. A clickable dartboard stands
+`Treblotron-Demo-0.1.0-AMD64.zip` — unzip and run. A clickable dartboard stands
 in for the cameras, so every game is playable with no hardware. Nothing to
 install and nothing to calibrate.
 
@@ -166,7 +166,7 @@ install and nothing to calibrate.
 ## Calibrating the board
 
 This is the one step that cannot be skipped, and the one that determines how
-accurate scoring is. Dartmatic cannot score anything until it knows where the
+accurate scoring is. Treblotron cannot score anything until it knows where the
 board is in each camera's view.
 
 You click **40 points per camera**: the 20 outer-triple-ring wire
@@ -185,7 +185,7 @@ only has to be done once — as long as the cameras do not move afterwards.
 
 A *wire intersection* is where one of the 20 radial wires crosses a ring. Each
 ring has two such crossings per wire — an inner one and an outer one — and
-Dartmatic always wants the **outer** one, the corner furthest from the bull:
+Treblotron always wants the **outer** one, the corner furthest from the bull:
 
 - **Outer triple** — where the wire leaves the triple ring on the side facing
   the double ring, not the side facing the bull.
@@ -244,8 +244,8 @@ flight can briefly look like it landed.
 **Scores land in the wrong segment.** Recalibrate the camera that sees that
 part of the board best.
 
-**Nothing starts on Windows.** Check `%LOCALAPPDATA%\Dartmatic\logs\`. The
-first line of `dartmatic_0_Main.log` names the version and the data directory.
+**Nothing starts on Windows.** Check `%LOCALAPPDATA%\Treblotron\logs\`. The
+first line of `treblotron_0_Main.log` names the version and the data directory.
 
 **Server says "busy".** It serves one board at a time. Another client is
 connected, or a previous session has not timed out yet — it clears within

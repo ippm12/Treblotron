@@ -33,7 +33,7 @@
 /**
  * Set the folder name used under the user's data directory.
  *
- * Call once at startup, before anything writes. Defaults to "Dartmatic", which
+ * Call once at startup, before anything writes. Defaults to "Treblotron", which
  * is right for both binaries — the game and the inference server share a
  * calibration and settings, and keeping them in one place is what lets you run
  * the server on the same machine that once ran the game and have it pick up the
@@ -45,9 +45,9 @@ void setAppDataFolderName(const std::string& name);
  * Absolute path to a writable file or directory, creating parent directories as
  * needed.
  *
- *   %LOCALAPPDATA%\Dartmatic\<relative>          on Windows
- *   $XDG_DATA_HOME/dartmatic/<relative>          on Linux, or
- *   ~/.local/share/dartmatic/<relative>
+ *   %LOCALAPPDATA%\Treblotron\<relative>          on Windows
+ *   $XDG_DATA_HOME/treblotron/<relative>          on Linux, or
+ *   ~/.local/share/treblotron/<relative>
  *
  * In a portable install (see isPortableInstall) this is just `<relative>`
  * resolved against the executable's own directory.

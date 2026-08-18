@@ -401,7 +401,7 @@ void MainMenu::openCard()
     }
     else if(card.type == CardType::Calibration)
     {
-#ifdef DARTMATIC_USE_SIM
+#ifdef TREBLOTRON_USE_SIM
         m_showSimWarning = true;
 #else
         loadGame(std::make_shared<CalibrationScreen>());
@@ -497,7 +497,7 @@ void MainMenu::renderCardGrid()
 
     // Title
     {
-        std::string title = "Dartmatic";
+        std::string title = "Treblotron";
         float titleX = LEFT_MARGIN;
 
         auto text = std::make_shared<RenderText>();
@@ -587,7 +587,7 @@ void MainMenu::renderCardGrid()
             else if(card.type == CardType::Exit)
             {
                 cardTitle = "Exit";
-                cardDesc  = "Quit Dartmatic";
+                cardDesc  = "Quit Treblotron";
             }
             else
             {
@@ -814,7 +814,7 @@ void MainMenu::renderCardGrid()
 
         centred("Set up your board", m_cardFontId, cardFont, panelY + 34.0f,
                 {255, 255, 255});
-        centred("Dartmatic cannot score until it knows where the board is.",
+        centred("Treblotron cannot score until it knows where the board is.",
                 m_smallFontId, smallFont, panelY + 96.0f, {180, 180, 190});
 
         const uint32_t cams = getCameraCount();

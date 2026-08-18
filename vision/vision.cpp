@@ -18,13 +18,13 @@
 #include <cstdio>
 #include <cstring>
 
-#ifdef DARTMATIC_USE_SIM
+#ifdef TREBLOTRON_USE_SIM
 #include "sim_vision_source.hpp"
 #endif
-#ifdef DARTMATIC_USE_LOCAL
+#ifdef TREBLOTRON_USE_LOCAL
 #include "local_vision_source.hpp"
 #endif
-#ifdef DARTMATIC_USE_NETWORK
+#ifdef TREBLOTRON_USE_NETWORK
 #include "network_vision_source.hpp"
 #endif
 
@@ -61,11 +61,11 @@ static DartPositionCallback f_onDartPositionCalculated;
  * binary from a previous build directory.
  */
 static constexpr const char* VISION_SOURCE_NAME =
-#if   defined(DARTMATIC_USE_SIM)
+#if   defined(TREBLOTRON_USE_SIM)
     "sim (simulated darts, no cameras)";
-#elif defined(DARTMATIC_USE_LOCAL)
+#elif defined(TREBLOTRON_USE_LOCAL)
     "local (local inference on this machine)";
-#elif defined(DARTMATIC_USE_NETWORK)
+#elif defined(TREBLOTRON_USE_NETWORK)
     "network (cameras here, inference on a remote server)";
 #else
     "none";
@@ -91,13 +91,13 @@ Status initializeVisionModule()
     }
     loadVisionSettings();
 
-#ifdef DARTMATIC_USE_SIM
+#ifdef TREBLOTRON_USE_SIM
     f_visionSource = std::make_shared<SimVisionSource>();
 #endif
-#ifdef DARTMATIC_USE_LOCAL
+#ifdef TREBLOTRON_USE_LOCAL
     f_visionSource = std::make_shared<LocalVisionSource>();
 #endif
-#ifdef DARTMATIC_USE_NETWORK
+#ifdef TREBLOTRON_USE_NETWORK
     f_visionSource = std::make_shared<NetworkVisionSource>();
 #endif
 
@@ -253,7 +253,7 @@ std::string getVisionDetectionStatus()
 
 bool visionHasDetector()
 {
-#if defined(DARTMATIC_USE_LOCAL) || defined(DARTMATIC_USE_NETWORK)
+#if defined(TREBLOTRON_USE_LOCAL) || defined(TREBLOTRON_USE_NETWORK)
     return true;
 #else
     return false;
@@ -263,7 +263,7 @@ bool visionHasDetector()
 
 bool visionUsesRemoteServer()
 {
-#ifdef DARTMATIC_USE_NETWORK
+#ifdef TREBLOTRON_USE_NETWORK
     return true;
 #else
     return false;
@@ -361,7 +361,7 @@ void presentVisionLoadingFrame(float deltaTime)
         // The network source is not building anything — it is waiting on a
         // server. Saying "building vision model" there sends people looking
         // for a problem that does not exist.
-#ifdef DARTMATIC_USE_NETWORK
+#ifdef TREBLOTRON_USE_NETWORK
         const std::string busyTitle = "Connecting to inference server";
 #else
         const std::string busyTitle = "Building vision model";
@@ -436,7 +436,7 @@ void presentVisionLoadingFrame(float deltaTime)
     if(f_loadingBodyFont != INVALID_FONT_ID)
     {
         auto sub = std::make_shared<RenderText>();
-#ifdef DARTMATIC_USE_NETWORK
+#ifdef TREBLOTRON_USE_NETWORK
         sub->m_text     = "(the game will start anyway — press F1 to change the address)";
 #else
         sub->m_text     = "(first-run only — subsequent launches are instant)";

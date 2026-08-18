@@ -40,7 +40,7 @@ std::string getInferenceServerAddress();
 Status setInferenceServerAddress(const std::string& hostPort);
 
 /**
- * Load the saved address. Falls back to the DARTMATIC_SERVER environment
+ * Load the saved address. Falls back to the TREBLOTRON_SERVER environment
  * variable when no file exists, so an existing scripted deployment keeps
  * working; once anything is saved through the UI, the file wins.
  */

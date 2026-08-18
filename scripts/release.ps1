@@ -1,13 +1,13 @@
 <#
 .SYNOPSIS
-    Build every Dartmatic release artifact and collect them in one directory.
+    Build every Treblotron release artifact and collect them in one directory.
 
 .DESCRIPTION
     Four configurations, each with one audience:
 
-      Dartmatic-0.1.0-AMD64.exe          single PC: cameras and GPU inference here
-      Dartmatic-Server-0.1.0-AMD64.exe   the box doing inference for a Pi
-      Dartmatic-Demo-0.1.0-AMD64.zip     no hardware; portable, no installer
+      Treblotron-0.1.0-AMD64.exe          single PC: cameras and GPU inference here
+      Treblotron-Server-0.1.0-AMD64.exe   the box doing inference for a Pi
+      Treblotron-Demo-0.1.0-AMD64.zip     no hardware; portable, no installer
       (Pi client)                        built on the Pi itself, see docs/SETUP.md
 
     They are separate CMake builds rather than components of one installer,
@@ -52,9 +52,9 @@ Set-Location $repo
 $Only = $Only | ForEach-Object { $_ -split "," } | Where-Object { $_ } | ForEach-Object { $_.Trim() }
 
 $configs = @{
-    app    = @{ Preset = "app-local-windows"; Dir = "build-app-local-windows"; Exe = "Dartmatic.exe" }
-    server = @{ Preset = "server-directml";   Dir = "build-server-directml";   Exe = "Dartmatic_Server.exe" }
-    demo   = @{ Preset = "app-demo";          Dir = "build-app-demo";          Exe = "Dartmatic.exe" }
+    app    = @{ Preset = "app-local-windows"; Dir = "build-app-local-windows"; Exe = "Treblotron.exe" }
+    server = @{ Preset = "server-directml";   Dir = "build-server-directml";   Exe = "Treblotron_Server.exe" }
+    demo   = @{ Preset = "app-demo";          Dir = "build-app-demo";          Exe = "Treblotron.exe" }
 }
 
 # NSIS is only needed by the two installers; the demo is a zip.
@@ -135,7 +135,7 @@ foreach ($name in $Only) {
         Pop-Location
     }
 
-    Get-ChildItem "$($cfg.Dir)\Dartmatic*" -Include *.exe, *.zip, *.sha256 -File |
+    Get-ChildItem "$($cfg.Dir)\Treblotron*" -Include *.exe, *.zip, *.sha256 -File |
         ForEach-Object {
             Copy-Item $_.FullName $Output -Force
             $built += [pscustomobject]@{

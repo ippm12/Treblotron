@@ -1,14 +1,14 @@
 #!/bin/sh
-# Only the links this package created. Everything under /opt/dartmatic is
-# dpkg's to remove, and per-user config in ~/.local/share/dartmatic is
+# Only the links this package created. Everything under /opt/treblotron is
+# dpkg's to remove, and per-user config in ~/.local/share/treblotron is
 # deliberately left alone -- calibration is a long job to redo.
 set -e
 
 case "$1" in
     remove|upgrade|deconfigure)
-        [ -L /usr/bin/dartmatic ] && rm -f /usr/bin/dartmatic
-        [ -L /usr/share/applications/dartmatic.desktop ] \
-            && rm -f /usr/share/applications/dartmatic.desktop
+        [ -L /usr/bin/treblotron ] && rm -f /usr/bin/treblotron
+        [ -L /usr/share/applications/treblotron.desktop ] \
+            && rm -f /usr/share/applications/treblotron.desktop
         ;;
     failed-upgrade)
         ;;

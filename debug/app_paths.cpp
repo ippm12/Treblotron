@@ -23,7 +23,7 @@
 namespace
 {
     std::mutex  f_mutex;
-    std::string f_folderName = "Dartmatic";
+    std::string f_folderName = "Treblotron";
 
     /**
      * Cached because it cannot change while the process runs, and because the

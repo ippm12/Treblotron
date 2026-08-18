@@ -54,7 +54,7 @@ namespace
             return STATUS_ERROR_GENERIC;
         }
 
-        out << "# Dartmatic detection settings — edited from the Vision screen.\n";
+        out << "# Treblotron detection settings — edited from the Vision screen.\n";
         out << KEY_CONFIRM_FRAMES << " " << s.tuning.confirmFrames << "\n";
         out << KEY_CONFIRM_HOLD   << " " << s.tuning.confirmHoldMs << "\n";
         out << KEY_CLEAR_HOLD     << " " << s.tuning.clearHoldMs   << "\n";

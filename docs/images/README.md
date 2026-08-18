@@ -29,7 +29,7 @@ python scripts/make_model_figures.py
 ```
 
 Assets land in `build/figassets/` by default; override with `$DARTMODELTRAINING`,
-`--out`, or `$DARTMATIC_FIGASSETS` for the second script. Neither script has any
+`--out`, or `$TREBLOTRON_FIGASSETS` for the second script. Neither script has any
 path baked into it.
 
 The loop figure is three captures of one real turn, found by nesting tips across frames

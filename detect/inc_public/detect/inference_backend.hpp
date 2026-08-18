@@ -8,7 +8,7 @@
  * the Jetson and against OpenCV DNN on a CPU-only machine.
  *
  * Exactly one implementation is compiled into any given binary, selected by
- * the DARTMATIC_INFER_BACKEND CMake variable, and handed out by
+ * the TREBLOTRON_INFER_BACKEND CMake variable, and handed out by
  * createInferenceBackend().
  */
 
@@ -128,7 +128,7 @@ using InferenceBackendPtr = std::unique_ptr<InferenceBackend>;
 
 /**
  * Create the backend this binary was built with. Returns nullptr when
- * DARTMATIC_INFER_BACKEND=none, in which case DartDetector is unavailable
+ * TREBLOTRON_INFER_BACKEND=none, in which case DartDetector is unavailable
  * and callers must not construct one.
  */
 InferenceBackendPtr createInferenceBackend();
