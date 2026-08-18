@@ -18,6 +18,40 @@ BIN=@DEB_BIN@
 LINK=@DEB_LINK@
 DESKTOP=@DEB_DESKTOP@
 DESKTOP_LINK=@DEB_DESKTOP_LINK@
+DESKTOP_NAME=@DEB_DESKTOP_NAME@
+
+# Drop a launcher on one account's desktop.
+#
+# A copy, not a symlink: file managers check the executable bit on the file
+# itself before treating a .desktop as a launcher rather than showing it as a
+# text file, and that bit cannot be set through a symlink. Owned by the user so
+# they can delete it without sudo -- and if they do, it stays deleted, because
+# an upgrade only replaces a launcher that is still there.
+place_on_desktop() {
+    _home="$1"
+    _user="$2"
+
+    # Only where a desktop actually exists. A headless account has no Desktop
+    # directory, and creating one would put a stray folder in someone's home.
+    if [ ! -d "$_home/Desktop" ]; then
+        return 0
+    fi
+
+    _target="$_home/Desktop/$DESKTOP_NAME"
+    cp -f "$DESKTOP" "$_target" || return 0
+    chmod 0755 "$_target" || true
+    chown "$_user" "$_target" 2>/dev/null || true
+
+    # GNOME-derived file managers additionally require the launcher to be
+    # marked trusted, which is per-user metadata and needs their session bus.
+    # Best effort: on Raspberry Pi OS's file manager the executable bit above
+    # is sufficient, so failure here is not worth reporting.
+    if command -v gio >/dev/null 2>&1; then
+        su -s /bin/sh -c \
+           "gio set '$_target' metadata::trusted true" "$_user" \
+           >/dev/null 2>&1 || true
+    fi
+}
 
 case "$1" in
     configure)
@@ -33,6 +67,27 @@ case "$1" in
             ln -sf "$DESKTOP" "$DESKTOP_LINK"
             if command -v update-desktop-database >/dev/null 2>&1; then
                 update-desktop-database -q /usr/share/applications || true
+            fi
+
+            # Every human account. UIDs below 1000 are system accounts, and
+            # nobody/nogroup sits at 65534; a login shell of nologin or false
+            # means the account is not one a person uses.
+            while IFS=: read -r _name _x _uid _gid _gecos _home _shell; do
+                if [ "$_uid" -lt 1000 ] || [ "$_uid" -ge 60000 ]; then
+                    continue
+                fi
+                case "$_shell" in
+                    */nologin|*/false|"") continue ;;
+                esac
+                place_on_desktop "$_home" "$_name"
+            done < /etc/passwd
+
+            # Accounts created later get one too, without this script having to
+            # run again.
+            if [ -d /etc/skel ]; then
+                mkdir -p /etc/skel/Desktop
+                cp -f "$DESKTOP" "/etc/skel/Desktop/$DESKTOP_NAME" || true
+                chmod 0755 "/etc/skel/Desktop/$DESKTOP_NAME" || true
             fi
         fi
         ;;

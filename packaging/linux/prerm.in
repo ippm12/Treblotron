@@ -1,15 +1,48 @@
 #!/bin/sh
-# Only the links this package created. Everything under /opt/treblotron is
-# dpkg's to remove, and per-user config in ~/.local/share/treblotron is
-# deliberately left alone -- calibration is a long job to redo.
+# Generated from prerm.in -- edit the template, never the copy in the build
+# tree.
 #
-# `if` rather than `[ ... ] && rm`: under `set -e` the short form aborts the
-# script when the link is already absent, which makes `apt remove` fail and
-# strands the package half-removed.
+# Only what this package created. Everything under the package prefix is dpkg's
+# to remove, and per-user config in ~/.local/share/treblotron is deliberately
+# left alone -- calibration is a long job to redo.
+#
+# `if` rather than `[ ... ] && rm`: the short form is fine here, but the longer
+# one says what it means and does not depend on where in the script it sits.
 set -e
 
+DESKTOP_NAME=@DEB_DESKTOP_NAME@
+
+# Only on `remove`. An upgrade re-runs postinst straight afterwards, and taking
+# the launcher away and putting it back makes it jump around on the desktop.
+remove_desktop_launchers() {
+    while IFS=: read -r _name _x _uid _gid _gecos _home _shell; do
+        if [ "$_uid" -lt 1000 ] || [ "$_uid" -ge 60000 ]; then
+            continue
+        fi
+        _target="$_home/Desktop/$DESKTOP_NAME"
+        if [ -f "$_target" ]; then
+            rm -f "$_target" || true
+        fi
+    done < /etc/passwd
+
+    if [ -f "/etc/skel/Desktop/$DESKTOP_NAME" ]; then
+        rm -f "/etc/skel/Desktop/$DESKTOP_NAME" || true
+    fi
+}
+
 case "$1" in
-    remove|upgrade|deconfigure)
+    remove)
+        if [ -L @DEB_LINK@ ]; then
+            rm -f @DEB_LINK@
+        fi
+        if [ -L @DEB_DESKTOP_LINK@ ]; then
+            rm -f @DEB_DESKTOP_LINK@
+        fi
+        remove_desktop_launchers
+        ;;
+    upgrade|deconfigure)
+        # Symlinks are recreated by postinst; leave the desktop launcher where
+        # the user put it.
         if [ -L @DEB_LINK@ ]; then
             rm -f @DEB_LINK@
         fi

@@ -1090,6 +1090,7 @@ else()
     set(DEB_LINK         "/usr/bin/${_dm_lower}")
     set(DEB_DESKTOP      "${CPACK_PACKAGING_INSTALL_PREFIX}/share/applications/${_dm_lower}.desktop")
     set(DEB_DESKTOP_LINK "/usr/share/applications/${_dm_lower}.desktop")
+    set(DEB_DESKTOP_NAME "${_dm_lower}.desktop")
 
     foreach(_dm_script postinst prerm)
         configure_file(
