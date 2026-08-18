@@ -287,30 +287,36 @@ if(TREBLOTRON_INFER_BACKEND STREQUAL "none")
 endif()
 
 
+
+# ---- Windows executable icon ------------------------------------------------
+#
+# Without an embedded resource the shipped exe shows the generic MinGW
+# placeholder in Explorer, the taskbar and Alt-Tab. The installer icon covers
+# none of those, and neither does the Start Menu shortcut, which takes its icon
+# from the executable it points at.
+#
+# Built once here rather than inside either target's block: the server needs it
+# just as much as the app does, and having it in only one place is how the
+# server shipped without one.
+set(TREBLOTRON_WIN_RESOURCES "")
+if(WIN32)
+    enable_language(RC)
+    set(TREBLOTRON_ICON_PATH "${PROJECT_SOURCE_DIR}/assets/branding/icon.ico")
+    # windres reads the path out of a C string, so backslashes would be
+    # escapes. Forward slashes work and avoid the whole question.
+    string(REPLACE "\\" "/" TREBLOTRON_ICON_PATH "${TREBLOTRON_ICON_PATH}")
+    configure_file("${PROJECT_SOURCE_DIR}/packaging/windows/app.rc.in"
+                   "${PROJECT_BINARY_DIR}/app.rc" @ONLY)
+    set(TREBLOTRON_WIN_RESOURCES "${PROJECT_BINARY_DIR}/app.rc")
+endif()
+
+
 # ============================================================================
 # Game application
 # ============================================================================
 
 if(TREBLOTRON_BUILD_APP)
-    # ---- Windows executable icon --------------------------------------
-    #
-    # Without an embedded icon the shipped exe shows the generic MinGW
-    # placeholder in Explorer, the taskbar and Alt-Tab -- the installer icon
-    # does not cover any of those. windres compiles the .rc; the path is
-    # configured in rather than hard-coded so the build tree stays relocatable.
-    set(_dm_app_sources startup.cpp)
-    if(WIN32)
-        enable_language(RC)
-        set(TREBLOTRON_ICON_PATH "${PROJECT_SOURCE_DIR}/assets/branding/icon.ico")
-        # windres reads the path out of a C string, so backslashes would be
-        # escapes. Forward slashes work and avoid the whole question.
-        string(REPLACE "\\" "/" TREBLOTRON_ICON_PATH "${TREBLOTRON_ICON_PATH}")
-        configure_file("${PROJECT_SOURCE_DIR}/packaging/windows/app.rc.in"
-                       "${PROJECT_BINARY_DIR}/app.rc" @ONLY)
-        list(APPEND _dm_app_sources "${PROJECT_BINARY_DIR}/app.rc")
-    endif()
-
-    add_executable(${PRJ_NAME} ${_dm_app_sources})
+    add_executable(${PRJ_NAME} startup.cpp ${TREBLOTRON_WIN_RESOURCES})
     treblotron_configure_target(${PRJ_NAME})
 
     set(APP_MODULES_LIST "debug" "frame" "dart" "players" "game_lib" "games"
@@ -379,7 +385,7 @@ endif()
 # Just enough to decode frames, run the models, and answer a client.
 
 if(TREBLOTRON_BUILD_SERVER)
-    add_executable(${SERVER_NAME} server/server_main.cpp)
+    add_executable(${SERVER_NAME} server/server_main.cpp ${TREBLOTRON_WIN_RESOURCES})
     treblotron_configure_target(${SERVER_NAME})
 
     set(SERVER_MODULES_LIST "debug" "dart" "detect" "net" "server")
@@ -729,6 +735,7 @@ set(TREBLOTRON_INSTALL_BIN "bin")
 # configured. One definition means Exec=, Icon= and the postinst symlink cannot
 # disagree about where anything landed.
 set(TREBLOTRON_LINUX_PREFIX "/opt/treblotron")
+
 
 if(TREBLOTRON_BUILD_APP)
     install(TARGETS ${PRJ_NAME} RUNTIME DESTINATION ${TREBLOTRON_INSTALL_BIN}
