@@ -105,34 +105,57 @@ foreach ($name in $Only) {
 
     function Invoke-Stage([string] $what, [scriptblock] $cmd) {
         $script:lines.Clear()
-        $last = 0
-        & $cmd 2>&1 | ForEach-Object {
-            $text = [string] $_
-            $script:lines.Add($text)
-            # Ninja prefixes each step with [done/total]; report every 5%.
-            if ($text -match '^\[(\d+)/(\d+)\]') {
-                $cur = [int] $Matches[1]
-                $tot = [int] $Matches[2]
-                if ($tot -gt 0 -and ($cur - $script:lastReported) -ge [math]::Max(1, [int]($tot / 20))) {
-                    $script:lastReported = $cur
-                    $pct = [int](100 * $cur / $tot)
-                    Write-Host ("`r  {0}  {1,5}/{2}  {3,3}%   " -f $what, $cur, $tot, $pct) -NoNewline
+        $script:lastReported = 0
+
+        # Announced up front: the configure stage emits no [n/m] progress and
+        # spends about a minute in OpenCV, which is long enough to read as a
+        # hang if nothing has been printed.
+        Write-Host ("  {0}..." -f $what) -NoNewline
+
+        # CMake writes message() output to stderr and ninja writes progress to
+        # stdout, so both streams are wanted. Merging them with 2>&1 turns every
+        # stderr line into an ErrorRecord, though, and with
+        # $ErrorActionPreference = "Stop" the first one -- "Including debug
+        # library", before anything has gone wrong -- aborts the script.
+        #
+        # Relax the preference for the duration and judge the outcome by the
+        # exit code, which is the only thing a native command actually reports
+        # failure through.
+        $prev = $ErrorActionPreference
+        $ErrorActionPreference = 'Continue'
+        try {
+            & $cmd 2>&1 | ForEach-Object {
+                $text = if ($_ -is [System.Management.Automation.ErrorRecord]) {
+                            $_.ToString()
+                        } else {
+                            [string] $_
+                        }
+                $script:lines.Add($text)
+                # Ninja prefixes each step with [done/total]; report every 5%.
+                if ($text -match '^\[(\d+)/(\d+)\]') {
+                    $cur = [int] $Matches[1]
+                    $tot = [int] $Matches[2]
+                    if ($tot -gt 0 -and ($cur - $script:lastReported) -ge [math]::Max(1, [int]($tot / 20))) {
+                        $script:lastReported = $cur
+                        $pct = [int](100 * $cur / $tot)
+                        Write-Host ("`r  {0}  {1,5}/{2}  {3,3}%   " -f $what, $cur, $tot, $pct) -NoNewline
+                    }
                 }
             }
+        } finally {
+            $ErrorActionPreference = $prev
         }
+
         Write-Host ""
         if ($LASTEXITCODE -ne 0) {
             Set-Content -Path $log -Value $script:lines -Encoding utf8
-            Write-Host ($script:lines | Select-Object -Last 30) -ForegroundColor Red
+            $script:lines | Select-Object -Last 30 | ForEach-Object { Write-Host $_ -ForegroundColor Red }
             throw "$what failed for $($cfg.Preset) -- full output: $log"
         }
     }
 
-    $script:lastReported = 0
     Invoke-Stage "configure" { cmake --preset $cfg.Preset }
-
-    $script:lastReported = 0
-    Invoke-Stage "build" { cmake --build $cfg.Dir }
+    Invoke-Stage "build"     { cmake --build $cfg.Dir }
 
     # A release binary that only runs where it was built is the failure mode
     # this whole exercise exists to prevent, so it is checked every time rather

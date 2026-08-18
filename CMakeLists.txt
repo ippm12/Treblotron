@@ -966,7 +966,6 @@ set(CPACK_DEB_COMPONENT_INSTALL     ON)
 # releases directory and nobody has to guess which one they downloaded.
 if(TREBLOTRON_BUILD_SERVER)
     set(_pkg_variant "Server")
-    set(CPACK_PACKAGE_EXECUTABLES "")
 elseif(TREBLOTRON_VISION_SOURCE STREQUAL "sim")
     set(_pkg_variant "Demo")
 elseif(TREBLOTRON_VISION_SOURCE STREQUAL "network")
@@ -995,16 +994,40 @@ if(WIN32)
 
     set(CPACK_NSIS_MUI_ICON   "${PROJECT_SOURCE_DIR}/assets/branding/icon.ico")
     set(CPACK_NSIS_MUI_UNIICON "${PROJECT_SOURCE_DIR}/assets/branding/icon.ico")
-    set(CPACK_NSIS_INSTALLED_ICON_NAME
-        "${TREBLOTRON_INSTALL_BIN}\\\\${PRJ_NAME}.exe")
     set(CPACK_NSIS_PACKAGE_NAME     "Treblotron ${_pkg_variant}")
     set(CPACK_NSIS_DISPLAY_NAME     "Treblotron ${_pkg_variant} ${PROJECT_VERSION}")
     set(CPACK_NSIS_MODIFY_PATH      OFF)
     set(CPACK_NSIS_ENABLE_UNINSTALL_BEFORE_INSTALL ON)
 
-    if(TREBLOTRON_BUILD_APP)
+    # The app and the server are separate products that a Pi owner may well
+    # want on the same machine -- one to play on, one serving the Pi. Left at
+    # the defaults they share an install directory, a Start Menu registry key
+    # and an uninstall entry, so the second install silently uninstalls the
+    # first (ENABLE_UNINSTALL_BEFORE_INSTALL) and leaves one entry in
+    # Add/Remove Programs pointing at a mixture of both.
+    if(_pkg_variant)
+        set(CPACK_PACKAGE_INSTALL_DIRECTORY     "Treblotron ${_pkg_variant}")
+        set(CPACK_PACKAGE_INSTALL_REGISTRY_KEY  "Treblotron${_pkg_variant}")
+    else()
+        set(CPACK_PACKAGE_INSTALL_DIRECTORY     "Treblotron")
+        set(CPACK_PACKAGE_INSTALL_REGISTRY_KEY  "Treblotron")
+    endif()
+
+    # CPACK_PACKAGE_EXECUTABLES is (exe-without-.exe, label) pairs, and CPack's
+    # NSIS template resolves them against $INSTDIR\\bin -- which is why
+    # TREBLOTRON_INSTALL_BIN is "bin" rather than a flat layout.
+    if(TREBLOTRON_BUILD_SERVER)
+        # Headless, but somebody still has to start it. Without a shortcut the
+        # only thing in the Start Menu folder is Uninstall, which reads as a
+        # broken install.
+        set(CPACK_PACKAGE_EXECUTABLES "${SERVER_NAME}" "Treblotron Server")
+        set(CPACK_NSIS_INSTALLED_ICON_NAME
+            "${TREBLOTRON_INSTALL_BIN}\\\\${SERVER_NAME}.exe")
+    else()
         set(CPACK_PACKAGE_EXECUTABLES "${PRJ_NAME}" "Treblotron")
         set(CPACK_NSIS_MUI_FINISHPAGE_RUN "${PRJ_NAME}.exe")
+        set(CPACK_NSIS_INSTALLED_ICON_NAME
+            "${TREBLOTRON_INSTALL_BIN}\\\\${PRJ_NAME}.exe")
     endif()
 
     # The server listens on a TCP port, so Windows will put a firewall prompt in
