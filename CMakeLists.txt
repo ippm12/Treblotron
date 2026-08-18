@@ -1105,11 +1105,21 @@ else()
                  WORLD_READ WORLD_EXECUTE)
     endforeach()
 
-    # Component-scoped, because that is the only form CPack reads once
-    # CPACK_DEB_COMPONENT_INSTALL is on -- the unscoped variable is ignored, and
-    # the package ships with no maintainer scripts at all.
-    set(CPACK_DEBIAN_TREBLOTRON_PACKAGE_CONTROL_EXTRA
+    # Set under both names. Which one CPackDeb reads depends on how it derives
+    # the component suffix, and a package built with the wrong one is not an
+    # error: it installs cleanly, runs no maintainer scripts, and leaves no
+    # command behind. That failure cost a full rebuild to find once, so the
+    # cheap insurance of setting both is worth more than being right about the
+    # lookup rule. Setting the unused one has no effect.
+    set(_dm_control
         "${PROJECT_BINARY_DIR}/packaging/postinst;${PROJECT_BINARY_DIR}/packaging/prerm")
+    set(CPACK_DEBIAN_TREBLOTRON_PACKAGE_CONTROL_EXTRA "${_dm_control}")
+    set(CPACK_DEBIAN_PACKAGE_CONTROL_EXTRA            "${_dm_control}")
+
+    # Printed so a failed .deb can be diagnosed from the configure log rather
+    # than by unpacking the package afterwards.
+    message(STATUS "DEB maintainer scripts: ${_dm_control}")
+    message(STATUS "DEB will link ${DEB_BIN} -> ${DEB_LINK}")
     # Left to dpkg-shlibdeps: the Pi client links system OpenCV and SDL
     # transitively and hand-listing them goes stale the first time a dependency
     # moves.
