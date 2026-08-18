@@ -1,10 +1,12 @@
+# Generated from treblotron.desktop.in -- edit the template, not the copy
+# in the build tree.
 [Desktop Entry]
 Type=Application
 Name=Treblotron
 GenericName=Dartboard Scorer
 Comment=Play darts. It keeps score.
-Exec=/opt/treblotron/bin/Treblotron
-Icon=treblotron
+Exec=@DEB_BIN@
+Icon=@DEB_ICON@
 Terminal=false
 Categories=Game;
 Keywords=darts;dartboard;score;

@@ -723,6 +723,13 @@ endif()
 # "does it behave the same installed as it does here" stops being a question.
 set(TREBLOTRON_INSTALL_BIN "bin")
 
+# Where a Linux package unpacks. Defined here rather than beside the CPack
+# settings because the .desktop file and the maintainer scripts both need to
+# name absolute installed paths, and they are generated well before CPack is
+# configured. One definition means Exec=, Icon= and the postinst symlink cannot
+# disagree about where anything landed.
+set(TREBLOTRON_LINUX_PREFIX "/opt/treblotron")
+
 if(TREBLOTRON_BUILD_APP)
     install(TARGETS ${PRJ_NAME} RUNTIME DESTINATION ${TREBLOTRON_INSTALL_BIN}
             COMPONENT treblotron)
@@ -849,13 +856,23 @@ endif()
 # DESTINATION escaping CPACK_PACKAGING_INSTALL_PREFIX, which the archive
 # generators handle differently from DEB.
 if(UNIX AND NOT APPLE AND TREBLOTRON_BUILD_APP)
-    install(FILES "${PROJECT_SOURCE_DIR}/packaging/linux/treblotron.desktop"
+    string(TOLOWER "${PRJ_NAME}" _dm_icon_name)
+
+    # The absolute paths the launcher will refer to once installed.
+    set(DEB_BIN  "${TREBLOTRON_LINUX_PREFIX}/${TREBLOTRON_INSTALL_BIN}/${PRJ_NAME}")
+    set(DEB_ICON "${TREBLOTRON_LINUX_PREFIX}/share/icons/hicolor/256x256/apps/${_dm_icon_name}.png")
+
+    configure_file(
+        "${PROJECT_SOURCE_DIR}/packaging/linux/treblotron.desktop.in"
+        "${PROJECT_BINARY_DIR}/packaging/${_dm_icon_name}.desktop"
+        @ONLY)
+
+    install(FILES "${PROJECT_BINARY_DIR}/packaging/${_dm_icon_name}.desktop"
             DESTINATION "share/applications"
             COMPONENT treblotron)
-    # Named for the product at install time, because the .desktop Icon= key and
-    # the installed filename have to agree. The source file stays name-neutral
-    # so a rename never has to touch the branding directory.
-    string(TOLOWER "${PRJ_NAME}" _dm_icon_name)
+
+    # Kept inside the prefix and referred to by absolute path from Icon=, so
+    # nothing has to be registered with the system icon theme.
     install(FILES "${PROJECT_SOURCE_DIR}/assets/branding/icon-256.png"
             DESTINATION "share/icons/hicolor/256x256/apps"
             RENAME "${_dm_icon_name}.png"
@@ -1055,7 +1072,7 @@ else()
     # directory inside it would just be in the way. The .tar.gz gets one from
     # its own layout rules.
     set(CPACK_COMPONENT_INCLUDE_TOPLEVEL_DIRECTORY 0)
-    set(CPACK_PACKAGING_INSTALL_PREFIX "/opt/treblotron")
+    set(CPACK_PACKAGING_INSTALL_PREFIX "${TREBLOTRON_LINUX_PREFIX}")
     set(CPACK_DEBIAN_PACKAGE_MAINTAINER "ippm12")
     set(CPACK_DEBIAN_PACKAGE_SECTION    "games")
     set(CPACK_DEBIAN_FILE_NAME          DEB-DEFAULT)
