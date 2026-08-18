@@ -4,15 +4,18 @@
  * Camera calibration screen. Two modes:
  *   - Overview: 3-slot grid, navigate with arrows / D-pad / mouse, enter a slot
  *     to start wire calibration.
- *   - Calibrate: large view of one camera; click to place wire intersection
- *     points (20 outer-triple + 20 outer-double, clockwise from 20/1 wire).
+ *   - Calibrate: live view of one camera alongside a board diagram naming and
+ *     pointing at the single intersection to click next — 20 outer-triple then
+ *     20 outer-double, clockwise from the 20/1 wire.
  */
 
 #ifndef CALIBRATION_HPP
 #define CALIBRATION_HPP
 
 #include "game_lib/game.hpp"
+#include "game_lib/components/render_object.hpp"
 #include "game_lib/input_hints.hpp"
+#include "detect/wire_calibration.hpp"
 #include "vision/vision.hpp"
 #include <string>
 
@@ -53,6 +56,18 @@ class CalibrationScreen : public Game
         void renderOverview();
         void renderCalibrate();
         void renderSlot(uint32_t index, float slotX, float slotY);
+
+        // Right-hand panel in Calibrate mode: says which intersection is next
+        // in words, and shows it on a diagram of the board.
+        void renderTargetGuide(uint32_t placed);
+        void renderBoardDiagram(float cx, float cy, float radius,
+                                uint32_t placed, const WireTarget& target);
+
+        /** Draw one line of text; centred horizontally on x when centred. */
+        void drawText(const std::string& text, FontID fontId, Color color,
+                      float x, float y, uint32_t z, bool centred = false);
+        /** Draw a filled dot of the given radius. */
+        void drawDot(float x, float y, float radius, Color color, uint32_t z);
         void updateCameraTexture(uint32_t index);
         void showStatus(const std::string& msg);
         bool screenToFrame(uint32_t camIndex, const Rect& draw,
@@ -64,6 +79,8 @@ class CalibrationScreen : public Game
 
         FontID m_titleFontId;
         FontID m_bodyFontId;
+        FontID m_guideFontId;
+        FontID m_smallFontId;
         InputHints m_inputHints;
 
         Mode         m_mode = Mode::Overview;

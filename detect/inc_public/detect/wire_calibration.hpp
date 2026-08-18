@@ -32,6 +32,24 @@ constexpr uint32_t WIRE_POINTS_PER_CAMERA = 40;
 // Destination warped image size (matches the model input)
 constexpr uint32_t WARPED_OUTPUT_SIZE = 720;
 
+// Wire intersections per ring, i.e. one per bed boundary.
+constexpr uint32_t WIRE_POINTS_PER_RING = 20;
+
+/**
+ * Template geometry, shared with the UI so the calibration screen can draw the
+ * same board the homography is fitted to.
+ *
+ * Angles use the OpenCV convention: 0 deg points right and positive turns
+ * clockwise, because y grows downwards. Point i of a ring therefore sits at
+ * WIRE_START_ANGLE_DEG + i * WIRE_SEGMENT_ANGLE_DEG, starting at the wire
+ * between beds 20 and 1 and working clockwise around the board.
+ */
+constexpr float WIRE_START_ANGLE_DEG    = 279.0f;
+constexpr float WIRE_SEGMENT_ANGLE_DEG  = 18.0f;
+
+/** Outer-triple radius as a fraction of the outer-double radius. */
+constexpr float WIRE_TRIPLE_RADIUS_RATIO = 0.629f;
+
 /**
  * Initialize the wire calibration module. Allocates per-camera state for
  * EXPECTED_CAMERA_COUNT cameras and computes the template (destination) points.
@@ -69,10 +87,32 @@ void clearWirePoints(uint32_t camIndex);
 bool getWirePoint(uint32_t camIndex, uint32_t pointIndex, float& outX, float& outY);
 
 /**
- * Get the human-readable label for the next point to place
- * (e.g. "Triple 5/20" or "Double 12/20"). Empty if camera is fully calibrated.
+ * Where a given point index belongs on the board.
+ *
+ * Every point sits on the *outer* edge of its ring — the boundary the ring
+ * shares with the single bed outside it, not the inner edge and not the middle
+ * of the ring — at the wire that divides two numbered beds.
  */
-std::string getNextPointLabel(uint32_t camIndex);
+struct WireTarget
+{
+    bool     tripleRing    = true;  // true: outer triple edge. false: outer double edge.
+    uint32_t wireIndex     = 0;     // 0..19, clockwise from the 20/1 wire
+    uint8_t  sectionBefore = 20;    // bed counter-clockwise of the wire (20 for wire 0)
+    uint8_t  sectionAfter  = 1;     // bed clockwise of the wire (1 for wire 0)
+    float    angleDeg      = WIRE_START_ANGLE_DEG;  // template angle, OpenCV convention
+};
+
+/**
+ * Describe the point at `pointIndex` (0..WIRE_POINTS_PER_CAMERA-1).
+ * Returns false if the index is out of range.
+ */
+bool getWireTarget(uint32_t pointIndex, WireTarget& out);
+
+/**
+ * Describe the next point the user should click for a camera.
+ * Returns false when the camera is already fully calibrated.
+ */
+bool getNextWireTarget(uint32_t camIndex, WireTarget& out);
 
 /**
  * Warp a source camera frame into the canonical 720x720 dartboard view using

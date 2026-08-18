@@ -21,7 +21,12 @@
 #include <SDL3_ttf/SDL_ttf.h>
 
 #include <algorithm>
+#include <cmath>
 #include <memory>
+
+#ifndef M_PI
+#define M_PI 3.14159265358979323846
+#endif
 
 
 // ============================================================================
@@ -33,6 +38,8 @@ static constexpr float    WINDOW_H       = 1080.0f;
 
 static constexpr float    TITLE_PT       = 72.0f;
 static constexpr float    BODY_PT        = 39.0f;
+static constexpr float    GUIDE_PT       = 28.0f;
+static constexpr float    SMALL_PT       = 22.0f;
 
 static constexpr float    LEFT_MARGIN    = 60.0f;
 static constexpr float    TITLE_Y        = 22.0f;
@@ -47,10 +54,19 @@ static constexpr float    SLOT_LABEL_H   = 60.0f;
 static constexpr float    SLOT_IMG_PAD   = 15.0f;
 static constexpr float    FOCUS_BORDER   = 4.0f;
 
-// Calibrate: large centered view
-static constexpr float    CAL_VIEW_TOP   = 120.0f;
-static constexpr float    CAL_VIEW_H     = 760.0f;
-static constexpr float    CAL_VIEW_MAXW  = 1400.0f;
+// Calibrate: camera view on the left, target guide panel on the right
+static constexpr float    CAL_VIEW_TOP   = 150.0f;
+static constexpr float    CAL_VIEW_H     = 690.0f;
+static constexpr float    CAL_VIEW_MAXW  = 1160.0f;
+
+static constexpr float    GUIDE_X        = 1290.0f;
+static constexpr float    GUIDE_W        = WINDOW_W - GUIDE_X - LEFT_MARGIN;
+static constexpr float    GUIDE_PAD      = 14.0f;
+
+// Board diagram inside the guide panel
+static constexpr float    DIAGRAM_RADIUS = 172.0f;
+static constexpr float    NUMBER_RATIO   = 1.17f;   // where bed numbers sit
+static constexpr float    MARKER_RADIUS  = 11.0f;
 
 // Placed point marker
 static constexpr float    POINT_RADIUS   = 6.0f;
@@ -71,6 +87,8 @@ CalibrationScreen::CalibrationScreen()
     : Game("Calibration")
     , m_titleFontId(INVALID_FONT_ID)
     , m_bodyFontId(INVALID_FONT_ID)
+    , m_guideFontId(INVALID_FONT_ID)
+    , m_smallFontId(INVALID_FONT_ID)
     , m_cameraCount(0)
     , m_statusTimer(0.0f)
 {
@@ -93,6 +111,18 @@ Status CalibrationScreen::init(FrameID frameId)
 
     m_bodyFontId = loadFont("assets/fonts/Roboto-Regular.ttf", BODY_PT);
     if(m_bodyFontId == INVALID_FONT_ID)
+    {
+        return STATUS_ERROR_GENERIC;
+    }
+
+    m_guideFontId = loadFont("assets/fonts/Roboto-Regular.ttf", GUIDE_PT);
+    if(m_guideFontId == INVALID_FONT_ID)
+    {
+        return STATUS_ERROR_GENERIC;
+    }
+
+    m_smallFontId = loadFont("assets/fonts/Roboto-Regular.ttf", SMALL_PT);
+    if(m_smallFontId == INVALID_FONT_ID)
     {
         return STATUS_ERROR_GENERIC;
     }
@@ -202,6 +232,16 @@ void CalibrationScreen::shutdown()
     shutdownCameraSystem();
     m_inputHints.shutdown();
 
+    if(m_smallFontId != INVALID_FONT_ID)
+    {
+        unloadFont(m_smallFontId);
+        m_smallFontId = INVALID_FONT_ID;
+    }
+    if(m_guideFontId != INVALID_FONT_ID)
+    {
+        unloadFont(m_guideFontId);
+        m_guideFontId = INVALID_FONT_ID;
+    }
     if(m_bodyFontId != INVALID_FONT_ID)
     {
         unloadFont(m_bodyFontId);
@@ -386,6 +426,51 @@ void CalibrationScreen::onMouseClick(float x, float y, uint8_t button)
 // ============================================================================
 // Helpers
 // ============================================================================
+
+void CalibrationScreen::drawText(const std::string& text, FontID fontId, Color color,
+                                 float x, float y, uint32_t z, bool centred)
+{
+    if(text.empty()) return;
+
+    float drawX = x;
+    if(centred)
+    {
+        TTF_Font* font = getFont(fontId);
+        int textW = 0, textH = 0;
+        if(font)
+        {
+            TTF_GetStringSize(font, text.c_str(), 0, &textW, &textH);
+        }
+        drawX = x - static_cast<float>(textW) * 0.5f;
+    }
+
+    auto obj = std::make_shared<RenderText>();
+    obj->m_text     = text;
+    obj->m_color    = color;
+    obj->m_fontId   = fontId;
+    obj->m_rotation = 0.0f;
+    obj->m_scaleX   = 1.0f;
+    obj->m_scaleY   = 1.0f;
+    obj->m_x        = drawX;
+    obj->m_y        = y;
+    obj->m_z        = z;
+    renderQueueAdd(getFrameId(), obj);
+}
+
+
+void CalibrationScreen::drawDot(float x, float y, float radius, Color color, uint32_t z)
+{
+    auto dot = std::make_shared<RenderShape>();
+    dot->m_type   = ShapeType::Circle;
+    dot->m_color  = color;
+    dot->m_x      = x;
+    dot->m_y      = y;
+    dot->m_z      = z;
+    dot->m_width  = radius * 2.0f;
+    dot->m_height = 0.0f;
+    renderQueueAdd(getFrameId(), dot);
+}
+
 
 void CalibrationScreen::showStatus(const std::string& msg)
 {
@@ -597,35 +682,40 @@ void CalibrationScreen::renderCalibrate()
 
     m_calibrateDrawRect = Rect{};
 
+    uint32_t placed = getWirePointCount(m_calibrateCam);
+
+    // Camera label + progress, under the title
+    {
+        std::string header = getCameraName(m_calibrateCam);
+        header += isCameraCalibrated(m_calibrateCam)
+                    ? "   -   calibrated, all 40 points placed"
+                    : "   -   point " + std::to_string(placed + 1) + " of " +
+                      std::to_string(WIRE_POINTS_PER_CAMERA);
+        drawText(header, m_bodyFontId, {220, 220, 230},
+                 LEFT_MARGIN, TITLE_Y + TITLE_PT + 8.0f, BASE_Z + 2);
+    }
+
+    renderTargetGuide(placed);
+
     if(!m_cameraTextures[m_calibrateCam] ||
        m_lastFrameW[m_calibrateCam] <= 0.0f || m_lastFrameH[m_calibrateCam] <= 0.0f)
     {
-        auto text = std::make_shared<RenderText>();
-        text->m_text     = "No frame available";
-        text->m_color    = {200, 200, 80};
-        text->m_fontId   = m_bodyFontId;
-        text->m_rotation = 0.0f;
-        text->m_scaleX   = 1.0f;
-        text->m_scaleY   = 1.0f;
-        text->m_x        = LEFT_MARGIN;
-        text->m_y        = CAL_VIEW_TOP + CAL_VIEW_H * 0.5f;
-        text->m_z        = BASE_Z + 2;
-        renderQueueAdd(fid, text);
+        drawText("No frame available", m_bodyFontId, {200, 200, 80},
+                 LEFT_MARGIN, CAL_VIEW_TOP + CAL_VIEW_H * 0.5f, BASE_Z + 2);
         return;
     }
 
-    // Compute large draw rect
+    // Camera view, fitted into the space left of the guide panel
     float frameW = m_lastFrameW[m_calibrateCam];
     float frameH = m_lastFrameH[m_calibrateCam];
     float scale  = std::min(CAL_VIEW_MAXW / frameW, CAL_VIEW_H / frameH);
     float drawW  = frameW * scale;
     float drawH  = frameH * scale;
-    float drawX  = (WINDOW_W - drawW) * 0.5f;
+    float drawX  = LEFT_MARGIN + (CAL_VIEW_MAXW - drawW) * 0.5f;
     float drawY  = CAL_VIEW_TOP + (CAL_VIEW_H - drawH) * 0.5f;
 
     m_calibrateDrawRect = {drawX, drawY, drawW, drawH};
 
-    // Camera image
     {
         auto tex = std::make_shared<RenderCachedTexture>();
         tex->m_texture = m_cameraTextures[m_calibrateCam];
@@ -637,33 +727,7 @@ void CalibrationScreen::renderCalibrate()
         renderQueueAdd(fid, tex);
     }
 
-    // Camera label + next-point counter
-    std::string header = getCameraName(m_calibrateCam) + "   ";
-    std::string label = getNextPointLabel(m_calibrateCam);
-    if(label.empty())
-    {
-        header += "calibrated (40/40)";
-    }
-    else
-    {
-        header += "next: " + label + "   (" +
-                  std::to_string(getWirePointCount(m_calibrateCam)) + "/40)";
-    }
-
-    auto headerText = std::make_shared<RenderText>();
-    headerText->m_text     = header;
-    headerText->m_color    = {220, 220, 230};
-    headerText->m_fontId   = m_bodyFontId;
-    headerText->m_rotation = 0.0f;
-    headerText->m_scaleX   = 1.0f;
-    headerText->m_scaleY   = 1.0f;
-    headerText->m_x        = LEFT_MARGIN;
-    headerText->m_y        = TITLE_Y + TITLE_PT + 8.0f;
-    headerText->m_z        = BASE_Z + 2;
-    renderQueueAdd(fid, headerText);
-
-    // Placed points as small circles (scale frame coords → screen)
-    uint32_t placed = getWirePointCount(m_calibrateCam);
+    // Placed points as small circles (scale frame coords -> screen)
     for(uint32_t i = 0; i < placed; i++)
     {
         float px, py;
@@ -673,18 +737,191 @@ void CalibrationScreen::renderCalibrate()
         float sy = drawY + (py / frameH) * drawH;
 
         // Triple ring = yellow, double ring = cyan
-        Color color = (i < 20) ? Color{255, 220, 80} : Color{80, 220, 255};
-
-        auto dot = std::make_shared<RenderShape>();
-        dot->m_type   = ShapeType::Circle;
-        dot->m_color  = color;
-        dot->m_x      = sx;
-        dot->m_y      = sy;
-        dot->m_z      = BASE_Z + 3;
-        dot->m_width  = POINT_RADIUS * 2.0f;
-        dot->m_height = 0.0f;
-        renderQueueAdd(fid, dot);
+        Color color = (i < WIRE_POINTS_PER_RING) ? Color{255, 220, 80} : Color{80, 220, 255};
+        drawDot(sx, sy, POINT_RADIUS, color, BASE_Z + 3);
     }
+}
+
+
+// ============================================================================
+// Target guide
+// ============================================================================
+//
+// "Triple 5/20" said how far through the sequence you were but not where to
+// click, so this panel spells the target out three ways: the ring and the two
+// beds whose dividing wire it sits on, a diagram with that exact corner
+// marked, and a reminder that it is always the ring's OUTER edge - the
+// intersection furthest from the bull, never the inner one.
+
+void CalibrationScreen::renderTargetGuide(uint32_t placed)
+{
+    FrameID fid = getFrameId();
+
+    // Panel background
+    {
+        auto bg = std::make_shared<RenderShape>();
+        bg->m_type   = ShapeType::Box;
+        bg->m_color  = {32, 34, 42};
+        bg->m_x      = GUIDE_X;
+        bg->m_y      = CAL_VIEW_TOP;
+        bg->m_z      = BASE_Z + 1;
+        bg->m_width  = GUIDE_W;
+        bg->m_height = CAL_VIEW_H;
+        renderQueueAdd(fid, bg);
+    }
+
+    const float centreX  = GUIDE_X + GUIDE_W * 0.5f;
+    const float diagramY = CAL_VIEW_TOP + 78.0f + DIAGRAM_RADIUS * NUMBER_RATIO;
+
+    WireTarget target;
+    if(!getNextWireTarget(m_calibrateCam, target))
+    {
+        drawText("ALL 40 POINTS PLACED", m_guideFontId, {120, 220, 120},
+                 centreX, CAL_VIEW_TOP + GUIDE_PAD, BASE_Z + 2, true);
+        renderBoardDiagram(centreX, diagramY, DIAGRAM_RADIUS, placed, target);
+        drawText("Esc to go back, then S to save.", m_smallFontId, {170, 175, 185},
+                 centreX, diagramY + DIAGRAM_RADIUS * NUMBER_RATIO + 40.0f,
+                 BASE_Z + 2, true);
+        return;
+    }
+
+    const Color ringColor = target.tripleRing ? Color{255, 220, 80} : Color{80, 220, 255};
+
+    drawText("CLICK THIS INTERSECTION", m_guideFontId, {200, 205, 215},
+             centreX, CAL_VIEW_TOP + GUIDE_PAD, BASE_Z + 2, true);
+
+    renderBoardDiagram(centreX, diagramY, DIAGRAM_RADIUS, placed, target);
+
+    float textY = diagramY + DIAGRAM_RADIUS * NUMBER_RATIO + 30.0f;
+
+    // Which ring, and which of its two edges
+    drawText(std::string("OUTER edge of the ") +
+             (target.tripleRing ? "TRIPLE" : "DOUBLE") + " ring",
+             m_guideFontId, ringColor, centreX, textY, BASE_Z + 2, true);
+    textY += GUIDE_PT + 10.0f;
+
+    // Which wire, named by the two beds it separates
+    drawText("on the wire between " + std::to_string(target.sectionBefore) +
+             " and " + std::to_string(target.sectionAfter),
+             m_guideFontId, {235, 235, 245}, centreX, textY, BASE_Z + 2, true);
+    textY += GUIDE_PT + 18.0f;
+
+    // Say "outer" once more - it is the easy thing to get wrong
+    const char* hintA = target.tripleRing
+        ? "The outermost corner of the triple:"
+        : "The outermost corner of the double:";
+    const char* hintB = target.tripleRing
+        ? "the side facing the double ring."
+        : "the outer rim of the scoring area.";
+    drawText(hintA, m_smallFontId, {170, 175, 185}, centreX, textY, BASE_Z + 2, true);
+    textY += SMALL_PT + 6.0f;
+    drawText(hintB, m_smallFontId, {170, 175, 185}, centreX, textY, BASE_Z + 2, true);
+    textY += SMALL_PT + 16.0f;
+
+    drawText("Left click place    Right click undo", m_smallFontId, {140, 145, 155},
+             centreX, textY, BASE_Z + 2, true);
+}
+
+
+void CalibrationScreen::renderBoardDiagram(float cx, float cy, float radius,
+                                           uint32_t placed, const WireTarget& target)
+{
+    const Color faceColor = {24, 26, 32};
+
+    // Board face
+    drawDot(cx, cy, radius * 1.04f, faceColor, BASE_Z + 2);
+
+    // Both rings as annuli: a filled disc with the face colour punched back
+    // out of the middle. Drawn much wider than their true proportions so the
+    // inner and outer edge of each ring are clearly two different places.
+    const float doubleOuter = radius;
+    const float doubleInner = radius * 0.90f;
+    const float tripleOuter = radius * WIRE_TRIPLE_RADIUS_RATIO;
+    const float tripleInner = tripleOuter * 0.88f;
+
+    drawDot(cx, cy, doubleOuter,    {60, 130, 155}, BASE_Z + 3);
+    drawDot(cx, cy, doubleInner,    faceColor,      BASE_Z + 4);
+    drawDot(cx, cy, tripleOuter,    {160, 135, 55}, BASE_Z + 5);
+    drawDot(cx, cy, tripleInner,    faceColor,      BASE_Z + 6);
+    drawDot(cx, cy, radius * 0.06f, {70, 75, 85},   BASE_Z + 7);
+
+    const float deg2rad   = static_cast<float>(M_PI) / 180.0f;
+    const bool  hasTarget = (placed < WIRE_POINTS_PER_CAMERA);
+
+    // The 20 wires, bull to rim
+    for(uint32_t i = 0; i < WIRE_POINTS_PER_RING; i++)
+    {
+        float angle = (WIRE_START_ANGLE_DEG +
+                       static_cast<float>(i) * WIRE_SEGMENT_ANGLE_DEG) * deg2rad;
+
+        bool  isTarget  = hasTarget && (i == target.wireIndex);
+        Color wireColor = isTarget ? Color{255, 255, 255} : Color{95, 100, 112};
+        float thickness = isTarget ? 4.0f : 2.0f;
+
+        // A box of length `radius` rotated so its local +x runs along `angle`,
+        // inner end at the bull. m_x/m_y is the top-left of the unrotated box.
+        float midX = cx + std::cos(angle) * radius * 0.5f;
+        float midY = cy + std::sin(angle) * radius * 0.5f;
+
+        auto wire = std::make_shared<RenderShape>();
+        wire->m_type     = ShapeType::Box;
+        wire->m_color    = wireColor;
+        wire->m_x        = midX - radius * 0.5f;
+        wire->m_y        = midY - thickness * 0.5f;
+        wire->m_z        = BASE_Z + (isTarget ? 9 : 8);
+        wire->m_width    = radius;
+        wire->m_height   = thickness;
+        wire->m_rotation = angle;
+        renderQueueAdd(getFrameId(), wire);
+    }
+
+    // Points already placed, so progress around the board is visible
+    for(uint32_t i = 0; i < placed; i++)
+    {
+        WireTarget done;
+        if(!getWireTarget(i, done)) continue;
+
+        float angle = done.angleDeg * deg2rad;
+        float r     = done.tripleRing ? tripleOuter : doubleOuter;
+        drawDot(cx + std::cos(angle) * r, cy + std::sin(angle) * r,
+                3.5f, {110, 200, 110}, BASE_Z + 10);
+    }
+
+    // Bed numbers. Bed `sectionBefore` of wire i is centred half a segment
+    // counter-clockwise of that wire.
+    for(uint32_t i = 0; i < WIRE_POINTS_PER_RING; i++)
+    {
+        WireTarget bed;
+        if(!getWireTarget(i, bed)) continue;
+
+        float angle = (bed.angleDeg - WIRE_SEGMENT_ANGLE_DEG * 0.5f) * deg2rad;
+        bool  adjacent = hasTarget &&
+                         ((i == target.wireIndex) ||
+                          (i == (target.wireIndex + 1) % WIRE_POINTS_PER_RING));
+
+        drawText(std::to_string(bed.sectionBefore), m_smallFontId,
+                 adjacent ? Color{255, 255, 255} : Color{120, 125, 135},
+                 cx + std::cos(angle) * radius * NUMBER_RATIO,
+                 cy + std::sin(angle) * radius * NUMBER_RATIO - SMALL_PT * 0.6f,
+                 BASE_Z + 11, true);
+    }
+
+    if(!hasTarget)
+    {
+        return;
+    }
+
+    // The target: a hollow marker straddling the exact corner, so the
+    // intersection underneath it stays visible.
+    const Color ringColor = target.tripleRing ? Color{255, 220, 80} : Color{80, 220, 255};
+    float angle = target.angleDeg * deg2rad;
+    float r     = target.tripleRing ? tripleOuter : doubleOuter;
+    float mx    = cx + std::cos(angle) * r;
+    float my    = cy + std::sin(angle) * r;
+
+    drawDot(mx, my, MARKER_RADIUS,        ringColor, BASE_Z + 12);
+    drawDot(mx, my, MARKER_RADIUS - 3.0f, faceColor, BASE_Z + 13);
+    drawDot(mx, my, 2.0f,                 ringColor, BASE_Z + 14);
 }
 
 

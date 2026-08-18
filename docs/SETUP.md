@@ -145,10 +145,30 @@ only has to be done once — as long as the cameras do not move afterwards.
 
 1. Main menu → **Calibration**.
 2. Pick a camera. The live preview shows what it sees.
-3. Click each wire intersection as prompted. The label above the preview names
-   the next one.
+3. Click the intersection the panel on the right asks for, then the next, until
+   all 40 are placed.
 4. Repeat for the other two cameras.
-5. It saves as you finish each camera.
+5. Press **S** on the camera list to save.
+
+### Which point is it asking for?
+
+A *wire intersection* is where one of the 20 radial wires crosses a ring. Each
+ring has two such crossings per wire — an inner one and an outer one — and
+Dartmatic always wants the **outer** one, the corner furthest from the bull:
+
+- **Outer triple** — where the wire leaves the triple ring on the side facing
+  the double ring, not the side facing the bull.
+- **Outer double** — where the wire meets the outside of the double ring, at
+  the very edge of the scoring area.
+
+Wires are named by the two beds they divide, so "the wire between 13 and 6" is
+the single wire with 13 on one side and 6 on the other. The guide panel names
+the ring and the two beds, and marks the exact corner on a diagram of the
+board, with the wire in question highlighted and the points you have already
+placed shown in green.
+
+**Left click** places a point, **right click** undoes the last one, and **C**
+clears the camera and starts it over.
 
 Tips:
 

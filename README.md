@@ -84,8 +84,10 @@ Clickable dartboard instead of cameras. Every game playable.
 </table>
 
 Whichever you pick, the step that matters is **calibration**: 40 clicked wire
-intersections per camera, once, so the software knows where the board is.
-It takes a few minutes and survives forever unless a camera moves.
+intersections per camera, once, so the software knows where the board is. The
+calibration screen names each point and marks it on a board diagram, so there
+is no guessing which corner it means. It takes a few minutes and survives
+forever unless a camera moves.
 
 ---
 

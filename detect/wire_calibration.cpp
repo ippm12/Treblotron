@@ -5,6 +5,7 @@
  */
 
 #include "detect/wire_calibration.hpp"
+#include "dart/dart_defs.hpp"
 
 #include <opencv2/core.hpp>
 #include <opencv2/imgproc.hpp>
@@ -32,15 +33,12 @@ static constexpr float TEMPLATE_CENTER = WARPED_OUTPUT_SIZE * 0.5f;
 // Outer-double radius in pixels (matches BOARD_RADIUS_PX in board_detection.py)
 static constexpr float BOARD_RADIUS_PX = 290.0f;
 
-// Ring radius ratios from board_detection.py
-static constexpr float RING_RATIO_OUTER_TRIPLE = 0.629f;
+// Ring radius ratios and wire angles live in the header — the calibration
+// screen draws the same template geometry the homography is fitted to.
 static constexpr float RING_RATIO_OUTER_DOUBLE = 1.000f;
+static constexpr float RING_RATIO_OUTER_TRIPLE = WIRE_TRIPLE_RADIUS_RATIO;
 
-// Wire angles (OpenCV convention: 0=right, +CW since y points down)
-static constexpr float WIRE_START_ANGLE_DEG = 279.0f; // 20/1 wire
-static constexpr float SEGMENT_ANGLE_DEG    = 18.0f;
-
-static constexpr uint32_t POINTS_PER_RING = 20;
+static constexpr uint32_t POINTS_PER_RING = WIRE_POINTS_PER_RING;
 
 
 // ============================================================================
@@ -85,7 +83,7 @@ static void computeTemplatePoints()
     {
         for(uint32_t i = 0; i < POINTS_PER_RING; i++)
         {
-            float angleDeg = WIRE_START_ANGLE_DEG + static_cast<float>(i) * SEGMENT_ANGLE_DEG;
+            float angleDeg = WIRE_START_ANGLE_DEG + static_cast<float>(i) * WIRE_SEGMENT_ANGLE_DEG;
             float angleRad = angleDeg * static_cast<float>(M_PI) / 180.0f;
             float x = TEMPLATE_CENTER + ringRadii[ring] * std::cos(angleRad);
             float y = TEMPLATE_CENTER + ringRadii[ring] * std::sin(angleRad);
@@ -278,22 +276,38 @@ bool getWirePoint(uint32_t camIndex, uint32_t pointIndex, float& outX, float& ou
 }
 
 
-std::string getNextPointLabel(uint32_t camIndex)
+bool getWireTarget(uint32_t pointIndex, WireTarget& out)
 {
-    if(camIndex >= EXPECTED_CAMERA_COUNT) return "";
-
-    uint32_t count = getWirePointCount(camIndex);
-    if(count >= WIRE_POINTS_PER_CAMERA)
+    if(pointIndex >= WIRE_POINTS_PER_CAMERA)
     {
-        return "";
+        return false;
     }
 
-    const char* ringName = (count < POINTS_PER_RING) ? "Triple" : "Double";
-    uint32_t indexInRing = (count % POINTS_PER_RING) + 1;
+    // Same ordering as computeTemplatePoints(): triple ring first, then double,
+    // each running clockwise from the 20/1 wire.
+    const uint32_t ring  = pointIndex / POINTS_PER_RING;
+    const uint32_t index = pointIndex % POINTS_PER_RING;
 
-    char buf[32];
-    std::snprintf(buf, sizeof(buf), "%s %u/%u", ringName, indexInRing, POINTS_PER_RING);
-    return std::string(buf);
+    // Wire `index` divides the two beds either side of it. The board layout is
+    // already in clockwise order starting at 20, and wire 0 is the 20/1 wire,
+    // so the bed before the wire is layout[index] and the one after is the next.
+    const uint8_t* layout = getBoardLayout();
+
+    out.tripleRing    = (ring == 0);
+    out.wireIndex     = index;
+    out.sectionBefore = layout[index];
+    out.sectionAfter  = layout[(index + 1) % POINTS_PER_RING];
+    out.angleDeg      = WIRE_START_ANGLE_DEG +
+                        static_cast<float>(index) * WIRE_SEGMENT_ANGLE_DEG;
+    return true;
+}
+
+
+bool getNextWireTarget(uint32_t camIndex, WireTarget& out)
+{
+    if(camIndex >= EXPECTED_CAMERA_COUNT) return false;
+
+    return getWireTarget(getWirePointCount(camIndex), out);
 }
 
 
