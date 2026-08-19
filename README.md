@@ -68,7 +68,18 @@ plus points-per-round for each player.
 </tr>
 </table>
 
-More to come. The games are the reason the project exists, not an extra on top of it.
+Dartfleet and Cricket both have a teams mode, so an evening with six people
+does not turn into six separate scores. X01 is per player.
+
+## Planned
+
+- **Mini Golf.** Another original game, in the same vein as Dartfleet.
+- **A data collection mode.** Gathering training data is more tedious than it
+  needs to be, and the app is the natural place to do it from.
+- **Correcting a throw in game.** When the detector gets one wrong there is
+  currently no way to fix it without leaving the game.
+
+The games are the reason the project exists, not an extra on top of it.
 
 ## Getting started
 
@@ -110,6 +121,11 @@ intersections per camera so the software knows where the board is. The screen
 names each point and shows it on a diagram, so you are not guessing which
 corner it means. It takes a few minutes, and you only do it again if a camera
 moves.
+
+Menus and games take a keyboard or a controller. Controllers are picked up
+while the app is running, and the on-screen button prompts switch to match
+whichever you used last, so a box by the board can be driven with a gamepad and
+nothing else.
 
 ---
 
@@ -439,8 +455,6 @@ Honest list for a first release:
 - **MJPEG pass-through is unverified on real V4L2 hardware.** If a driver
   ignores `CAP_PROP_CONVERT_RGB` the client falls back to re-encoding, which
   costs CPU on the Pi but works.
-- **No prebuilt Raspberry Pi package.** Build it once from source; see
-  [docs/SETUP.md](docs/SETUP.md).
 - **Calibration is 120 clicks.** It is the honest cost of not requiring special
   hardware, but it is the least pleasant part of setup.
 
@@ -482,9 +496,20 @@ locally, and the headless server detecting on behalf of a remote client.
 Toolchain: MSYS2 mingw64 g++ with C++23, CMake 3.22+, Ninja. Expect the first
 build to take a while — OpenCV is a submodule and is compiled from source.
 
-**Releases.** `scripts/release.ps1` builds every artifact, checks each binary
-starts with the toolchain off `PATH`, and collects the results in `dist/`.
-Needs NSIS for the two installers.
+**Releases.** A release is four artifacts:
+
+| artifact | built from |
+|---|---|
+| `Treblotron-*-Setup.exe` | `app-local-windows` |
+| `Treblotron-Server-*-Setup.exe` | `server-directml` |
+| `Treblotron-Demo-*.zip` | `app-demo` |
+| `treblotron_*_arm64.deb` | `app-network`, built on the Pi |
+
+`scripts/release.ps1` builds the three Windows ones, checks each installed tree
+resolves every DLL it needs, and collects the results in `dist/`. It needs NSIS
+for the two installers. The Pi package is built on an arm64 machine with
+`cpack`, because there is no cross-compiler here; see
+[docs/SETUP.md](docs/SETUP.md).
 
 </details>
 
@@ -540,8 +565,8 @@ not redistributed by default)
 **Assets** — [Roboto](https://fonts.google.com/specimen/Roboto) by Google (Apache 2.0) ·
 [Input Prompts](https://kenney.nl/assets/input-prompts) by [Kenney](https://www.kenney.nl) (CC0)
 
-**Models** are trained and exported from a companion repository and ship under
-the same MIT licence as the rest of this project.
+**Models** are trained and exported from a companion repository, which is not
+public yet. They ship under the same MIT licence as the rest of this project.
 
 Licence texts for everything shipped are installed alongside the program under
 `licenses/`.
