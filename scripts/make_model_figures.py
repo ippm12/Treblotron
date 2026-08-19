@@ -226,9 +226,26 @@ def esc(s):
     return (str(s).replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;"))
 
 
-# ============================================================ figure 1: seg
+# ============================================================================
+# The figures
+# ============================================================================
+#
+# Rule for what goes in an image: a label anchored to a thing stays, a sentence
+# does not. Panel captions, tensor shapes and readouts only mean something next
+# to what they point at; explanation reflows and belongs in the README.
+#
+# That is not only tidiness. A figure 1400 px wide with 10 px prose renders at
+# about 350 px on a phone -- a quarter scale, which turns the text into 2.5 px
+# of grey. Markdown reflows; baked text cannot. Dropping the prose also lets
+# several of these lose a third of their width, so what remains renders larger.
+#
+# Some figures are split for the same reason: two arguments in one image force
+# the README to say both before showing either.
+
+
+# ------------------------------------------------------- step 1: the segmenter
 def fig_segmentation() -> Fig:
-    f = Fig(1180, 638)
+    f = Fig(1180, 268)
     f.header("Step 1 of 2 - the segmenter",
              "dart_seg_unet finds dart pixels, so the detector never sees the board itself",
              "MobileNetV3 encoder + U-Net decoder", "3 × 360 × 640  →  3 × 1 × 360 × 640")
@@ -244,72 +261,83 @@ def fig_segmentation() -> Fig:
     f.arrow(856, y + 58, 876, y + 58)
     f.img("warped_masked_cam0", 880, y, ih, ih, "warped to the board",
           "720 × 720 canonical")
-
-    # ---- left: why the board goes ------------------------------------
-    f.text(40, 292, "The board is thrown away on purpose.", size=11,
-           anchor="start", weight="600", family=SANS)
-    for i, line in enumerate([
-        "Wires, numbers and lighting differ between rigs and change",
-        "nothing about where a dart is. Masking them out leaves a",
-        "problem that looks the same in any room.",
-        "",
-        "The warp does the other half. It folds in the board's own",
-        "rotation, so 20 sits at 12 o'clock in all three views and every",
-        "camera agrees where a canonical point is — which is what lets",
-        "one shared tip channel mean anything across three cameras.",
-    ]):
-        f.text(40, 312 + i * 16, line, size=10.5, anchor="start", fill=MUTED,
-               family=SANS)
-
-    # ---- right: the tip, at the scale the argument happens ------------
-    #
-    # Three panels of one tip you can see, so the flare is measurable against
-    # something; then a fourth, different dart where the tip is not visible at
-    # all — which is the case the flare exists for.
-    dx, dw, dgap = 528, 138, 12
-    f.text(dx, 268, "The mask is wider than the steel, on purpose.", size=11,
-           anchor="start", weight="600", family=SANS)
-    f.img("tipdetail_raw", dx, 282, dw, dw, "the tip, 5× zoom", "visible, just")
-    f.img("tipdetail_mask", dx + dw + dgap, 282, dw, dw, "what the model marks",
-          "outline + apex")
-    f.img("tipdetail_solid", dx + 2 * (dw + dgap), 282, dw, dw, "the mask alone",
-          "a round cap, not a point")
-
-    hx = dx + 3 * (dw + dgap) + 22          # set apart: different dart, different frame
-    f.img("tipdetail_hard", hx, 282, dw, dw, "another dart, into black",
-          "no visible tip at all")
-    f.add('<line x1="%d" y1="282" x2="%d" y2="%d" stroke="%s" stroke-width="1" '
-          'stroke-dasharray="3 3"/>' % (hx - 11, hx - 11, 282 + dw, RULE))
-
-    for i, line in enumerate([
-        "A dart's point is polished steel and about a tenth of its length — 2 to 4 pixels here, and often",
-        "indistinguishable from what is behind it. In the first crop it fades into a cream segment several",
-        "pixels before it actually ends. In the last, thrown into a black bed and further from the camera,",
-        "there is nothing to see at all, and the mask is the only thing that knows where the dart stopped.",
-    ]):
-        f.text(dx, 472 + i * 16, line, size=10.5, anchor="start", fill=MUTED,
-               family=SANS)
-
-    # ---- bottom: why a flare and not a silhouette ---------------------
-    f.add('<line x1="40" y1="558" x2="%d" y2="558" stroke="%s" stroke-width="1"/>'
-          % (f.w - 40, RULE))
-    f.text(40, 580,
-           "So the training masks flare: a round-capped, tapered cap unioned over the point, rather than the exact silhouette. The size was fitted to "
-           "hand-labelled",
-           size=10.5, anchor="start", fill=MUTED, family=SANS)
-    f.text(40, 596,
-           "data rather than chosen by eye — measured 2 px from the apex, real labels run 9.0 px half-width and a pristine silhouette only 2.1, so without "
-           "the flare",
-           size=10.5, anchor="start", fill=MUTED, family=SANS)
-    f.text(40, 612,
-           "synthetic and real training data disagreed by about 4× at exactly the place the tip decision depends on.",
-           size=10.5, anchor="start", fill=MUTED, family=SANS)
     return f
 
 
-# ======================================================= figure 2: detector
+# ------------------------------------------------- step 1 detail: the tip flare
+def fig_tipflare() -> Fig:
+    f = Fig(700, 268)
+    f.header("The mask is wider than the steel",
+             "one tip at 5× zoom, and a second dart where there is no tip to see",
+             "training labels", "round cap, not a point")
+
+    y, sz, gap = 100, 138, 12
+    f.img("tipdetail_raw", 40, y, sz, sz, "the tip, 5× zoom", "visible, just")
+    f.img("tipdetail_mask", 40 + sz + gap, y, sz, sz, "what the model marks",
+          "outline + apex")
+    f.img("tipdetail_solid", 40 + 2 * (sz + gap), y, sz, sz, "the mask alone",
+          "a round cap")
+
+    hx = 40 + 3 * (sz + gap) + 20       # set apart: different dart, different frame
+    f.img("tipdetail_hard", hx, y, sz, sz, "another dart", "no visible tip at all")
+    f.add('<line x1="%d" y1="%d" x2="%d" y2="%d" stroke="%s" stroke-width="1" '
+          'stroke-dasharray="3 3"/>' % (hx - 10, y, hx - 10, y + sz, RULE))
+    return f
+
+
+# ------------------------------------------------------ why three cameras
+def fig_triangulation() -> Fig:
+    t = json.loads((ASSETS / "triangulation.json").read_text())["tri"]
+    f = Fig(1060, 330)
+    f.header("Why three cameras",
+             "the tip is the only part of a dart touching the board, so it is the "
+             "only point all three views agree on",
+             "geometry only", "no model involved")
+
+    # Panels are spaced to leave room for the operators between them; at a
+    # tighter pitch the + and = land on top of the images and vanish into the
+    # dark board behind them.
+    y, sz, pitch = 104, 140, 168
+    for c in range(3):
+        f.img("tri_cam%d" % c, 40 + c * pitch, y, sz, sz, "cam%d" % c,
+              "0.0 contrast at the tip" if c == t["blind_cam"] else "tip visible")
+    for x in (194, 362):
+        f.text(x, y + sz / 2 + 6, "+", size=19, fill=MUTED)
+    f.text(530, y + sz / 2 + 6, "=", size=19, fill=MUTED)
+
+    f.img("tri_overlay", 546, y, sz, sz, "all three, added", "white = all agree")
+    f.img("tri_zoom", 702, y, sz, sz, "6× zoom", "one patch, on the tip")
+
+    f.add('<line x1="856" y1="%d" x2="856" y2="%d" stroke="%s" stroke-width="1" '
+          'stroke-dasharray="3 3"/>' % (y, y + sz, RULE))
+    f.img("tri_blind", 872, y, sz, sz, "cam%d, 5× zoom" % t["blind_cam"],
+          "nothing to see")
+    return f
+
+
+# ------------------------------------------------- and darts hide each other
+def fig_occlusion() -> Fig:
+    o = json.loads((ASSETS / "triangulation.json").read_text())["occ"]
+    # No right-hand badges: the title alone is already wide for this canvas, and
+    # the colour key reads better under the panels than opposite them.
+    f = Fig(620, 356)
+    f.header("A later dart hides behind an earlier one",
+             "the same dart, the same instant, two cameras")
+
+    y, sz = 104, 180
+    f.img("occl_cut", 60, y, sz, sz, "cam%d" % o["cut_cam"],
+          "cut into %d pieces" % o["cut_parts"])
+    f.img("occl_whole", 60 + sz + 40, y, sz, sz, "cam%d" % o["whole_cam"],
+          "one piece")
+    f.text(f.w / 2, 336,
+           "yellow: thrown third   ·   magenta: already in the board   ·   tints from the stored labels",
+           size=9, fill=MUTED, family=SANS)
+    return f
+
+
+# ---------------------------------------------------------- step 2: detector
 def fig_detector() -> Fig:
-    f = Fig(1420, 800)
+    f = Fig(1120, 800)
     f.header("Step 2 of 2 - the detector",
              "multicam_unet_ar · three views stay separate until the funnel, and the "
              "conditioning enters twice",
@@ -342,85 +370,54 @@ def fig_detector() -> Fig:
     f.text(x_inst + 1.5 * (t + gapx) - 3, yt + t + 13,
            "tip maps, σ=5 - enlarged to be visible", size=9, fill=MUTED)
 
-    # One brace over all four groups, because all four go into every stem --
-    # which is the thing the figure previously left ambiguous.
     bx = x_inst + 3 * (t + gapx) + 4
     f.brace(bx, y0 - 4, yt + t + 4)
-    f.text(bx + 34, (y0 + yt + t) / 2 - 14, "into each stem:", size=10,
+    f.text(bx + 30, (y0 + yt + t) / 2 - 14, "into each stem:", size=10,
            anchor="start", weight="600")
-    f.text(bx + 34, (y0 + yt + t) / 2, "3 RGB + 3 masks", size=9.5,
+    f.text(bx + 30, (y0 + yt + t) / 2, "3 RGB + 3 masks", size=9.5,
            anchor="start", fill=MUTED)
-    f.text(bx + 34, (y0 + yt + t) / 2 + 13, "+ 3 tips = 9 ch", size=9.5,
+    f.text(bx + 30, (y0 + yt + t) / 2 + 13, "+ 3 tips = 9 ch", size=9.5,
            anchor="start", fill=MUTED)
 
-    # --- per-camera stems: stage0 then stage1, both frozen -------------
-    xs0, xs1 = 520, 584
+    xs0, xs1 = 512, 576
     for c in range(3):
         y = stream_y[c]
-        f.arrow(bx + 118, y, xs0 - 8, y)
+        f.arrow(bx + 112, y, xs0 - 8, y)
         last = c == 2
         f.slab(xs0, y, 16, 360, STEM, "stage0" if last else None,
                "16 @ 360²" if last else None)
         f.arrow(xs0 + 40, y, xs1 - 8, y)
         f.slab(xs1, y, 24, 180, STEM, "stage1" if last else None,
                "24 @ 180²" if last else None)
-    f.text((xs0 + xs1) / 2 + 16, stream_y[2] + 90, "shared weights, frozen",
+    f.text((xs0 + xs1) / 2 + 16, stream_y[2] + 96, "shared weights, frozen",
            size=10, fill="#8250df")
 
-    # --- funnel: two convs, and it does not narrow --------------------
-    xf0, xf1 = 668, 736
+    xf0, xf1 = 660, 728
     for c in range(3):
         f.arrow(xs1 + 42, stream_y[c], xf0 - 8, stream_y[1] - 16 + c * 16)
     f.slab(xf0, stream_y[1], 72, 180, FUNNEL, "conv 3×3", "72 @ 180²")
     f.arrow(xf0 + 50, stream_y[1], xf1 - 8, stream_y[1])
     fg = f.slab(xf1, stream_y[1], 72, 180, FUNNEL, "conv 1×1", "72 @ 180²")
-    f.text((xf0 + xf1) / 2 + 18, stream_y[1] - 52, "the funnel", size=10.5,
-           weight="600")
-
-    # --- why, in the space to the right -------------------------------
-    tx = 810
-    f.text(tx, 128, "Three views, kept apart on purpose", size=11.5,
-           anchor="start", weight="600", family=SANS)
-    for i, line in enumerate([
-        "Each camera runs through the same frozen, ImageNet-pretrained stem,",
-        "and only then are the three merged. Merging any earlier throws away",
-        "the parallax that lets three views agree on one point; merging later",
-        "costs depth everything downstream needs.",
-        "",
-        "The funnel is where they meet. Each stem ends at 24 channels, so the",
-        "three concatenate to 72 at 180 × 180, and a 3×3 conv then a 1×1 mix",
-        "them across views — keeping all 72, so what reaches the encoder",
-        "carries three views' worth of evidence rather than one.",
-    ]):
-        f.text(tx, 152 + i * 16, line, size=10.5, anchor="start", fill=MUTED,
-               family=SANS)
-
-    f.text(tx, 322, "Each camera's masks stay with its own RGB", size=11.5,
-           anchor="start", weight="600", family=SANS)
-    for i, line in enumerate([
-        "A mask has to line up with the image the stem is looking at, so the",
-        "instance masks are per view. The tip maps are shared — a tip lies on the",
-        "board plane, so it warps to the same canonical point in every camera —",
-        "and all three are copied onto each camera's own six, giving the 9",
-        "channels stage0 actually receives.",
-        "",
-        "Nothing hands these over at runtime. The segmenter emits one blob of",
-        "every dart present, so a dart's own channel is only ever the difference",
-        "between successive masks — which is what the loop, below, is about.",
-    ]):
-        f.text(tx, 346 + i * 16, line, size=10.5, anchor="start", fill=MUTED,
-               family=SANS)
+    f.text((xf0 + xf1) / 2 + 18, stream_y[1] - 52, "the funnel — 72 wide throughout",
+           size=10.5, weight="600")
 
     # ---------------- second row: the U-Net ---------------------------
-    # Centres trace the U; slab heights and widths carry the shapes.
     enc = [("stage2", 40, 90, 580), ("stage3", 112, 45, 606),
            ("stage4", 960, 23, 622), ("bottleneck", 64, 23, 628)]
     dec = [("up4", 128, 45, 606), ("up3", 64, 90, 580),
            ("up2", 48, 180, 552), ("up1", 32, 360, 538)]
-    ex0, step = 178, 106
+    ex0, step = 210, 95
 
-    f.elbow([(fg[4], stream_y[1] + 34), (fg[4], 496),
-             (ex0 + 20, 496), (ex0 + 20, 580 - 30)])
+    # The riser stays on the funnel's centre line -- that column is clear of up2
+    # at 780 -- but starts below the slab's label and shape rather than at its
+    # bottom edge, because both are centred on the same x and a riser from the
+    # edge draws straight through them. The gap it leaves is where the label
+    # sits, so the line still reads as coming out of the cube.
+    #
+    # The horizontal run at 512 clears the tip-row caption above it (487) and
+    # every slab below it -- up3's top face is 554.
+    f.elbow([(fg[4], 306), (fg[4], 512),
+             (ex0 + 20, 512), (ex0 + 20, 580 - 30)])
 
     enc_pts, prev = [], None
     for i, (name, ch, sp, cy) in enumerate(enc):
@@ -443,16 +440,12 @@ def fig_detector() -> Fig:
     for ei, di, lift in ((1, 0, 30), (0, 1, 52)):
         f.curve(enc_pts[ei][4], enc_pts[ei][2] - 4,
                 dec_pts[di][4], dec_pts[di][2] - 4, lift)
-    # Anchored to the apex of the shallower skip rather than floating above
-    # the row, where it read as a heading for everything below it.
-    sk_x = (enc_pts[1][4] + dec_pts[0][4]) / 2
-    sk_y = enc_pts[1][2] - 30
-    f.add('<path d="M %.1f %.1f L %.1f %.1f" stroke="#8250df" stroke-width="1" '
-          'fill="none"/>' % (sk_x, sk_y + 6, sk_x, sk_y + 22))
-    f.text(sk_x, sk_y, "skip connections", size=10, fill="#8250df")
+    # At the curves' apex. Higher and it reads as a label for the funnel
+    # elbow that runs across at 512.
+    f.text((enc_pts[0][4] + dec_pts[1][4]) / 2, 534, "skip connections",
+           size=10, fill="#8250df")
 
-    # --- conditioning enters a second time -----------------------------
-    condx, condy, condw = 40, 686, 176
+    condx, condy, condw = 96, 686, 176
     f.add('<rect x="%d" y="%d" width="%d" height="46" rx="6" fill="#fde68a" '
           'stroke="%s" stroke-width="1.2"/>' % (condx, condy, condw, INK))
     f.text(condx + condw / 2, condy + 19, "the same 12 channels", size=10,
@@ -466,12 +459,6 @@ def fig_detector() -> Fig:
         f.elbow([(condx + condw, condy + 23), (dec_pts[i][4], condy + 23),
                  (dec_pts[i][4], dec_pts[i][3] + 34)],
                 colour="#8250df", dashed=True)
-    f.text(condx + condw / 2, condy + 66, "concatenated onto up2 and up1, so the",
-           size=9.5, fill="#8250df", family=SANS)
-    f.text(condx + condw / 2, condy + 79, "decoder can see which pixels belong",
-           size=9.5, fill="#8250df", family=SANS)
-    f.text(condx + condw / 2, condy + 92, "to darts it has already found",
-           size=9.5, fill="#8250df", family=SANS)
 
     hx = ex0 + 8 * step + 4
     f.img("seq_heat2", hx, 492, 96, 96, "heatmap", "360 × 360")
@@ -486,106 +473,18 @@ def fig_detector() -> Fig:
     return f
 
 
-# ======================================= figure 2b: why three cameras
-def fig_triangulation() -> Fig:
-    doc = json.loads((ASSETS / "triangulation.json").read_text())
-    t, o = doc["tri"], doc["occ"]
-    f = Fig(1180, 742)
-    f.header("Why three cameras",
-             "a dart's tip is the only part of it touching the board, so it is "
-             "the only point all three views agree on",
-             "geometry only", "no model involved")
-
-    y, sz = 112, 150
-    for c in range(3):
-        f.img("tri_cam%d" % c, 44 + c * 170, y, sz, sz, "cam%d" % c,
-              "tip invisible here" if c == t["blind_cam"] else "tip in plain view")
-    for x in (200, 370):
-        f.text(x + 12, y + sz / 2 + 5, "+", size=20, fill=MUTED)
-    f.text(556, y + sz / 2 + 5, "=", size=20, fill=MUTED)
-
-    f.img("tri_overlay", 578, y, sz, sz, "all three, added",
-          "white = all three agree")
-    f.img("tri_zoom", 748, y, sz, sz, "that agreement, 6× zoom",
-          "one patch, on the tip")
-
-    f.text(922, y + 24, "Warped, each view puts", size=10.5, anchor="start",
-           weight="600", family=SANS)
-    for i, line in enumerate([
-        "the dart somewhere else —",
-        "except at the tip, which is",
-        "on the plane the warp was",
-        "solved for.",
-        "",
-        "Blue + green + red make",
-        "white only where all three",
-        "cover the same pixel. Those",
-        "patches are the tips.",
-    ]):
-        f.text(922, y + 44 + i * 15, line, size=10, anchor="start", fill=MUTED,
-               family=SANS)
-
-    # ---- the blind view -----------------------------------------------
-    by = 318
-    f.img("tri_blind", 44, by, 128, 128, "cam%d, 5× zoom" % t["blind_cam"],
-          "nothing to see")
-    f.text(204, by + 12, "No view has to show the steel.",
-           size=11.5, anchor="start", weight="600", family=SANS)
-    for i, line in enumerate([
-        "The tip is never read off an image. Each warped silhouette is a ray that starts at the tip, and because the body stands off the",
-        "board, every camera throws that ray in a different direction. Three rays, one shared origin — so where they cross is the tip,",
-        "whether or not any camera could resolve the point itself. The steel on this dart is invisible in cam%d, and it holds even in" % t["blind_cam"],
-        "frames where none of the three can see it.",
-        "",
-        "It is the flare from step 1 that makes this safe: a mask stopping short of the tip would start its ray late, and drag the crossing",
-        "with it.",
-    ]):
-        f.text(204, by + 34 + i * 16, line, size=10.5, anchor="start", fill=MUTED,
-               family=SANS)
-
-    # ---- occlusion ----------------------------------------------------
-    oy, osz = 500, 150
-    f.add('<line x1="28" y1="474" x2="%d" y2="474" stroke="%s" stroke-width="1"/>'
-          % (f.w - 28, RULE))
-    f.img("occl_cut", 44, oy, osz, osz, "cam%d" % o["cut_cam"],
-          "cut into %d pieces" % o["cut_parts"])
-    f.img("occl_whole", 214, oy, osz, osz, "cam%d" % o["whole_cam"],
-          "one piece")
-
-    f.text(400, oy + 12, "And a later dart gets hidden behind an earlier one.",
-           size=11.5, anchor="start", weight="600", family=SANS)
-    for i, line in enumerate([
-        "Yellow is the third dart thrown, magenta the ones already in the board. In cam%d an earlier dart lies straight across it" % o["cut_cam"],
-        "and the silhouette comes apart; in cam%d nothing is in the way and it stays whole. Same instant, same dart, two answers." % o["whole_cam"],
-        "",
-        "This is why the instance masks are per view rather than shared. A dart's conditioning channel is what the segmenter",
-        "gained minus what earlier darts already claimed, so an occluded dart's channel genuinely has a hole in it — and the",
-        "training labels reproduce that hole rather than repairing it. The view with least occlusion carries the cleaner channel,",
-        "and the funnel gets to weigh all three instead of being handed one blurred average.",
-    ]):
-        f.text(400, oy + 34 + i * 16, line, size=10.5, anchor="start", fill=MUTED,
-               family=SANS)
-    f.text(400, oy + 152, "tints come from the stored labels, only to show which pixels belong to which dart",
-           size=9, anchor="start", fill=MUTED, family=SANS)
-
-    f.text(f.w / 2, 722,
-           "the flare from step 1 is visible above too — each silhouette ends in a rounded cap, and it is the caps that overlap",
-           size=9.5, fill=MUTED, family=SANS)
-    return f
-
-
-# ================================================== figure 3: the AR loop
+# -------------------------------------------------------- the loop, per throw
 def fig_autoregressive() -> Fig:
     doc = json.loads((ASSETS / "passes.json").read_text())
-    passes, nosep = doc["passes"], doc["nosep"]
-    f = Fig(1080, 1218)
-    f.header("The loop - one pass per throw",
+    passes = doc["passes"]
+    f = Fig(1080, 856)
+    f.header("One pass per throw",
              "darts arrive one at a time, so each frame is asked for one dart, "
              "against the ones already counted",
-             "one real turn, three throws", "no per-dart label anywhere in the loop")
+             "one real turn", "no per-dart label anywhere")
 
     t, x0, step = 170, 44, 274
-    ROWA, ROWB, ROWC = 128, 354, 580
+    ROWA, ROWB, ROWC = 116, 342, 568
     heads = ["throw 1", "throw 2", "throw 3", "next cycle"]
     subs = ["1 dart on the board", "2 darts on the board", "3 darts on the board",
             "same frame, nothing new"]
@@ -594,13 +493,11 @@ def fig_autoregressive() -> Fig:
     for i, p in enumerate(passes):
         x = x0 + i * step
         stop = p["stop"]
-        f.text(x + t / 2, 116, heads[i], size=12, weight="700")
+        f.text(x + t / 2, 104, heads[i], size=12, weight="700")
 
-        # the frame the cameras actually delivered for this throw
         f.img("seq_frame%d" % i, x, ROWA, t, t, "what the cameras see", subs[i])
         f.arrow(x + t / 2, ROWA + t + 32, x + t / 2, ROWB - 6)
 
-        # what it was told was already counted
         if i == 0:
             f.add('<rect x="%d" y="%d" width="%d" height="%d" rx="4" '
                   'fill="#eef1f4" stroke="%s" stroke-width="1.2" '
@@ -626,45 +523,31 @@ def fig_autoregressive() -> Fig:
         f.text(x + t / 2, vy + 48,
                "nothing new, turn over" if stop else "accept, and feed it back",
                size=10, fill=colour, family=SANS)
+    return f
 
-    f.add('<line x1="28" y1="880" x2="%d" y2="880" stroke="%s" stroke-width="1"/>'
-          % (f.w - 28, RULE))
-    f.text(x0, 906,
-           "The conditioning is the only thing stopping a dart being counted twice.",
-           size=11, anchor="start", weight="600", family=SANS)
-    for i, line in enumerate([
-        "There is no tracker and no suppression between frames. The fourth column is the same three-dart frame as the third, and the only",
-        "difference is that all three darts are now in the conditioning — which is enough to take the existence logit from +18.40 to -10.95.",
-        "That is how the detector knows a turn is over rather than being told to stop after three.",
-        "",
-        "Every mask in row two came from differencing the segmenter between the frames above it: whatever the mask gained since the last",
-        "dart was counted is the new dart. That is exactly the derivation the model was trained on, and it needs no per-dart labels.",
-    ]):
-        f.text(x0, 926 + i * 15, line, size=10, anchor="start", fill=MUTED,
-               family=SANS)
 
-    # ---- the one case this cannot be run in --------------------------
-    sy, sw = 1046, 118
-    f.text(x0, sy, "Which is why a frozen frame is a different problem.",
-           size=11, anchor="start", weight="600", family=SANS)
-    py = sy + 14
-    f.img("nosep_cond", x0, py, sw, sw, "one claim", "all three darts")
-    f.arrow(x0 + sw + 8, py + sw / 2, x0 + sw + 34, py + sw / 2)
-    f.img("nosep_heat", x0 + sw + 42, py, sw, sw, "heatmap out", "nothing left")
-    f.text(x0 + 2 * sw + 62, py + sw / 2 - 4, "exist %+.2f" % nosep["exist"],
-           size=10.5, anchor="start", weight="700", fill="#cf222e")
-    f.text(x0 + 2 * sw + 62, py + sw / 2 + 11, "stops after one dart",
-           size=9.5, anchor="start", fill="#cf222e", family=SANS)
+# ------------------------------------------- and why replay is a different job
+def fig_frozenframe() -> Fig:
+    nosep = json.loads((ASSETS / "passes.json").read_text())["nosep"]
+    f = Fig(620, 300)
+    f.header("A frozen frame has no \u201csince\u201d",
+             "hand the first dart the whole mask and it claims all three",
+             "replay only", "not the live path")
 
-    tx = x0 + 2 * sw + 190
-    for i, line in enumerate([
-        "Replaying a saved capture has no “since” — every dart is already in the very first mask, so the first",
-        "one claims all three and the model correctly reports nothing left. --replay therefore takes the connected",
-        "blob under each tip instead, which recovers all three darts in 78% of a 40-frame sample against 95% for",
-        "the stored labels; the rest are darts whose silhouettes touch. Replay is a diagnostic, not the path play takes.",
-    ]):
-        f.text(tx, py + 12 + i * 15, line, size=10, anchor="start", fill=MUTED,
-               family=SANS)
+    y, sz = 104, 150
+    f.img("nosep_cond", 40, y, sz, sz, "one claim", "all three darts")
+    f.arrow(40 + sz + 10, y + sz / 2, 40 + sz + 40, y + sz / 2)
+    f.img("nosep_heat", 40 + sz + 50, y, sz, sz, "heatmap out", "nothing left")
+
+    vx = 40 + 2 * sz + 68
+    f.text(vx, y + sz / 2 - 6, "exist %+.2f" % nosep["exist"], size=11,
+           anchor="start", weight="700", fill="#cf222e")
+    f.text(vx, y + sz / 2 + 10, "peak %.3f" % nosep["peak"], size=10,
+           anchor="start", fill=MUTED)
+    f.text(vx, y + sz / 2 + 28, "stops after", size=10,
+           anchor="start", fill="#cf222e", family=SANS)
+    f.text(vx, y + sz / 2 + 41, "one dart", size=10,
+           anchor="start", fill="#cf222e", family=SANS)
     return f
 
 
@@ -711,9 +594,12 @@ def rasterise(svg_path: Path, out_path: Path, width: int, height: int):
 if __name__ == "__main__":
     OUT.mkdir(parents=True, exist_ok=True)
     for name, fig in [("pipeline-segmentation", fig_segmentation()),
+                      ("tip-flare", fig_tipflare()),
                       ("why-three-cameras", fig_triangulation()),
+                      ("occlusion", fig_occlusion()),
                       ("architecture-detector", fig_detector()),
-                      ("autoregressive-loop", fig_autoregressive())]:
+                      ("autoregressive-loop", fig_autoregressive()),
+                      ("frozen-frame", fig_frozenframe())]:
         svg = OUT / f"{name}.svg"
         svg.write_text(fig.render(), encoding="utf-8")
         jpg = OUT / f"{name}.jpg"
