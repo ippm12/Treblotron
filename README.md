@@ -127,6 +127,14 @@ while the app is running, and the on-screen button prompts switch to match
 whichever you used last, so a box by the board can be driven with a gamepad and
 nothing else.
 
+The cameras have to be mounted somewhere. The rig in the photos above is the
+[Autodarts DIY](https://autodarts.diy/3d-printing/Autodarts/) camera mount:
+three 3D-printed arms holding the cameras at 120° around the board, with an LED
+ring for even lighting. Autodarts is a separate scoring project, but the
+mounting problem is the same one and their community has already worked it out.
+Any mount that gets three cameras looking at the board from different angles
+will do.
+
 ---
 
 ## How it works
@@ -564,6 +572,11 @@ not redistributed by default)
 
 **Assets** — [Roboto](https://fonts.google.com/specimen/Roboto) by Google (Apache 2.0) ·
 [Input Prompts](https://kenney.nl/assets/input-prompts) by [Kenney](https://www.kenney.nl) (CC0)
+
+**Hardware** — the camera mount in the photos is the
+[Autodarts DIY](https://autodarts.diy/3d-printing/Autodarts/) 3D-printed
+design. Autodarts is a separate dart-scoring project and Treblotron is not
+affiliated with it; only the mount is shared.
 
 **Models** are trained and exported from a companion repository, which is not
 public yet. They ship under the same MIT licence as the rest of this project.
