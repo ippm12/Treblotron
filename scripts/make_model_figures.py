@@ -211,13 +211,17 @@ class Fig:
             f'</defs>\n<rect width="{self.w}" height="{self.h}" rx="10" fill="{BG}"/>\n'
             + "\n".join(self.p) + "\n</svg>\n")
 
-    def header(self, title, subtitle, right=None, right2=None):
-        self.text(28, 32, title, size=16, anchor="start", weight="700")
-        self.text(28, 52, subtitle, size=11.5, anchor="start", fill=MUTED, family=SANS)
+    def header(self, left, right=None):
+        """One line naming what the figure is, and nothing that explains it.
+
+        A title here would repeat the README heading directly above the image,
+        and a subtitle would repeat the sentence beside it -- which is what
+        these used to do. What is left is the part the prose does not carry:
+        which model, which shapes, where the data came from.
+        """
+        self.text(28, 44, left, size=11.5, anchor="start", weight="600")
         if right:
-            self.text(self.w - 28, 32, right, size=11, anchor="end", fill=MUTED)
-        if right2:
-            self.text(self.w - 28, 50, right2, size=10, anchor="end", fill=MUTED)
+            self.text(self.w - 28, 44, right, size=11, anchor="end", fill=MUTED)
         self.add(f'<line x1="28" y1="66" x2="{self.w-28}" y2="66" '
                  f'stroke="{RULE}" stroke-width="1"/>')
 
@@ -246,9 +250,8 @@ def esc(s):
 # ------------------------------------------------------- step 1: the segmenter
 def fig_segmentation() -> Fig:
     f = Fig(1180, 268)
-    f.header("Step 1 of 2 - the segmenter",
-             "dart_seg_unet finds dart pixels, so the detector never sees the board itself",
-             "MobileNetV3 encoder + U-Net decoder", "3 × 360 × 640  →  3 × 1 × 360 × 640")
+    f.header("dart_seg_unet — MobileNetV3 encoder + U-Net decoder",
+             "3 × 360 × 640  →  3 × 1 × 360 × 640")
 
     y, iw, ih = 104, 208, 117           # 16:9 camera frames
     f.img("raw_cam0", 40, y, iw, ih, "camera frame", "1280 × 720")
@@ -267,9 +270,7 @@ def fig_segmentation() -> Fig:
 # ------------------------------------------------- step 1 detail: the tip flare
 def fig_tipflare() -> Fig:
     f = Fig(700, 268)
-    f.header("The mask is wider than the steel",
-             "one tip at 5× zoom, and a second dart where there is no tip to see",
-             "training labels", "round cap, not a point")
+    f.header("training masks, 5× zoom", "4 crops from 2 frames")
 
     y, sz, gap = 100, 138, 12
     f.img("tipdetail_raw", 40, y, sz, sz, "the tip, 5× zoom", "visible, just")
@@ -289,10 +290,7 @@ def fig_tipflare() -> Fig:
 def fig_triangulation() -> Fig:
     t = json.loads((ASSETS / "triangulation.json").read_text())["tri"]
     f = Fig(1060, 330)
-    f.header("Why three cameras",
-             "the tip is the only part of a dart touching the board, so it is the "
-             "only point all three views agree on",
-             "geometry only", "no model involved")
+    f.header("three warped views, one frame", "geometry only — no model has run")
 
     # Panels are spaced to leave room for the operators between them; at a
     # tighter pitch the + and = land on top of the images and vanish into the
@@ -318,30 +316,23 @@ def fig_triangulation() -> Fig:
 # ------------------------------------------------- and darts hide each other
 def fig_occlusion() -> Fig:
     o = json.loads((ASSETS / "triangulation.json").read_text())["occ"]
-    # No right-hand badges: the title alone is already wide for this canvas, and
-    # the colour key reads better under the panels than opposite them.
-    f = Fig(620, 356)
-    f.header("A later dart hides behind an earlier one",
-             "the same dart, the same instant, two cameras")
+    f = Fig(620, 320)
+    f.header("yellow: thrown third   ·   magenta: already in the board",
+             "tints from the stored labels")
 
     y, sz = 104, 180
     f.img("occl_cut", 60, y, sz, sz, "cam%d" % o["cut_cam"],
           "cut into %d pieces" % o["cut_parts"])
     f.img("occl_whole", 60 + sz + 40, y, sz, sz, "cam%d" % o["whole_cam"],
           "one piece")
-    f.text(f.w / 2, 336,
-           "yellow: thrown third   ·   magenta: already in the board   ·   tints from the stored labels",
-           size=9, fill=MUTED, family=SANS)
     return f
 
 
 # ---------------------------------------------------------- step 2: detector
 def fig_detector() -> Fig:
     f = Fig(1120, 800)
-    f.header("Step 2 of 2 - the detector",
-             "multicam_unet_ar · three views stay separate until the funnel, and the "
-             "conditioning enters twice",
-             "3.9M parameters", "21 × 720 × 720  →  360 × 360 + 1")
+    f.header("multicam_unet_ar — 3.9M parameters",
+             "21 × 720 × 720  →  360 × 360 + 1")
 
     t, gapx = 64, 6
     x_rgb, x_inst = 44, 132
@@ -478,10 +469,8 @@ def fig_autoregressive() -> Fig:
     doc = json.loads((ASSETS / "passes.json").read_text())
     passes = doc["passes"]
     f = Fig(1080, 856)
-    f.header("One pass per throw",
-             "darts arrive one at a time, so each frame is asked for one dart, "
-             "against the ones already counted",
-             "one real turn", "no per-dart label anywhere")
+    f.header("one real turn, three captures",
+             "conditioning by differencing — no labels")
 
     t, x0, step = 170, 44, 274
     ROWA, ROWB, ROWC = 116, 342, 568
@@ -530,9 +519,8 @@ def fig_autoregressive() -> Fig:
 def fig_frozenframe() -> Fig:
     nosep = json.loads((ASSETS / "passes.json").read_text())["nosep"]
     f = Fig(620, 300)
-    f.header("A frozen frame has no \u201csince\u201d",
-             "hand the first dart the whole mask and it claims all three",
-             "replay only", "not the live path")
+    f.header("replay only — not the live path",
+             "the same three-dart frame")
 
     y, sz = 104, 150
     f.img("nosep_cond", 40, y, sz, sz, "one claim", "all three darts")
