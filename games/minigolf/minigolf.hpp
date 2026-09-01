@@ -4,7 +4,8 @@
  * Mini golf game mode. Each dart throw becomes one putt: the angle from
  * bullseye sets the direction, and the distance from bullseye sets the
  * power. Players cycle within a hole; whoever's turn it is sees their
- * ball pulse. Game ends after 9 holes; per-hole scores cap at 6 strokes.
+ * ball pulse. Game ends after 9 holes; per-hole scores cap at STROKE_CAP
+ * (8) strokes.
  *
  * Physics is Box2D v3 via the generic game_lib/box2d helpers. The world
  * is rebuilt per hole: walls, cup sensor, and one ball per player.
@@ -51,6 +52,16 @@ struct PlayerState
     PhysicsUserData   ballUserData;
     float             rotationRadians = 0.0f;  // accumulator for visible spin
 
+    // Where this ball has been since the current stroke was struck, oldest
+    // first, in world-space pixels. Rendered as the fading trail behind it.
+    std::vector<Vec2> trail;
+
+    // Cup interaction, reset every time the ball leaves the cup mouth.
+    // cupBounced allows one strike against the far wall per visit, so a
+    // rejected ball cannot be batted back and forth forever.
+    bool              cupBounced     = false;
+    float             cupRejectTimer = 0.0f;
+
     uint16_t totalStrokes() const
     {
         uint16_t sum = 0;
@@ -90,15 +101,19 @@ class MiniGolfGame : public Game
         void endCurrentTurn();
         void beginNextTurn();
         void advancePlayerWithinHole();
+        void clearAllTrails();
         bool allPlayersFinishedHole() const;
         void advanceToNextHole();
         uint8_t throwsAvailableForPlayer(uint8_t playerIdx) const;
 
-        // ── Sensor / settling ──────────────────────────────────────────
-        void pollSensorEvents();
+        // ── Rolling / cup / settling ───────────────────────────────────
+        void applyRollingFriction(float deltaTime);
+        void updateCupInteraction(float deltaTime);
+        void holeOutPlayer(uint8_t playerIdx);
         void updateBallMotion(float deltaTime);
 
         // ── Render helpers ─────────────────────────────────────────────
+        void renderBallTrails();
         void renderCourse();
         void renderHashCompass();
         void renderBalls();
@@ -118,9 +133,9 @@ class MiniGolfGame : public Game
         PhysicsCamera                 m_camera;
 
         // Static bodies for the current hole (regenerated per hole).
+        // The cup has no body of its own: it is a hole in the floor, tested
+        // geometrically against cupPos/cupRadius by updateCupInteraction().
         std::vector<b2BodyId> m_wallBodies;
-        b2BodyId              m_cupBody = b2_nullBodyId;
-        PhysicsUserData       m_cupUserData;
 
         std::vector<PlayerState> m_players;
 
@@ -139,7 +154,15 @@ class MiniGolfGame : public Game
         // Settle detection: ball is "stopped" once speed has stayed
         // below the threshold for this long.
         float   m_settleTimer       = 0.0f;
-        bool   m_lastShotHoled     = false;
+        bool    m_lastShotHoled     = false;
+
+        // Paces how often ball positions are recorded for the trail.
+        float   m_trailSampleTimer  = 0.0f;
+
+        // Free-running clock for idle animation (the active-ball pulse).
+        // Advanced every update regardless of phase, so the pulse keeps
+        // moving while the game sits waiting for a dart.
+        float   m_animClock         = 0.0f;
 
         // Aim arrow state — populated when a stroke is initiated, fades.
         float   m_aimArrowTimer     = 0.0f;

@@ -108,6 +108,24 @@ float getBodySpeedPx(const PhysicsWorld& world, b2BodyId bodyId)
 }
 
 
+void getBodyVelocityPx(const PhysicsWorld& world, b2BodyId bodyId,
+                       float& outPxX, float& outPxY)
+{
+    const float ppm = world.pixelsPerMeter();
+    b2Vec2 v = b2Body_GetLinearVelocity(bodyId);
+    outPxX = v.x * ppm;
+    outPxY = v.y * ppm;
+}
+
+
+void setBodyVelocityPx(const PhysicsWorld& world, b2BodyId bodyId,
+                       float pxX, float pxY)
+{
+    const float ppm = world.pixelsPerMeter();
+    b2Body_SetLinearVelocity(bodyId, b2Vec2{ pxX / ppm, pxY / ppm });
+}
+
+
 void applyImpulsePxPerSec(const PhysicsWorld& world, b2BodyId bodyId,
                           float impulsePxX, float impulsePxY)
 {

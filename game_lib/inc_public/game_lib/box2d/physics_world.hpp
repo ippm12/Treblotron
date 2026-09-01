@@ -29,6 +29,24 @@ class PhysicsWorld
         /** Override gravity (default zero — top-down). */
         void setGravity(float gx, float gy);
 
+        /**
+         * Minimum closing speed, in pixels/sec measured along the contact
+         * normal, at which restitution is applied. Below it Box2D treats the
+         * impact as fully inelastic — the body slides along the surface
+         * instead of bouncing off it.
+         *
+         * Box2D's default is 1 m/s, which at a pixelsPerMeter of 100 means
+         * anything approaching a surface slower than 100 px/s silently stops
+         * bouncing. That is a lot of gameplay speed for a top-down game, and
+         * it shows up as glancing hits skating along a wall. The threshold is
+         * still worth keeping small-but-nonzero: it is what stops a body that
+         * has come to rest against a surface from buzzing forever.
+         *
+         * Call this *after* setPixelsPerMeter() — it converts to Box2D's
+         * metres using the scale in effect at the time of the call.
+         */
+        void setRestitutionThresholdPx(float pxPerSec);
+
         b2WorldId id() const { return m_worldId; }
 
         /** Pixels-per-meter scale used by body builders and renderers. */

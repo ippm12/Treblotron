@@ -35,3 +35,10 @@ void PhysicsWorld::setGravity(float gx, float gy)
     if(!b2World_IsValid(m_worldId)) return;
     b2World_SetGravity(m_worldId, b2Vec2{ gx, gy });
 }
+
+
+void PhysicsWorld::setRestitutionThresholdPx(float pxPerSec)
+{
+    if(!b2World_IsValid(m_worldId)) return;
+    b2World_SetRestitutionThreshold(m_worldId, pxPerSec / m_pixelsPerMeter);
+}

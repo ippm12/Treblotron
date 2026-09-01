@@ -95,6 +95,18 @@ void getBodyPositionPx(const PhysicsWorld& world, b2BodyId bodyId,
 /** Speed (linear velocity magnitude) in pixels per second. */
 float getBodySpeedPx(const PhysicsWorld& world, b2BodyId bodyId);
 
+/** Read body linear velocity back in pixels per second. */
+void getBodyVelocityPx(const PhysicsWorld& world, b2BodyId bodyId,
+                       float& outPxX, float& outPxY);
+
+/**
+ * Set body linear velocity directly, in pixels per second. Use for a
+ * collision response the solver does not know about (bouncing off a
+ * surface that has no body, say); prefer applyImpulsePxPerSec for forces.
+ */
+void setBodyVelocityPx(const PhysicsWorld& world, b2BodyId bodyId,
+                       float pxX, float pxY);
+
 /** Apply a linear impulse in pixel/sec units to the body's centre. */
 void applyImpulsePxPerSec(const PhysicsWorld& world, b2BodyId bodyId,
                           float impulsePxX, float impulsePxY);

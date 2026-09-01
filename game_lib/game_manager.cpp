@@ -13,6 +13,7 @@
 #include "common_inc.hpp"
 #include "frame/frame.hpp"
 #include "frame/render_queue.hpp"
+#include "game_lib/game_helpers.hpp"
 #include "game_lib/game_manager.hpp"
 #include "game_lib/components/render_shape.hpp"
 #include "game_lib/components/render_text.hpp"
@@ -803,8 +804,9 @@ void GameManager::renderPauseMenu()
 // Status bar rendering
 // ============================================================================
 
-static constexpr float    BAR_Y       = 930.0f;
-static constexpr float    BAR_HEIGHT  = 150.0f;
+// Published in GameLayout so games can keep their own content clear of the bar.
+static constexpr float    BAR_Y       = GameLayout::BAR_Y;
+static constexpr float    BAR_HEIGHT  = GameLayout::BAR_HEIGHT;
 static constexpr float    BAR_WIDTH   = 1920.0f;
 static constexpr uint32_t BAR_Z       = UINT32_MAX - 10;
 static constexpr float    BAR_TEXT_Y  = BAR_Y + 45.0f;

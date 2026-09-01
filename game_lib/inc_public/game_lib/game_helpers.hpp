@@ -31,6 +31,11 @@ namespace GameLayout
 
     constexpr float BLINK_PERIOD = 1.2f;
 
+    // Bottom player bar. Drawn by the game manager over everything else, so
+    // anything a game puts below BAR_Y is invisible no matter its own z.
+    constexpr float BAR_Y      = 930.0f;
+    constexpr float BAR_HEIGHT = 150.0f;
+
     // Right scoreboard panel
     constexpr float RIGHT_PANEL_X  = 1410.0f;
     constexpr float RIGHT_PANEL_W  = 480.0f;
