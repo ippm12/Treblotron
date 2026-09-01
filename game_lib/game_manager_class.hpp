@@ -15,6 +15,7 @@
 #include "frame/frame.hpp"
 #include "game_lib/game.hpp"
 #include "game_lib/input_hints.hpp"
+#include "game_lib/virtual_keyboard.hpp"
 
 class GameManager
 {
@@ -53,6 +54,9 @@ class GameManager
          */
         void tick();
 
+        /** Raise the vision settings overlay over whatever is running. */
+        void openSettings();
+
     private:
         /** Enqueue the status bar elements for the current frame. */
         void enqueueBar(const GameBarInfo& info);
@@ -62,6 +66,36 @@ class GameManager
 
         /** Handle a key press while the pause menu is open. */
         void handlePauseKey(uint32_t keycode);
+
+        /**
+         * Render the connection-settings overlay.
+         *
+         * An overlay rather than a screen of its own so it can be opened from
+         * anywhere — including mid-game — without loadGame() tearing down the
+         * game in progress. The whole point is to fix a dropped connection
+         * without abandoning the leg you are playing.
+         */
+        void renderSettings();
+
+        /** Handle a key press while the settings overlay is open. */
+        void handleSettingsKey(uint32_t keycode);
+
+        /** Feed typed characters into the address field. */
+        void handleSettingsText(const char* text);
+
+        /** Commit m_settingsBuffer as the new address and leave edit mode. */
+        void commitSettingsAddress();
+
+        /** Persist an edited detection settings block and report the outcome. */
+        void commitVisionSettings(const struct DartVisionSettings& settings);
+
+        /**
+         * Draw the link indicator, and a warning when the link is down.
+         * Rendered over every screen, because scoring silently stops working
+         * when the server is unreachable and that needs to be visible from
+         * wherever the player is standing.
+         */
+        void renderLinkIndicator();
 
         bool m_initialized;
         GamePtr m_currentGame;
@@ -74,6 +108,25 @@ class GameManager
         bool        m_paused = false;
         uint8_t     m_pauseCursor = 0;
         std::string m_pauseStatus;  // transient feedback line (e.g. "Saved to ./captures/")
+
+        // Vision settings overlay state.
+        //
+        // Editing the address has two shapes, mirroring the player rename in
+        // main_menu: a physical keyboard types straight into m_settingsBuffer
+        // and the row shows a caret, while a controller gets the on-screen
+        // keyboard. Bringing up the on-screen one for someone already holding a
+        // real keyboard is just an extra layer in the way.
+        //
+        // Every other row is a number or a switch, adjusted with left/right and
+        // saved on the spot. Nothing there is worth a text field: the values are
+        // bounded, and a player nudging a threshold wants to see the effect on
+        // the next throw, not to type a number and confirm it.
+        bool            m_settingsOpen    = false;
+        uint8_t         m_settingsCursor  = 0;
+        bool            m_settingsEditing = false;   // address row is being edited
+        std::string     m_settingsBuffer;            // the address being typed
+        std::string     m_settingsStatus;            // transient feedback ("Saved")
+        VirtualKeyboard m_settingsKeyboard;          // gamepad path only
 
         // Factory to recreate current game for restart (nullopt = no restart)
         std::function<GamePtr()> m_gameFactory;
@@ -88,7 +141,7 @@ class GameManager
         // Input hints for pause instruction in the status bar
         InputHints m_inputHints;
 
-#ifdef DARTLENS_SHOW_FPS
+#ifdef TREBLOTRON_SHOW_FPS
         void enqueueFps(float deltaTime);
         FontID   m_fpsFontId;
         float    m_fpsAccumulator;

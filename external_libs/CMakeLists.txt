@@ -1,40 +1,95 @@
 message("Start including external libraries")
 
-# spdlog
+# TREBLOTRON_TARGETS is set by the top-level CMakeLists and holds whichever of
+# the game / server executables are being built. SDL, flecs and the image/font
+# libraries are app-only — the server draws nothing, so a server-only
+# configuration never even configures them. That is most of what makes the
+# server build cheap.
+
+# spdlog — everything logs
 add_subdirectory(spdlog)
-target_link_libraries(${PRJ_NAME} PRIVATE spdlog::spdlog)
+foreach(_t IN LISTS TREBLOTRON_TARGETS)
+    target_link_libraries(${_t} PRIVATE spdlog::spdlog)
+endforeach()
 
-# SDL
-add_subdirectory(SDL)
+if(TREBLOTRON_BUILD_APP)
+    # Off Windows these all build shared by default, which is why the Windows
+    # tree ships SDL3.dll, SDL3_ttf.dll and SDL3_image.dll. A .deb carrying
+    # private .so files needs an install rule per library plus RPATH so the
+    # binary can find them under /opt -- and the component filtering that keeps
+    # third-party files out of the package would exclude them anyway. Linking
+    # them in instead makes the package a single self-contained binary. All are
+    # zlib/MIT licensed, so static linking carries no obligation.
+    if(NOT WIN32)
+        set(_treblotron_shared_saved ${BUILD_SHARED_LIBS})
+        set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
+        set(SDL_SHARED  OFF CACHE BOOL "" FORCE)
+        set(SDL_STATIC  ON  CACHE BOOL "" FORCE)
+        set(SDLTTF_VENDORED ON CACHE BOOL "" FORCE)
+    endif()
 
-# Flecs
-add_subdirectory(flecs)
-target_link_libraries(${PRJ_NAME} PRIVATE flecs::flecs_static)
+    # SDL
+    add_subdirectory(SDL)
 
-# Box2D (v3, C API). PROJECT_IS_TOP_LEVEL is false here so the BOX2D_SAMPLES
-# / BOX2D_UNIT_TESTS / BOX2D_VALIDATE option blocks are skipped automatically
-# — no manual cache overrides needed.
-add_subdirectory(box2d)
-target_link_libraries(${PRJ_NAME} PRIVATE box2d)
+    # Flecs
+    add_subdirectory(flecs)
+    target_link_libraries(${PRJ_NAME} PRIVATE flecs::flecs_static)
 
-# SDL_ttf (TrueType font rendering)
-set(SDLTTF_VENDORED ON CACHE BOOL "Use vendored freetype/harfbuzz" FORCE)
-add_subdirectory(SDL_ttf)
-target_link_libraries(${PRJ_NAME} PRIVATE SDL3_ttf::SDL3_ttf)
+    # Box2D (v3, C API) — app-only, the physics behind the mini golf course.
+    # PROJECT_IS_TOP_LEVEL is false here so the BOX2D_SAMPLES / BOX2D_UNIT_TESTS
+    # / BOX2D_VALIDATE option blocks are skipped automatically — no manual cache
+    # overrides needed.
+    add_subdirectory(box2d)
+    target_link_libraries(${PRJ_NAME} PRIVATE box2d)
 
-# SDL_image (PNG/JPG image loading)
-add_subdirectory(SDL_image)
-target_link_libraries(${PRJ_NAME} PRIVATE SDL3_image::SDL3_image)
+    # SDL_ttf (TrueType font rendering)
+    set(SDLTTF_VENDORED ON CACHE BOOL "Use vendored freetype/harfbuzz" FORCE)
+    add_subdirectory(SDL_ttf)
+    target_link_libraries(${PRJ_NAME} PRIVATE SDL3_ttf::SDL3_ttf)
 
-# SDL3 linked last — SDL_ttf and SDL_image static libs need its symbols,
-# and GNU ld resolves left-to-right
-target_link_libraries(${PRJ_NAME} PRIVATE SDL3::SDL3)
+    # SDL_image (PNG/JPG image loading)
+    add_subdirectory(SDL_image)
+    target_link_libraries(${PRJ_NAME} PRIVATE SDL3_image::SDL3_image)
 
-# OpenCV (minimal build — only core, imgproc, calib3d, videoio, imgcodecs).
-# Jetson (DARTLENS_USE_TENSORRT) build opts into CUDA-enabled OpenCV and adds
-# a handful of cuda* modules on top of the base set. Pi / Sim builds keep
-# the lean CPU-only configuration they had before.
-if(DARTLENS_USE_TENSORRT)
+    # SDL3 linked last — SDL_ttf and SDL_image static libs need its symbols,
+    # and GNU ld resolves left-to-right.
+    #
+    # SDL3::SDL3 names the shared library; when only the static one is built
+    # that target does not exist, so ask for whichever is present rather than
+    # assuming.
+    if(TARGET SDL3::SDL3)
+        target_link_libraries(${PRJ_NAME} PRIVATE SDL3::SDL3)
+    elseif(TARGET SDL3::SDL3-static)
+        target_link_libraries(${PRJ_NAME} PRIVATE SDL3::SDL3-static)
+    else()
+        message(FATAL_ERROR "Neither SDL3::SDL3 nor SDL3::SDL3-static exists")
+    endif()
+
+    if(NOT WIN32)
+        set(BUILD_SHARED_LIBS ${_treblotron_shared_saved} CACHE BOOL "" FORCE)
+    endif()
+endif()
+
+# ----------------------------------------------------------------------------
+# OpenCV — minimal build, tailored per configuration.
+#
+#   videoio only when something actually opens a camera (i.e. the app)
+#   dnn     whenever an inference backend is compiled in — not just for the
+#           CPU backend. dart_detector.cpp uses cv::dnn::blobFromImage for its
+#           SIMD NCHW packing on every backend, and camera_api.cpp does the
+#           same for the seg-plane fast path.
+#
+# features2d and flann are dependencies of calib3d, not direct users.
+# ----------------------------------------------------------------------------
+set(_treblotron_cv_modules "core,imgproc,features2d,flann,calib3d,imgcodecs")
+if(TREBLOTRON_BUILD_APP)
+    string(APPEND _treblotron_cv_modules ",videoio")
+endif()
+if(NOT TREBLOTRON_INFER_BACKEND STREQUAL "none")
+    string(APPEND _treblotron_cv_modules ",dnn")
+endif()
+
+if(TREBLOTRON_INFER_BACKEND STREQUAL "tensorrt")
     # The cuda* modules (and their cudev prerequisite) live in opencv_contrib,
     # not the main opencv repo — so WITH_CUDA requires OPENCV_EXTRA_MODULES_PATH
     # to point at an opencv_contrib checkout.
@@ -50,7 +105,7 @@ if(DARTLENS_USE_TENSORRT)
     endif()
     set(OPENCV_EXTRA_MODULES_PATH "${_opencv_contrib_modules}" CACHE PATH "" FORCE)
 
-    set(BUILD_LIST "core,imgproc,features2d,flann,calib3d,videoio,imgcodecs,cudev,cudaarithm,cudaimgproc,cudawarping" CACHE STRING "" FORCE)
+    string(APPEND _treblotron_cv_modules ",cudev,cudaarithm,cudaimgproc,cudawarping")
     set(WITH_CUDA ON CACHE BOOL "" FORCE)
     set(WITH_CUDNN ON CACHE BOOL "" FORCE)
     set(WITH_CUBLAS ON CACHE BOOL "" FORCE)
@@ -68,9 +123,12 @@ if(DARTLENS_USE_TENSORRT)
     set(BUILD_TBB ON CACHE BOOL "" FORCE)
     set(WITH_OPENMP ON CACHE BOOL "" FORCE)
 else()
-    set(BUILD_LIST "core,imgproc,features2d,flann,calib3d,videoio,imgcodecs" CACHE STRING "" FORCE)
     set(WITH_CUDA OFF CACHE BOOL "" FORCE)
 endif()
+
+message(STATUS "OpenCV BUILD_LIST: ${_treblotron_cv_modules}")
+set(BUILD_LIST "${_treblotron_cv_modules}" CACHE STRING "" FORCE)
+
 set(BUILD_SHARED_LIBS_SAVED ${BUILD_SHARED_LIBS})
 set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
 set(BUILD_TESTS OFF CACHE BOOL "" FORCE)
@@ -99,9 +157,20 @@ add_subdirectory(opencv)
 set(CMAKE_BUILD_TYPE "${CMAKE_BUILD_TYPE_SAVED}" CACHE STRING "" FORCE)
 set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS_SAVED}")
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS_SAVED}")
-target_link_libraries(${PRJ_NAME} PRIVATE opencv_core opencv_imgproc opencv_calib3d opencv_videoio opencv_imgcodecs)
-# OpenCV's add_subdirectory doesn't propagate include dirs properly — add them explicitly
-target_include_directories(${PRJ_NAME} PRIVATE
+
+set(_treblotron_cv_libs opencv_core opencv_imgproc opencv_calib3d opencv_imgcodecs)
+if(TREBLOTRON_BUILD_APP)
+    list(APPEND _treblotron_cv_libs opencv_videoio)
+endif()
+if(NOT TREBLOTRON_INFER_BACKEND STREQUAL "none")
+    list(APPEND _treblotron_cv_libs opencv_dnn)
+endif()
+
+# OpenCV's add_subdirectory doesn't propagate include dirs properly — add them
+# explicitly. Listing every module's include dir unconditionally is harmless
+# (a path that isn't built simply contributes no symbols) and keeps this from
+# needing a second per-configuration branch.
+set(_treblotron_cv_includes
     ${CMAKE_CURRENT_SOURCE_DIR}/opencv/modules/core/include
     ${CMAKE_CURRENT_SOURCE_DIR}/opencv/modules/imgproc/include
     ${CMAKE_CURRENT_SOURCE_DIR}/opencv/modules/features2d/include
@@ -109,5 +178,11 @@ target_include_directories(${PRJ_NAME} PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/opencv/modules/calib3d/include
     ${CMAKE_CURRENT_SOURCE_DIR}/opencv/modules/videoio/include
     ${CMAKE_CURRENT_SOURCE_DIR}/opencv/modules/imgcodecs/include
-    ${CMAKE_BINARY_DIR}  # generated headers (opencv2/cvconfig.h, opencv2/opencv_modules.hpp)
+    ${CMAKE_CURRENT_SOURCE_DIR}/opencv/modules/dnn/include
+    ${CMAKE_BINARY_DIR}  # generated headers (opencv2/cvconfig.h, opencv_modules.hpp)
 )
+
+foreach(_t IN LISTS TREBLOTRON_TARGETS)
+    target_link_libraries(${_t} PRIVATE ${_treblotron_cv_libs})
+    target_include_directories(${_t} PRIVATE ${_treblotron_cv_includes})
+endforeach()

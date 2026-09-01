@@ -6,6 +6,8 @@
  */
 
 #include "vision/vision.hpp"
+#include "vision/vision_link.hpp"
+#include "vision/vision_settings.hpp"
 #include "vision_source.hpp"
 #include "frame/render_queue.hpp"
 #include "game_lib/components/render_shape.hpp"
@@ -16,14 +18,14 @@
 #include <cstdio>
 #include <cstring>
 
-#ifdef DARTLENS_USE_SIM
+#ifdef TREBLOTRON_USE_SIM
 #include "sim_vision_source.hpp"
 #endif
-#ifdef DARTLENS_USE_HAILO
-#include "hailo_vision_source.hpp"
+#ifdef TREBLOTRON_USE_LOCAL
+#include "local_vision_source.hpp"
 #endif
-#ifdef DARTLENS_USE_TENSORRT
-#include "tensorrt_vision_source.hpp"
+#ifdef TREBLOTRON_USE_NETWORK
+#include "network_vision_source.hpp"
 #endif
 
 #include <memory>
@@ -50,16 +52,53 @@ static DartPositionCallback f_onDartPositionCalculated;
 // Lifecycle
 // ============================================================================
 
+/**
+ * Which vision source this binary was compiled with.
+ *
+ * Named on stdout at startup because the alternative is guessing. Every source
+ * fails in its own way when it is the wrong one for the hardware, and it is easy
+ * to spend a while debugging that before noticing you were running a stale
+ * binary from a previous build directory.
+ */
+static constexpr const char* VISION_SOURCE_NAME =
+#if   defined(TREBLOTRON_USE_SIM)
+    "sim (simulated darts, no cameras)";
+#elif defined(TREBLOTRON_USE_LOCAL)
+    "local (local inference on this machine)";
+#elif defined(TREBLOTRON_USE_NETWORK)
+    "network (cameras here, inference on a remote server)";
+#else
+    "none";
+#endif
+
+
 Status initializeVisionModule()
 {
-#ifdef DARTLENS_USE_SIM
+    LOG_INFO(VISION_LOG_ID, "Vision source compiled in: {}", VISION_SOURCE_NAME);
+
+    // A missing address is not an error here — the app comes up regardless and
+    // the settings overlay is how you fix it. Both loads happen before any
+    // source is constructed, so a source that reads settings during init()
+    // sees the user's values rather than the defaults.
+    //
+    // Only asked for on builds that actually connect to one. Loading it
+    // unconditionally meant a single-PC install logged "No inference server
+    // configured — set one from the settings screen" on every launch, sending
+    // the user to look for a setting that does not exist in their build.
+    if(visionUsesRemoteServer())
+    {
+        loadInferenceServerAddress();
+    }
+    loadVisionSettings();
+
+#ifdef TREBLOTRON_USE_SIM
     f_visionSource = std::make_shared<SimVisionSource>();
 #endif
-#ifdef DARTLENS_USE_HAILO
-    f_visionSource = std::make_shared<HailoVisionSource>();
+#ifdef TREBLOTRON_USE_LOCAL
+    f_visionSource = std::make_shared<LocalVisionSource>();
 #endif
-#ifdef DARTLENS_USE_TENSORRT
-    f_visionSource = std::make_shared<TensorRTVisionSource>();
+#ifdef TREBLOTRON_USE_NETWORK
+    f_visionSource = std::make_shared<NetworkVisionSource>();
 #endif
 
     if(f_visionSource)
@@ -212,6 +251,57 @@ std::string getVisionDetectionStatus()
 }
 
 
+bool visionHasDetector()
+{
+#if defined(TREBLOTRON_USE_LOCAL) || defined(TREBLOTRON_USE_NETWORK)
+    return true;
+#else
+    return false;
+#endif
+}
+
+
+bool visionUsesRemoteServer()
+{
+#ifdef TREBLOTRON_USE_NETWORK
+    return true;
+#else
+    return false;
+#endif
+}
+
+
+Status saveVisionCapture(const std::string& outputDir)
+{
+    // Prefer the remote save: the server has the frames that were scored, and
+    // the warps derived from them. Only fall back locally when there is no
+    // server in the picture at all.
+    if(f_visionSource && f_visionSource->requestCapture()) return STATUS_OK;
+    return saveAllCameraFrames(outputDir);
+}
+
+
+std::string consumeVisionCaptureResult()
+{
+    if(!f_visionSource) return {};
+    return f_visionSource->consumeCaptureResult();
+}
+
+
+VisionLinkState getVisionLinkState()
+{
+    if(!f_visionSource) return VisionLinkState::NotApplicable;
+    return f_visionSource->getLinkState();
+}
+
+
+std::string getVisionLinkDetail()
+{
+    if(!f_visionSource) return {};
+    return f_visionSource->getLinkDetail();
+}
+
+
 // Loading-screen state. Fonts are loaded lazily on first use and kept
 // around until shutdownVisionModule(). Elapsed/spinner-phase state lives
 // here too so the loading loop can stay stateless.
@@ -268,8 +358,15 @@ void presentVisionLoadingFrame(float deltaTime)
     // ---- Title ---------------------------------------------------------
     if(f_loadingTitleFont != INVALID_FONT_ID)
     {
-        const std::string titleText = failed ? std::string("Vision init failed")
-                                             : std::string("Building vision model");
+        // The network source is not building anything — it is waiting on a
+        // server. Saying "building vision model" there sends people looking
+        // for a problem that does not exist.
+#ifdef TREBLOTRON_USE_NETWORK
+        const std::string busyTitle = "Connecting to inference server";
+#else
+        const std::string busyTitle = "Building vision model";
+#endif
+        const std::string titleText = failed ? std::string("Vision init failed") : busyTitle;
         const Color titleColor = failed ? Color{240, 130, 110} : Color{230, 230, 240};
 
         auto title = std::make_shared<RenderText>();
@@ -339,7 +436,11 @@ void presentVisionLoadingFrame(float deltaTime)
     if(f_loadingBodyFont != INVALID_FONT_ID)
     {
         auto sub = std::make_shared<RenderText>();
+#ifdef TREBLOTRON_USE_NETWORK
+        sub->m_text     = "(the game will start anyway — press F1 to change the address)";
+#else
         sub->m_text     = "(first-run only — subsequent launches are instant)";
+#endif
         sub->m_color    = {150, 160, 180};
         sub->m_fontId   = f_loadingBodyFont;
         sub->m_rotation = 0.0f;
@@ -354,7 +455,7 @@ void presentVisionLoadingFrame(float deltaTime)
 
     // ---- Progress bar -------------------------------------------------
     // Single monotonic 0 → 100% bar that advances at C++ phase markers
-    // in tensorrt_vision_source.cpp::buildThreadMain. The TRT progress
+    // in local_vision_source.cpp::buildThreadMain. The backend progress
     // monitor doesn't touch the bar — it only ticks the iteration
     // counter shown below, so the bar can't bounce backwards as TRT
     // cycles through internal phases.

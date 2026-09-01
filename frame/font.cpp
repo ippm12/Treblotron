@@ -11,6 +11,9 @@
 #include "font_internal.hpp"
 #include "frame_internal.hpp"
 
+#include <filesystem>
+#include <string>
+
 
 static TTF_Font* f_fonts[MAX_NUM_FONTS] = {};
 static bool f_ttfInitialized = false;
@@ -93,10 +96,18 @@ FontID loadFont(const char* filePath, float ptSize)
         return INVALID_FONT_ID;
     }
 
-    TTF_Font* font = TTF_OpenFont(filePath, ptSize);
+    // Callers name assets relative to the install root ("assets/fonts/..."),
+    // which is resolved here rather than at each of the dozen call sites. An
+    // absolute path is passed through untouched, so nothing that already knows
+    // exactly where its file is gets rewritten.
+    const std::string resolved = std::filesystem::path(filePath).is_absolute()
+                               ? std::string(filePath)
+                               : appAssetPath(filePath);
+
+    TTF_Font* font = TTF_OpenFont(resolved.c_str(), ptSize);
     if(!font)
     {
-        LOG_ERROR(FRAME_LOG_ID, "Failed to load font '{}': {}", filePath, SDL_GetError());
+        LOG_ERROR(FRAME_LOG_ID, "Failed to load font '{}': {}", resolved, SDL_GetError());
         return INVALID_FONT_ID;
     }
 

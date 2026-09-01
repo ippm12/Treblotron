@@ -7,7 +7,7 @@
  */
 
 #include "vision/vision.hpp"
-#include "vision/wire_calibration.hpp"
+#include "detect/wire_calibration.hpp"
 #include "debug/scoped_timer.hpp"
 
 #include <opencv2/core.hpp>
@@ -15,6 +15,9 @@
 #include <opencv2/imgproc.hpp>
 #include <opencv2/videoio.hpp>
 #include <opencv2/imgcodecs.hpp>
+#ifdef TREBLOTRON_HAVE_LOCAL_INFERENCE
+#include <opencv2/dnn.hpp>
+#endif
 
 #include <atomic>
 #include <chrono>
@@ -74,6 +77,34 @@ struct CameraSlot
     // shared reference to the previous contents (copy-on-write double buffer).
     cv::Mat          latestRaw;           // RGB, 1280x720ish from the sensor
     cv::Mat          latestWarped;        // RGB, 720x720, empty if not calibrated
+#ifdef TREBLOTRON_PASSTHROUGH_CAPTURE
+    // The UVC cameras already deliver MJPEG (see selectBestResolution), so a
+    // client that only forwards frames to an inference server has no reason to
+    // decode them and re-encode them — that costs CPU at both ends and puts a
+    // second generation of JPEG loss into the model's input. In passthrough
+    // mode the capture thread stores the sensor's own compressed bytes and
+    // nothing is decoded unless a preview screen actually asks for pixels.
+    std::vector<uint8_t> latestCompressed;
+
+    // Set once the driver is confirmed to be handing back real JPEG. If the
+    // V4L2 backend ignores CAP_PROP_CONVERT_RGB (which happens with some
+    // driver/backend combinations) this stays false and the slot silently
+    // behaves exactly as it did before.
+    std::atomic<bool> passthroughActive{false};
+#endif
+#ifdef TREBLOTRON_HAVE_LOCAL_INFERENCE
+    // Pre-prepped seg-engine input plane for this camera — 1×(3*360*640) CV_32F.
+    // Produced on the capture thread (resize + blobFromImage) so the inference
+    // thread doesn't have to. Empty until the first frame is ready.
+    cv::Mat          latestSegPlane;
+#endif
+    /**
+     * Bumped on every publish. Lets a consumer tell a genuinely new frame from
+     * the one it already sent — the streaming client is credited faster than
+     * the cameras produce, so without this it would forward duplicates.
+     */
+    std::atomic<uint64_t> frameSeq{0};
+
     std::mutex       frameMutex;
 
     std::thread      captureThread;
@@ -95,12 +126,33 @@ static std::atomic<uint32_t>       f_cameraCount{0};
 static std::thread       f_initThread;
 static std::atomic<bool> f_initRunning{false};
 
-// Reference count — both HailoVisionSource and CalibrationScreen independently
+// Reference count — the vision source and CalibrationScreen independently
 // call initializeCameraSystem(). The first call actually brings the camera
 // threads up; subsequent calls just bump the count. shutdown() only tears the
 // system down when the count hits zero. Without this, a second init() would
 // overwrite f_initThread while the previous one was still joinable → terminate.
 static uint32_t          f_refCount = 0;
+
+
+#ifdef TREBLOTRON_PASSTHROUGH_CAPTURE
+/**
+ * JPEG quality used only when the driver refuses raw MJPEG and we have to
+ * re-encode. 75 is a deliberate step down from the old 85: at that point we are
+ * already paying for a second compression generation, so the bandwidth is worth
+ * more than the last few percent of quality.
+ */
+static constexpr int PASSTHROUGH_FALLBACK_QUALITY = 75;
+
+
+/** A JPEG always starts with the SOI marker FF D8. */
+static bool looksLikeJpeg(const cv::Mat& m)
+{
+    if(m.empty() || m.elemSize() != 1) return false;
+    const size_t bytes = m.total();
+    if(bytes < 4) return false;
+    return m.data[0] == 0xFF && m.data[1] == 0xD8;
+}
+#endif
 
 
 // ============================================================================
@@ -119,6 +171,53 @@ static constexpr int PROBE_COUNT = sizeof(PROBE_RESOLUTIONS) / sizeof(PROBE_RESO
 
 /// Select the highest resolution the camera supports at TARGET_FPS.
 /// Tries each candidate from highest to lowest; uses camera default as fallback.
+/**
+ * Open camera `index` using whichever capture backend suits this platform.
+ *
+ * The backend is named rather than left to OpenCV, because the fourcc request
+ * in selectBestResolution() only reaches the driver on some of them.
+ *
+ *   Linux    V4L2 — the only sensible choice, and the one that honours fourcc.
+ *   Windows  Media Foundation first, DirectShow second.
+ *
+ * In practice a MinGW build gets DirectShow: OpenCV defaults WITH_MSMF to OFF
+ * for MinGW because Media Foundation needs headers the toolchain does not
+ * ship, so cv::CAP_MSMF is not compiled in and the first open simply returns
+ * false. It is still tried first, because the ordering is the one we want the
+ * moment MSMF becomes available — under MSVC, or a future OpenCV — and asking
+ * for a backend that is absent costs nothing.
+ *
+ * Which one actually won is logged, since the two negotiate formats
+ * differently and that is the first thing worth knowing when a camera opens
+ * but hands back nothing usable.
+ *
+ * Returns true when the device opened; the caller still has to prove a frame
+ * can be read from it.
+ */
+static bool openCameraDevice(cv::VideoCapture& cap, int index)
+{
+#ifdef _WIN32
+    struct Backend { int id; const char* name; };
+    static constexpr Backend BACKENDS[] = {
+        { cv::CAP_MSMF,  "Media Foundation" },
+        { cv::CAP_DSHOW, "DirectShow"       },
+    };
+
+    for(const Backend& backend : BACKENDS)
+    {
+        if(cap.open(index, backend.id))
+        {
+            LOG_INFO(VISION_LOG_ID, "Device {} opened via {}", index, backend.name);
+            return true;
+        }
+    }
+    return false;
+#else
+    return cap.open(index, cv::CAP_V4L2);
+#endif
+}
+
+
 static void selectBestResolution(cv::VideoCapture& cap)
 {
     // UVC cameras on the Pi default to YUYV, which can't sustain our target
@@ -153,6 +252,57 @@ static void selectBestResolution(cv::VideoCapture& cap)
 }
 
 
+#ifdef TREBLOTRON_PASSTHROUGH_CAPTURE
+/**
+ * Try to make read() hand back the sensor's compressed MJPEG instead of a
+ * decoded image.
+ *
+ * Must run *after* the resolution has been negotiated: V4L2 re-negotiates the
+ * stream format when width/height change, which quietly undoes the request.
+ * That ordering mistake is why the first version of this never engaged.
+ *
+ * Two routes, because backends disagree about which property owns this:
+ * CAP_PROP_CONVERT_RGB=0 is the documented one, and CAP_PROP_FORMAT=-1 is what
+ * some V4L2 builds actually honour. Each is confirmed by reading a frame and
+ * checking for a JPEG SOI marker rather than trusting the setter's return —
+ * these properties routinely report success and do nothing.
+ *
+ * On failure the capture is restored to decoding and the caller falls back to
+ * decode + re-encode, which is exactly what it did before.
+ */
+static bool tryEnableRawMjpeg(cv::VideoCapture& cap, int deviceIndex)
+{
+    cv::Mat probe;
+
+    cap.set(cv::CAP_PROP_CONVERT_RGB, 0);
+    if(cap.read(probe) && looksLikeJpeg(probe))
+    {
+        LOG_INFO(VISION_LOG_ID,
+                 "Device {}: MJPEG passthrough via CAP_PROP_CONVERT_RGB "
+                 "({} KB/frame, no decode or re-encode)", deviceIndex, probe.total() / 1024);
+        return true;
+    }
+
+    cap.set(cv::CAP_PROP_FORMAT, -1);
+    if(cap.read(probe) && looksLikeJpeg(probe))
+    {
+        LOG_INFO(VISION_LOG_ID,
+                 "Device {}: MJPEG passthrough via CAP_PROP_FORMAT "
+                 "({} KB/frame, no decode or re-encode)", deviceIndex, probe.total() / 1024);
+        return true;
+    }
+
+    cap.set(cv::CAP_PROP_FORMAT, CV_8UC3);
+    cap.set(cv::CAP_PROP_CONVERT_RGB, 1);
+    LOG_WARNING(VISION_LOG_ID,
+                "Device {}: driver will not hand over raw MJPEG — falling back to "
+                "decode + re-encode. Streaming still works, it just costs Pi CPU "
+                "and a second generation of JPEG loss.", deviceIndex);
+    return false;
+}
+#endif
+
+
 // ============================================================================
 // Capture thread
 // ============================================================================
@@ -167,7 +317,15 @@ static void captureLoop(CameraSlot* slot)
 {
     cv::Mat frame;
     cv::Mat rgb;
+#ifndef TREBLOTRON_HAVE_LOCAL_INFERENCE
     cv::Mat warped;
+#endif
+#ifdef TREBLOTRON_HAVE_LOCAL_INFERENCE
+    // Reused scratch for the seg-input pipeline. resizedSeg is 360x640 RGB8;
+    // segPlane is the 1×(3*360*640) CV_32F NCHW blob blobFromImage writes.
+    cv::Mat resizedSeg;
+    cv::Mat segPlane;
+#endif
 
     while(slot->running.load(std::memory_order_relaxed))
     {
@@ -181,11 +339,47 @@ static void captureLoop(CameraSlot* slot)
             }
             if(!ok) continue;
 
+#ifdef TREBLOTRON_PASSTHROUGH_CAPTURE
+            // With CAP_PROP_CONVERT_RGB=0 the V4L2 backend hands back the
+            // sensor's compressed buffer as a single-row CV_8UC1 Mat. Confirm
+            // it really is JPEG (SOI marker) rather than trusting the property
+            // took effect — some backends quietly ignore it and keep returning
+            // decoded BGR, and misreading that as JPEG would ship garbage.
+            if(looksLikeJpeg(frame))
+            {
+                {
+                    std::lock_guard<std::mutex> lock(slot->frameMutex);
+                    slot->latestCompressed.assign(frame.data,
+                                                  frame.data + frame.total() * frame.elemSize());
+                }
+                slot->frameSeq.fetch_add(1, std::memory_order_release);
+                if(!slot->passthroughActive.exchange(true, std::memory_order_acq_rel))
+                {
+                    LOG_INFO(VISION_LOG_ID,
+                             "Camera {} passthrough active — forwarding the sensor's own "
+                             "JPEG, no decode/re-encode", slot->deviceIndex);
+                }
+                continue;   // nothing else on this thread has anything to do
+            }
+
+            // Not JPEG: the driver is decoding for us. tryEnableRawMjpeg
+            // already reported that at open time, so say nothing here — a
+            // per-frame warning on three capture threads would be noise, and
+            // the `static bool warned` that used to guard it was shared across
+            // all three anyway.
+#endif
+
             {
                 VISION_PROFILE_SCOPE(slot->timings, "cvtColor");
                 cv::cvtColor(frame, rgb, cv::COLOR_BGR2RGB);
             }
 
+#ifndef TREBLOTRON_HAVE_LOCAL_INFERENCE
+            // Capture-thread warp — only used by the calibration debug overlay
+            // and the network client's preview. A local inference build does its
+            // own warp on the masked frame after segmentation, so paying the
+            // ~5-15 ms of warpPerspective on this thread would be pure waste
+            // there.
             bool haveWarp = false;
             // Snapshot the logical index once per frame — swapCameraSlots() may
             // rewrite it between the calibrated check and the warp call, and we
@@ -197,17 +391,47 @@ static void captureLoop(CameraSlot* slot)
                 haveWarp = warpCameraFrame(logical, rgb, warped)
                            && !warped.empty();
             }
+#endif
+
+#ifdef TREBLOTRON_HAVE_LOCAL_INFERENCE
+            // Pre-prep this camera's seg-engine input plane while the other
+            // capture threads do the same for theirs. Cheap-by-comparison
+            // resize, then blobFromImage produces tightly-packed NCHW float32
+            // (1, 3, 360, 640) with SIMD-vectorized internals — vastly faster
+            // than the per-pixel scalar loop the inference thread used to run
+            // for all 3 cameras serially.
+            {
+                VISION_PROFILE_SCOPE(slot->timings, "segPlane");
+                cv::resize(rgb, resizedSeg, cv::Size(640, 360), 0, 0, cv::INTER_LINEAR);
+                cv::dnn::blobFromImage(resizedSeg, segPlane,
+                                       /*scalefactor*/ 1.0 / 255.0,
+                                       /*size*/        cv::Size(),
+                                       /*mean*/        cv::Scalar(),
+                                       /*swapRB*/      false,
+                                       /*crop*/        false,
+                                       CV_32F);
+            }
+#endif
 
             // Publish via clone so any reader holding a shallow copy of the
             // previous frame keeps their buffer intact (copy-on-write double buffer).
             {
                 std::lock_guard<std::mutex> lock(slot->frameMutex);
                 slot->latestRaw = rgb.clone();
+#ifndef TREBLOTRON_HAVE_LOCAL_INFERENCE
                 if(haveWarp)
                 {
                     slot->latestWarped = warped.clone();
                 }
+#endif
+#ifdef TREBLOTRON_HAVE_LOCAL_INFERENCE
+                // segPlane is exclusive-owned by this thread; clone before
+                // publishing so the next iteration's blobFromImage doesn't
+                // race a reader that's still mid-memcpy.
+                slot->latestSegPlane = segPlane.clone();
+#endif
             }
+            slot->frameSeq.fetch_add(1, std::memory_order_release);
         }
 
         slot->timings.nextFrame();
@@ -231,13 +455,20 @@ static void captureLoop(CameraSlot* slot)
 
 
 // ============================================================================
-// NEON detection — warn loudly on every run if OpenCV wasn't built with NEON,
-// since warpPerspective scales ~20x between the scalar and NEON paths on the
-// Pi 5 and is the dominant cost in each capture thread.
+// SIMD sanity check for the capture threads.
+//
+// warpPerspective scales roughly 20x between the scalar and NEON paths on a
+// Pi 5 and is the dominant cost in each capture thread, so an OpenCV built
+// without NEON is worth shouting about — on ARM.
+//
+// On x86 the same warning is nonsense: NEON is an ARM instruction set, so it
+// is always absent, and telling a Windows user to "rebuild OpenCV with NEON
+// enabled for a major speedup" sends them after a speedup that does not exist.
 // ============================================================================
 
-static void logOpenCVNeonStatus()
+static void logOpenCVSimdStatus()
 {
+#if defined(__ARM_NEON) || defined(__aarch64__) || defined(_M_ARM64)
     if(cv::checkHardwareSupport(CV_CPU_NEON))
     {
         LOG_INFO(VISION_LOG_ID, "OpenCV runtime NEON support: YES");
@@ -250,9 +481,12 @@ static void logOpenCVNeonStatus()
     }
 
     // Runtime CPU feature detection can report NEON even when the OpenCV build
-    // itself wasn't compiled with NEON intrinsics in the hot paths (warpPerspective
-    // in particular). Dump the build info once so we can see the compile-time
-    // CPU_BASELINE / CPU_DISPATCH values and confirm warp is actually vectorized.
+    // itself wasn't compiled with NEON intrinsics in the hot paths
+    // (warpPerspective in particular), so the compile-time CPU_BASELINE /
+    // CPU_DISPATCH values are what actually answer the question. A hundred
+    // lines of build information is a fair price on the one platform where the
+    // answer decides whether the capture threads keep up; it is pure noise
+    // everywhere else, so it is not logged there.
     const cv::String info = cv::getBuildInformation();
     std::stringstream ss(info);
     std::string line;
@@ -260,6 +494,9 @@ static void logOpenCVNeonStatus()
     {
         LOG_INFO(VISION_LOG_ID, "cv::getBuildInformation | {}", line);
     }
+#else
+    LOG_INFO(VISION_LOG_ID, "OpenCV SIMD baseline: {}", cv::getCPUFeaturesLine());
+#endif
 }
 
 
@@ -274,7 +511,7 @@ Status initializeCameraSystem()
         return STATUS_OK;
     }
 
-    logOpenCVNeonStatus();
+    logOpenCVSimdStatus();
 
     initializeWireCalibration();
     // Load any saved wire calibration synchronously before the user can interact
@@ -294,17 +531,21 @@ Status initializeCameraSystem()
                 break;  // Shutdown requested before probing finished
             }
 
-            // Force the V4L2 backend. OpenCV's default auto-selection prefers
-            // GStreamer, which builds a v4l2src pipeline that silently ignores
-            // CAP_PROP_FOURCC — our MJPG request never reaches the driver and
-            // the pipeline fails to negotiate a format. V4L2 honors fourcc.
+            // Never OpenCV's auto-selection. On Linux it prefers GStreamer,
+            // which builds a v4l2src pipeline that silently ignores
+            // CAP_PROP_FOURCC — the MJPG request never reaches the driver and
+            // format negotiation fails. Naming a backend is what makes
+            // selectBestResolution's fourcc request mean anything.
             cv::VideoCapture cap;
-            if(!cap.open(idx, cv::CAP_V4L2))
+            if(!openCameraDevice(cap, idx))
             {
                 continue;
             }
 
             selectBestResolution(cap);
+#ifdef TREBLOTRON_PASSTHROUGH_CAPTURE
+            tryEnableRawMjpeg(cap, idx);
+#endif
 
             // Verify we can actually grab a frame
             cv::Mat testFrame;
@@ -323,14 +564,39 @@ Status initializeCameraSystem()
             slot->logicalIndex.store(count, std::memory_order_relaxed);
             slot->name = "Camera " + std::to_string(cameraNum);
 
-            // Pre-convert first frame so there's something to show immediately
-            cv::cvtColor(testFrame, slot->latestRaw, cv::COLOR_BGR2RGB);
+            // Pre-convert first frame so there's something to show immediately.
+            // In passthrough mode read() hands back the sensor's compressed
+            // buffer as a single-row CV_8UC1, which cvtColor would reject
+            // outright — decode it instead, and record the real frame size so
+            // the log below reports 1280x720 rather than a JPEG byte count.
+            int probeW = testFrame.cols;
+            int probeH = testFrame.rows;
+#ifdef TREBLOTRON_PASSTHROUGH_CAPTURE
+            if(looksLikeJpeg(testFrame))
+            {
+                const cv::Mat decoded = cv::imdecode(testFrame, cv::IMREAD_COLOR_RGB);
+                if(decoded.empty())
+                {
+                    LOG_WARNING(VISION_LOG_ID,
+                                "Device {} returned undecodable MJPEG — skipping", idx);
+                    slot->capture.release();
+                    continue;
+                }
+                slot->latestRaw = decoded;
+                probeW = decoded.cols;
+                probeH = decoded.rows;
+            }
+            else
+#endif
+            {
+                cv::cvtColor(testFrame, slot->latestRaw, cv::COLOR_BGR2RGB);
+            }
 
             slot->running.store(true, std::memory_order_relaxed);
             slot->captureThread = std::thread(captureLoop, slot.get());
 
             LOG_INFO(VISION_LOG_ID, "Opened {} at device index {} ({}x{})",
-                     slot->name, idx, testFrame.cols, testFrame.rows);
+                     slot->name, idx, probeW, probeH);
 
             // Store slot then publish the new count — acquire/release ordering
             // ensures the render thread sees the fully constructed slot
@@ -437,6 +703,38 @@ bool swapCameraSlots(uint32_t a, uint32_t b)
 // Internal: snapshot a Mat out of the slot (shallow copy under lock) and
 // memcpy it into an outFrame so the caller gets a standalone byte buffer.
 // Shared across the raw and warped accessors.
+#ifdef TREBLOTRON_PASSTHROUGH_CAPTURE
+/**
+ * Latest frame as decoded RGB, whichever mode the slot is in.
+ *
+ * In passthrough mode the decode happens here, on the caller's thread, rather
+ * than on the capture thread — so it costs nothing during normal play and only
+ * shows up when a screen (calibration, vision_debug) actually wants pixels.
+ */
+static bool decodeLatestRgb(CameraSlot& slot, cv::Mat& out)
+{
+    if(slot.passthroughActive.load(std::memory_order_acquire))
+    {
+        std::vector<uint8_t> jpeg;
+        {
+            std::lock_guard<std::mutex> lock(slot.frameMutex);
+            jpeg = slot.latestCompressed;
+        }
+        if(jpeg.empty()) return false;
+
+        const cv::Mat bgr = cv::imdecode(jpeg, cv::IMREAD_COLOR);
+        if(bgr.empty()) return false;
+        cv::cvtColor(bgr, out, cv::COLOR_BGR2RGB);
+        return true;
+    }
+
+    std::lock_guard<std::mutex> lock(slot.frameMutex);
+    out = slot.latestRaw;   // shallow copy; copy-on-write keeps it valid
+    return !out.empty();
+}
+#endif
+
+
 static bool copyFrameOut(const cv::Mat& src, CameraFrame& outFrame)
 {
     if(src.empty()) return false;
@@ -452,6 +750,45 @@ static bool copyFrameOut(const cv::Mat& src, CameraFrame& outFrame)
 }
 
 
+#ifdef TREBLOTRON_PASSTHROUGH_CAPTURE
+bool getCameraCompressedFrame(uint32_t index, std::vector<uint8_t>& out)
+{
+    if(index >= f_cameraCount.load(std::memory_order_acquire)) return false;
+
+    CameraSlot& slot = *f_cameras[index];
+
+    if(slot.passthroughActive.load(std::memory_order_acquire))
+    {
+        std::lock_guard<std::mutex> lock(slot.frameMutex);
+        if(slot.latestCompressed.empty()) return false;
+        out = slot.latestCompressed;   // already JPEG — nothing to do
+        return true;
+    }
+
+    // Fallback for a driver that wouldn't hand over raw MJPEG: encode from the
+    // decoded frame, which is exactly what the client used to do unconditionally.
+    cv::Mat rgb;
+    {
+        std::lock_guard<std::mutex> lock(slot.frameMutex);
+        rgb = slot.latestRaw;
+    }
+    if(rgb.empty()) return false;
+
+    cv::Mat bgr;
+    cv::cvtColor(rgb, bgr, cv::COLOR_RGB2BGR);
+    return cv::imencode(".jpg", bgr, out,
+                        {cv::IMWRITE_JPEG_QUALITY, PASSTHROUGH_FALLBACK_QUALITY});
+}
+#endif
+
+
+uint64_t getCameraFrameSequence(uint32_t index)
+{
+    if(index >= f_cameraCount.load(std::memory_order_acquire)) return 0;
+    return f_cameras[index]->frameSeq.load(std::memory_order_acquire);
+}
+
+
 bool getCameraFrame(uint32_t index, CameraFrame& outFrame)
 {
     if(index >= f_cameraCount.load(std::memory_order_acquire))
@@ -462,10 +799,14 @@ bool getCameraFrame(uint32_t index, CameraFrame& outFrame)
     CameraSlot& slot = *f_cameras[index];
 
     cv::Mat snapshot;
+#ifdef TREBLOTRON_PASSTHROUGH_CAPTURE
+    if(!decodeLatestRgb(slot, snapshot)) return false;
+#else
     {
         std::lock_guard<std::mutex> lock(slot.frameMutex);
         snapshot = slot.latestRaw;  // shallow copy
     }
+#endif
     return copyFrameOut(snapshot, outFrame);
 }
 
@@ -480,12 +821,74 @@ bool getCameraWarpedFrame(uint32_t index, CameraFrame& outFrame)
     CameraSlot& slot = *f_cameras[index];
 
     cv::Mat snapshot;
+#ifdef TREBLOTRON_PASSTHROUGH_CAPTURE
+    if(slot.passthroughActive.load(std::memory_order_acquire))
+    {
+        // The capture thread never decoded, so there is no cached warp. Only
+        // the calibration and vision_debug screens ask for this, so paying for
+        // it on their thread is the right trade.
+        cv::Mat rgb;
+        if(!decodeLatestRgb(slot, rgb)) return false;
+        cv::Mat warped;
+        if(!warpCameraFrame(slot.logicalIndex.load(std::memory_order_acquire), rgb, warped)
+        || warped.empty())
+        {
+            return false;
+        }
+        return copyFrameOut(warped, outFrame);
+    }
+#endif
     {
         std::lock_guard<std::mutex> lock(slot.frameMutex);
         snapshot = slot.latestWarped;
     }
     return copyFrameOut(snapshot, outFrame);
 }
+
+
+#ifdef TREBLOTRON_HAVE_LOCAL_INFERENCE
+bool getCameraSegPlane(uint32_t index, float* out, size_t floatCount)
+{
+    if(!out) return false;
+    if(index >= f_cameraCount.load(std::memory_order_acquire)) return false;
+
+    CameraSlot& slot = *f_cameras[index];
+
+    // Shallow-copy out under the lock; the actual byte memcpy is done outside
+    // so we don't hold the capture thread off for the full 2.7 MB transfer.
+    cv::Mat snapshot;
+    {
+        std::lock_guard<std::mutex> lock(slot.frameMutex);
+        snapshot = slot.latestSegPlane;
+    }
+    if(snapshot.empty() || !snapshot.isContinuous()) return false;
+    const size_t n = static_cast<size_t>(snapshot.total());
+    if(n > floatCount) return false;
+
+    std::memcpy(out, snapshot.ptr<float>(), n * sizeof(float));
+    return true;
+}
+
+
+void publishCameraWarpedFrame(uint32_t index,
+                              const uint8_t* pixels,
+                              int width, int height, int stride)
+{
+    if(!pixels || width <= 0 || height <= 0 || stride <= 0) return;
+    if(index >= f_cameraCount.load(std::memory_order_acquire)) return;
+
+    CameraSlot& slot = *f_cameras[index];
+
+    // Build a Mat that owns its pixel buffer (clone of an external view) so
+    // readers don't race a caller that reuses its source memory next frame.
+    cv::Mat view(height, width, CV_8UC3,
+                 const_cast<uint8_t*>(pixels), static_cast<size_t>(stride));
+    cv::Mat owned = view.clone();
+
+    std::lock_guard<std::mutex> lock(slot.frameMutex);
+    slot.latestWarped = std::move(owned);
+}
+#endif
 
 
 Status saveAllCameraFrames(const std::string& outputDir)
@@ -506,6 +909,18 @@ Status saveAllCameraFrames(const std::string& outputDir)
     for(uint32_t i = 0; i < count; i++)
     {
         cv::Mat frameCopy;
+#ifdef TREBLOTRON_PASSTHROUGH_CAPTURE
+        // No lock here: decodeLatestRgb takes frameMutex itself, and holding it
+        // across that call self-deadlocks on a non-recursive std::mutex — which
+        // froze the whole app the moment anyone hit Save Capture.
+        cv::Mat decoded;
+        if(!decodeLatestRgb(*f_cameras[i], decoded))
+        {
+            LOG_WARNING(VISION_LOG_ID, "saveAllCameraFrames: no frame for camera {}", i);
+            continue;
+        }
+        cv::cvtColor(decoded, frameCopy, cv::COLOR_RGB2BGR);
+#else
         {
             std::lock_guard<std::mutex> lock(f_cameras[i]->frameMutex);
             if(f_cameras[i]->latestRaw.empty())
@@ -515,6 +930,7 @@ Status saveAllCameraFrames(const std::string& outputDir)
             }
             cv::cvtColor(f_cameras[i]->latestRaw, frameCopy, cv::COLOR_RGB2BGR);
         }
+#endif
 
         std::string path = outputDir + "/" + uuid + "_cam" + std::to_string(i) + ".png";
 

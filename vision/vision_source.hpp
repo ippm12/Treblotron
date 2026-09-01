@@ -12,6 +12,7 @@
 #define VISION_SOURCE_HPP
 
 #include "common_inc.hpp"
+#include "vision/vision_link.hpp"
 #include <cstdint>
 #include <functional>
 #include <memory>
@@ -114,6 +115,33 @@ class VisionSource
          * machine return an empty string and the UI hides the line.
          */
         virtual std::string getDetectionStatus() const { return {}; }
+
+        /**
+         * Health of the link to a remote inference server. Only the network
+         * source has one; everything else is doing its own inference, so the
+         * default says so and the UI hides the indicator.
+         */
+        virtual VisionLinkState getLinkState() const { return VisionLinkState::NotApplicable; }
+
+        /** One line of detail to sit beside the indicator. */
+        virtual std::string getLinkDetail() const { return {}; }
+
+        /**
+         * Ask for a capture of the frames currently being scored.
+         *
+         * Returns false when this source has nothing remote to ask, in which
+         * case the caller saves locally instead. The remote path exists because
+         * the server holds the exact frames the model saw — the client has
+         * already moved on to a later set by the time a button press lands.
+         */
+        virtual bool requestCapture() { return false; }
+
+        /**
+         * Result of the last remote capture, once, or empty if none has
+         * arrived. Polled by the UI because the answer comes back over a socket
+         * rather than from the call that asked for it.
+         */
+        virtual std::string consumeCaptureResult() { return {}; }
 
         /** Set callbacks for dart events. Pass nullptr to disconnect. */
         void setCallbacks(std::function<void()> onDartLanded,

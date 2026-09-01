@@ -6,6 +6,7 @@
 
 #include <mutex>
 #include <SDL3/SDL.h>
+#include <SDL3_image/SDL_image.h>
 #include "common_inc.hpp"
 #include "frame/frame.hpp"
 #include "frame/image.hpp"
@@ -145,6 +146,36 @@ void shutdownFrameModule()
 }
 
 
+/**
+ * Give the window the application icon.
+ *
+ * The icon embedded in the .exe covers Explorer and the taskbar on Windows,
+ * and the .desktop entry covers the launcher on Linux, but neither reaches the
+ * running window -- SDL starts every window on the platform default until it is
+ * told otherwise. Failure is not fatal: a missing icon is cosmetic, and a build
+ * tree without staged assets should still run.
+ */
+static void applyWindowIcon(SDL_Window* window)
+{
+    const std::string path = appAssetPath("assets/branding/icon-256.png");
+
+    SDL_Surface* icon = IMG_Load(path.c_str());
+    if(nullptr == icon)
+    {
+        LOG_WARNING(FRAME_LOG_ID, "No window icon at '{}': {}", path, SDL_GetError());
+        return;
+    }
+
+    if(!SDL_SetWindowIcon(window, icon))
+    {
+        LOG_WARNING(FRAME_LOG_ID, "Failed to set window icon: {}", SDL_GetError());
+    }
+
+    // SDL copies the pixels, so the surface is ours to free either way.
+    SDL_DestroySurface(icon);
+}
+
+
 Status createNewFrame(const std::string& name, size_t width, size_t height, FrameID& frameIdOutput)
 {
     if(!f_frameModuleInitialized)
@@ -175,6 +206,8 @@ Status createNewFrame(const std::string& name, size_t width, size_t height, Fram
         LOG_ERROR(FRAME_LOG_ID, "SDL window or renderer returned NULL");
         return STATUS_ERROR_NULL;
     }
+
+    applyWindowIcon(win);
 
     int actualWidth, actualHeight;
     if(!SDL_GetWindowSizeInPixels(win, &actualWidth, &actualHeight))

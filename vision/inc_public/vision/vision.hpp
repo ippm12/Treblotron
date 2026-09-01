@@ -11,6 +11,7 @@
 #define VISION_HPP
 
 #include "common_inc.hpp"
+#include "detect/wire_calibration.hpp"  // EXPECTED_CAMERA_COUNT
 #include <cstdint>
 #include <functional>
 #include <string>
@@ -23,7 +24,7 @@
 
 /**
  * Initialize the vision module. Creates the appropriate vision source
- * based on build configuration (sim when DARTLENS_USE_SIM is defined).
+ * based on build configuration (sim when TREBLOTRON_USE_SIM is defined).
  * Must be called after initializeFrameModule() and initializeGameManager().
  */
 Status initializeVisionModule();
@@ -81,7 +82,7 @@ bool getLatestVisionHeatmap(std::vector<float>& out,
  * render a loading screen via presentVisionLoadingFrame() while this
  * returns true.
  *
- * For sources that come up synchronously (sim, hailo) this always
+ * For sources that come up synchronously (sim) this always
  * returns false after initializeVisionModule() returns.
  */
 bool isVisionInitializing();
@@ -122,6 +123,24 @@ std::string getVisionInitStatus();
 std::string getVisionDetectionStatus();
 
 /**
+ * Whether this build actually detects darts from camera frames.
+ *
+ * False only for the simulated source, which invents darts and has no
+ * thresholds to tune. The settings screen asks so it can leave out controls
+ * that would do nothing — a build-time fact, exposed as a function so the
+ * ifdefs stay inside the vision module.
+ */
+bool visionHasDetector();
+
+/**
+ * Whether inference happens on a remote server rather than on this machine.
+ *
+ * True only for the network source. What makes the server address worth showing
+ * — and what makes a settings change something that has to travel over a wire.
+ */
+bool visionUsesRemoteServer();
+
+/**
  * Render one frame of the "building model" loading screen to the main
  * window (the frame created by the game manager). Intended to be called
  * from a mini-loop between initializeVisionModule() and the normal game
@@ -157,9 +176,6 @@ void setVisionCallbacks(DartLandedCallback onDartLanded,
 // Camera API (for calibration / data collection)
 // ============================================================================
 
-/** The system expects exactly 3 cameras. */
-static constexpr uint32_t EXPECTED_CAMERA_COUNT = 3;
-
 /** Frame data copied out of the camera system. Caller owns the pixel data. */
 struct CameraFrame
 {
@@ -189,12 +205,60 @@ std::string getCameraName(uint32_t index);
 bool getCameraFrame(uint32_t index, CameraFrame& outFrame);
 
 /**
+ * Monotonic counter of frames published for this camera, 0 if unknown.
+ * A consumer that is polled faster than the cameras run uses this to tell a
+ * genuinely new frame from one it has already handled.
+ */
+uint64_t getCameraFrameSequence(uint32_t index);
+
+/**
  * Copies the latest warped (720x720 template-space) RGB frame for the given
  * camera into outFrame. Returns false if the camera is not calibrated, has no
  * frame yet, or the index is out of range. The warp is performed on the
  * camera capture thread so readers never pay warp cost on the hot path.
  */
 bool getCameraWarpedFrame(uint32_t index, CameraFrame& outFrame);
+
+#ifdef TREBLOTRON_PASSTHROUGH_CAPTURE
+/**
+ * Copies the latest frame for a camera as JPEG bytes, ready to put on a wire.
+ *
+ * The UVC cameras already deliver MJPEG, so in the normal case this hands back
+ * the sensor's own compressed buffer with no decode, no re-encode, and no
+ * second generation of compression loss. If the driver refused to give up raw
+ * MJPEG, it falls back to encoding from the decoded frame — same result, more
+ * CPU. Only available in builds that stream frames to a remote server.
+ */
+bool getCameraCompressedFrame(uint32_t index, std::vector<uint8_t>& out);
+#endif
+
+#ifdef TREBLOTRON_HAVE_LOCAL_INFERENCE
+/**
+ * Copies the latest dart-segmentation input plane for the given camera into the
+ * caller-provided buffer (NCHW float32, shape (3, 360, 640) — i.e. 3*360*640
+ * floats). Produced on the capture thread by resizing the raw RGB to 640x360
+ * and dividing by 255, in parallel with the other cameras' threads, so the
+ * inference thread can just memcpy the planes into the seg engine's pinned
+ * input buffer with no per-pixel work. Returns false if the camera has no
+ * frame yet, the index is out of range, or `floatCount` is too small.
+ *
+ * Only available in local-inference builds — the remote and sim paths
+ * have no use for it.
+ */
+bool getCameraSegPlane(uint32_t index, float* out, size_t floatCount);
+
+/**
+ * Publish a warped frame produced *outside* the camera capture thread (the TRT
+ * pipeline warps the seg-masked frame on the inference thread, then hands it
+ * back here so vision_debug can keep showing a per-camera preview without
+ * paying for a second warp). The pixel buffer is copied into the slot under
+ * the slot lock; subsequent getCameraWarpedFrame() calls return it. Pixel
+ * format is RGB24 packed (3 bytes/pixel, row-major, `stride` bytes per row).
+ */
+void publishCameraWarpedFrame(uint32_t index,
+                              const uint8_t* pixels,
+                              int width, int height, int stride);
+#endif
 
 /**
  * Swap which physical camera occupies the two given logical slots. Used on
@@ -204,6 +268,23 @@ bool getCameraWarpedFrame(uint32_t index, CameraFrame& outFrame);
  * calibrations. Returns false on out-of-range index or no-op (a == b).
  */
 bool swapCameraSlots(uint32_t a, uint32_t b);
+
+/**
+ * Save a capture of the frames currently being scored.
+ *
+ * On a remote-inference build this asks the server, which holds the exact
+ * frames the model saw and can write their canonical warps alongside for free.
+ * Everywhere else it writes the local camera frames. Returns STATUS_OK when the
+ * request was made; for the remote path the outcome arrives later via
+ * consumeVisionCaptureResult().
+ */
+Status saveVisionCapture(const std::string& outputDir = appDataPath("captures"));
+
+/**
+ * Result text of the last remote capture, once, or empty. The UI polls this so
+ * it can replace "requested" with the path the server actually wrote.
+ */
+std::string consumeVisionCaptureResult();
 
 /**
  * Save the current frame from every connected camera to the output directory.

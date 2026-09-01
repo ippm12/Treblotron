@@ -28,11 +28,14 @@ typedef ssize_t LogID;
 #define LOG_SINK_CONSOLE_INDEX      1
 
 // Log IDs should all be specified here
-#define MAX_ASYNC_LOGS  4
+#define MAX_ASYNC_LOGS  7
 #define MAIN_LOG_ID     0 // The default log
 #define FRAME_LOG_ID    1 // The log for frame events
 #define GAME_MANAGER_LOG_ID  2 // The log for game manager events
 #define VISION_LOG_ID   3 // The log for vision module events
+#define DETECT_LOG_ID   4 // The log for the shared dart-detection module
+#define NET_LOG_ID      5 // The log for socket / wire-protocol events
+#define SERVER_LOG_ID   6 // The log for the inference server
 
 // LogLevel definitions
 typedef ssize_t LogLevel;

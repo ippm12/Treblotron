@@ -19,6 +19,7 @@
 #include "games/main_menu.hpp"
 #include "game_manager_class.hpp"
 #include "vision/vision.hpp"
+#include "vision/vision_link.hpp"
 #include "players/players.hpp"
 
 
@@ -107,7 +108,7 @@ GameManager::GameManager()
     : m_initialized(false), m_currentGame(nullptr),
       m_lastTickNs(0), m_frameId(INVALID_FRAME_ID), m_barFontId(INVALID_FONT_ID),
       m_pauseFontId(INVALID_FONT_ID)
-#ifdef DARTLENS_SHOW_FPS
+#ifdef TREBLOTRON_SHOW_FPS
     , m_fpsFontId(INVALID_FONT_ID), m_fpsAccumulator(0.0f), m_fpsFrameCount(0), m_fpsDisplay(0)
 #endif
 {
@@ -129,17 +130,17 @@ Status GameManager::initialize()
     }
 
     // Create the main window
-    Status stat = createNewFrame("DartLens", WINDOW_WIDTH, WINDOW_HEIGHT, m_frameId);
+    Status stat = createNewFrame("Treblotron", WINDOW_WIDTH, WINDOW_HEIGHT, m_frameId);
     if(IS_STATUS_NOT_OK(stat))
     {
         LOG_ERROR(GAME_MANAGER_LOG_ID, "Failed to create main window");
         return stat;
     }
 
-    // On real-camera builds (Hailo / TensorRT) we run on a dedicated cabinet
+    // On real-camera builds (local inference / network client) we run on a cabinet
     // display, so come up fullscreen. The sim build is used for development
     // on a desktop where a windowed mode is more useful.
-#ifndef DARTLENS_USE_SIM
+#ifndef TREBLOTRON_USE_SIM
     setFrameFullscreen(m_frameId, true);
 #endif
 
@@ -165,9 +166,44 @@ Status GameManager::initialize()
         LOG_WARNING(GAME_MANAGER_LOG_ID, "Failed to load pause menu font");
     }
 
+    // The address editor needs its fonts before it can draw anything. Without
+    // this it still paints its full-width backdrop but every key and label is
+    // invisible, which looks like a bare dark box swallowing the lower screen.
+    {
+        const FontID kbFont = (m_pauseFontId != INVALID_FONT_ID) ? m_pauseFontId : m_barFontId;
+        m_settingsKeyboard.init(kbFont, kbFont);
+    }
+
+    // Shortcut to the vision settings.
+    //
+    // Was live only while the link was down, back when the screen held nothing
+    // but a server address — there was no reason to open it while connected.
+    // Now that the detection thresholds are on it, the moment you want it most
+    // is mid-leg with everything connected and a dart being counted twice, so
+    // it is bound whenever a game is running.
+    //
+    // Except on the simulated source, which has neither a server nor a
+    // threshold: there the screen would be a panel containing only "Close", and
+    // a shortcut to that is worse than no shortcut.
+    const bool settingsShortcut = visionHasDetector();
+    constexpr uint32_t SETTINGS_KEY = SDLK_F1;
+    constexpr uint8_t  SETTINGS_GAMEPAD_BUTTON = SDL_GAMEPAD_BUTTON_BACK;
+
     // Register input handlers — GameManager owns these and forwards to games
-    registerFrameKeyHandler(m_frameId, [this](FrameID, uint32_t keycode, bool pressed) {
+    registerFrameKeyHandler(m_frameId, [this, settingsShortcut](FrameID, uint32_t keycode, bool pressed) {
         if(!pressed || !m_currentGame) return;
+
+        if(m_settingsOpen)
+        {
+            handleSettingsKey(keycode);
+            return;
+        }
+
+        if(settingsShortcut && keycode == SETTINGS_KEY)
+        {
+            openSettings();
+            return;
+        }
 
         if(m_paused)
         {
@@ -199,8 +235,30 @@ Status GameManager::initialize()
         m_currentGame->onKeyDown(keycode);
     });
 
-    registerFrameGamepadButtonHandler(m_frameId, [this](FrameID, uint8_t button, bool pressed) {
+    registerFrameGamepadButtonHandler(m_frameId, [this, settingsShortcut](FrameID, uint8_t button, bool pressed) {
         if(!pressed || !m_currentGame) return;
+
+        if(m_settingsOpen)
+        {
+            switch(button)
+            {
+                case SDL_GAMEPAD_BUTTON_DPAD_UP:    handleSettingsKey(SDLK_UP);     break;
+                case SDL_GAMEPAD_BUTTON_DPAD_DOWN:  handleSettingsKey(SDLK_DOWN);   break;
+                case SDL_GAMEPAD_BUTTON_DPAD_LEFT:  handleSettingsKey(SDLK_LEFT);   break;
+                case SDL_GAMEPAD_BUTTON_DPAD_RIGHT: handleSettingsKey(SDLK_RIGHT);  break;
+                case SDL_GAMEPAD_BUTTON_SOUTH:      handleSettingsKey(SDLK_RETURN); break;
+                case SDL_GAMEPAD_BUTTON_EAST:       handleSettingsKey(SDLK_ESCAPE); break;
+                case SDL_GAMEPAD_BUTTON_BACK:       handleSettingsKey(SDLK_ESCAPE); break;
+                default: break;
+            }
+            return;
+        }
+
+        if(settingsShortcut && button == SETTINGS_GAMEPAD_BUTTON)
+        {
+            openSettings();
+            return;
+        }
 
         if(m_paused)
         {
@@ -240,6 +298,17 @@ Status GameManager::initialize()
     });
 
     registerFrameTextHandler(m_frameId, [this](FrameID, const char* text) {
+        if(m_settingsOpen)
+        {
+            // Physical keyboard types straight into the address field, so a
+            // Pi with a keyboard attached doesn't have to peck at the on-screen
+            // one. The virtual keyboard stays visible for controller use.
+            // The on-screen keyboard keeps its own buffer; the physical path
+            // types into m_settingsBuffer.
+            if(m_settingsKeyboard.isOpen()) m_settingsKeyboard.handleTextInput(text);
+            else                            handleSettingsText(text);
+            return;
+        }
         if(m_paused || !m_currentGame) return;
         m_currentGame->onTextInput(text);
     });
@@ -250,7 +319,7 @@ Status GameManager::initialize()
     m_currentGame = nullptr;
     m_lastTickNs = SDL_GetTicksNS();
 
-#ifdef DARTLENS_SHOW_FPS
+#ifdef TREBLOTRON_SHOW_FPS
     m_fpsFontId = loadFont("assets/fonts/Roboto-Regular.ttf", 24.0f);
     if(m_fpsFontId == INVALID_FONT_ID)
     {
@@ -294,7 +363,7 @@ void GameManager::shutdown()
         m_pauseFontId = INVALID_FONT_ID;
     }
 
-#ifdef DARTLENS_SHOW_FPS
+#ifdef TREBLOTRON_SHOW_FPS
     if(m_fpsFontId != INVALID_FONT_ID)
     {
         unloadFont(m_fpsFontId);
@@ -496,7 +565,13 @@ void GameManager::tick()
         renderQueueClearFrame(m_frameId, 40, 40, 40);
         m_currentGame->render();
 
-        if(m_paused)
+        renderLinkIndicator();
+
+        if(m_settingsOpen)
+        {
+            renderSettings();
+        }
+        else if(m_paused)
         {
             renderPauseMenu();
         }
@@ -505,7 +580,7 @@ void GameManager::tick()
             enqueueBar(m_currentGame->getBarInfo());
         }
 
-#ifdef DARTLENS_SHOW_FPS
+#ifdef TREBLOTRON_SHOW_FPS
         enqueueFps(deltaTime);
 #endif
         renderQueueDrawFlush(m_frameId);
@@ -568,9 +643,12 @@ void GameManager::handlePauseKey(uint32_t keycode)
                     break;
                 case PauseAction::SaveCapture:
                 {
-                    Status stat = saveAllCameraFrames("./captures");
+                    // On a remote build this only *requests* the save; the
+                    // server writes the frames it actually scored and reports
+                    // back, which renderPauseMenu picks up below.
+                    Status stat = saveVisionCapture(appDataPath("captures"));
                     m_pauseStatus = IS_STATUS_OK(stat)
-                        ? "Saved to ./captures/"
+                        ? "Saving capture..."
                         : "Failed to save capture";
                     break;
                 }
@@ -596,6 +674,11 @@ static constexpr uint32_t PAUSE_OVERLAY_Z = 500;
 
 void GameManager::renderPauseMenu()
 {
+    // The remote capture result arrives on the client thread, not from the call
+    // that asked for it, so pick it up here and replace the placeholder.
+    const std::string captureResult = consumeVisionCaptureResult();
+    if(!captureResult.empty()) m_pauseStatus = captureResult;
+
     // Dark overlay
     auto overlay = std::make_shared<RenderShape>();
     overlay->m_type   = ShapeType::Box;
@@ -859,7 +942,7 @@ void GameManager::enqueueBar(const GameBarInfo& info)
 }
 
 
-#ifdef DARTLENS_SHOW_FPS
+#ifdef TREBLOTRON_SHOW_FPS
 static constexpr float    FPS_UPDATE_INTERVAL = 0.5f;
 static constexpr float    FPS_X               = 1830.0f;
 static constexpr float    FPS_Y               = 6.0f;
@@ -940,6 +1023,12 @@ Status unloadGame()
 Status restartCurrentGame()
 {
     return f_gameManager.restartCurrentGame();
+}
+
+
+void openVisionSettings()
+{
+    f_gameManager.openSettings();
 }
 
 

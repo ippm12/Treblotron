@@ -46,4 +46,15 @@ Status restartCurrentGame();
  */
 void tickGameManager();
 
+/**
+ * Open the vision settings overlay: server address and detection thresholds.
+ *
+ * An overlay owned by the game manager rather than a screen, so it can be
+ * raised over whatever is running without disturbing it — a threshold that is
+ * mis-scoring is best adjusted during the leg that revealed it, not after
+ * abandoning it. F1 (or Back on a controller) does the same thing in-game;
+ * this is the main menu's way in.
+ */
+void openVisionSettings();
+
 #endif // GAME_MANAGER_HPP

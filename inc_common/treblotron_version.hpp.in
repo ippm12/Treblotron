@@ -1,0 +1,24 @@
+/**
+ * treblotron_version.hpp.in
+ *
+ * Template for the generated version header. CMake substitutes the values from
+ * project(VERSION ...) at configure time; edit the version there, never here.
+ *
+ * The generated copy lands in ${PROJECT_BINARY_DIR}/generated and is on every
+ * target's include path.
+ */
+
+#ifndef TREBLOTRON_VERSION_HPP
+#define TREBLOTRON_VERSION_HPP
+
+#define TREBLOTRON_VERSION_MAJOR @PROJECT_VERSION_MAJOR@
+#define TREBLOTRON_VERSION_MINOR @PROJECT_VERSION_MINOR@
+#define TREBLOTRON_VERSION_PATCH @PROJECT_VERSION_PATCH@
+
+/** e.g. "0.1.0" */
+#define TREBLOTRON_VERSION_STRING "@PROJECT_VERSION@"
+
+/** Product name, so the window title and installer cannot drift apart. */
+#define TREBLOTRON_PRODUCT_NAME "Treblotron"
+
+#endif // TREBLOTRON_VERSION_HPP
