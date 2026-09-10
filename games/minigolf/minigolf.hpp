@@ -3,8 +3,8 @@
  *
  * Mini golf game mode. Each dart throw becomes one putt: the angle from
  * bullseye sets the direction, and the distance from bullseye sets the
- * power. Players cycle within a hole; whoever's turn it is sees their
- * ball pulse. Game ends after 9 holes; per-hole scores cap at STROKE_CAP
+ * power. Players cycle within a hole. Game ends after 9 holes;
+ * per-hole scores cap at STROKE_CAP
  * (8) strokes.
  *
  * Physics is Box2D v3 via the generic game_lib/box2d helpers. The world
@@ -19,6 +19,7 @@
 #include "game_lib/box2d/physics_body.hpp"
 #include "game_lib/box2d/physics_camera.hpp"
 #include "course_defs.hpp"
+#include "ball_roll.hpp"
 
 #include "box2d/box2d.h"
 
@@ -50,7 +51,7 @@ struct PlayerState
     // Per-hole transient state
     b2BodyId          ballBody = b2_nullBodyId;
     PhysicsUserData   ballUserData;
-    float             rotationRadians = 0.0f;  // accumulator for visible spin
+    BallRoll          roll;
 
     // Where this ball has been since the current stroke was struck, oldest
     // first, in world-space pixels. Rendered as the fading trail behind it.
@@ -128,6 +129,7 @@ class MiniGolfGame : public Game
 
         FontID       m_fontId      = INVALID_FONT_ID;
         FontID       m_largeFontId = INVALID_FONT_ID;
+        FontID       m_compassFontId = INVALID_FONT_ID;
 
         std::unique_ptr<PhysicsWorld> m_world;
         PhysicsCamera                 m_camera;
@@ -158,11 +160,6 @@ class MiniGolfGame : public Game
 
         // Paces how often ball positions are recorded for the trail.
         float   m_trailSampleTimer  = 0.0f;
-
-        // Free-running clock for idle animation (the active-ball pulse).
-        // Advanced every update regardless of phase, so the pulse keeps
-        // moving while the game sits waiting for a dart.
-        float   m_animClock         = 0.0f;
 
         // Aim arrow state — populated when a stroke is initiated, fades.
         float   m_aimArrowTimer     = 0.0f;

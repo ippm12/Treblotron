@@ -3,6 +3,8 @@
  */
 
 #include "minigolf.hpp"
+#include "render_golf_ball.hpp"
+#include "dart/dart_board_geometry.hpp"
 
 #include "game_lib/game_helpers.hpp"
 #include "game_lib/game_manager.hpp"
@@ -97,6 +99,16 @@ constexpr float BALL_ROLL_DECEL_PXPS2 = 185.0f;
 constexpr float STROKE_MIN_SPEED_PXPS  = 125.0f;
 constexpr float STROKE_MAX_SPEED_PXPS  = 750.0f;
 constexpr float STROKE_POWER_CURVE     = 1.15f;
+
+// Shared by actual strokes and the distance reference in the aim compass.
+float strokeSpeed(float normalizedRadius)
+{
+    const float r = std::clamp(normalizedRadius, 0.0f, 1.0f);
+    return STROKE_MIN_SPEED_PXPS
+         + (STROKE_MAX_SPEED_PXPS - STROKE_MIN_SPEED_PXPS)
+         * std::pow(r, STROKE_POWER_CURVE);
+}
+
 
 // Settle detection
 constexpr float SETTLE_SPEED_PXPS = 8.0f;   // below this, ball is "stopped"
@@ -194,10 +206,11 @@ constexpr float CUP_LIP_DRAG       = 2.0f;      // velocity bleed, 1/s
 // dartboard section number so the player knows what they're aiming at.
 constexpr int   HASH_TICK_COUNT         = 20;
 constexpr float HASH_INNER_RADIUS_PX    = 80.0f;
-constexpr float HASH_OUTER_RADIUS_PX    = 280.0f;
+
 constexpr float HASH_THICKNESS_PX       = 4.0f;
 constexpr float HASH_LABEL_RADIUS_PX    = 320.0f;
-constexpr float HASH_LABEL_TEXT_SCALE   = 0.55f;
+// Rasterize at the displayed size rather than magnifying a smaller texture.
+constexpr float HASH_LABEL_FONT_SIZE = 42.0f;
 
 // Standard dartboard section numbering, clockwise from the top (the 20).
 // Index i sits at angle (-90° + i*18°) in screen-space polar coordinates
@@ -227,6 +240,8 @@ Status MiniGolfGame::init(FrameID frameId)
 
     m_fontId      = loadFont("assets/fonts/Roboto-Regular.ttf", 28.0f);
     m_largeFontId = loadFont("assets/fonts/Roboto-Regular.ttf", 64.0f);
+
+    m_compassFontId = loadFont("assets/fonts/Roboto-Regular.ttf", HASH_LABEL_FONT_SIZE);
 
     m_course = buildCourse(m_courseId);
 
@@ -272,6 +287,7 @@ void MiniGolfGame::shutdown()
     teardownCurrentHole();
     m_world.reset();
 
+    if(m_compassFontId != INVALID_FONT_ID) { unloadFont(m_compassFontId); m_compassFontId = INVALID_FONT_ID; }
     if(m_largeFontId != INVALID_FONT_ID) { unloadFont(m_largeFontId); m_largeFontId = INVALID_FONT_ID; }
     if(m_fontId      != INVALID_FONT_ID) { unloadFont(m_fontId);      m_fontId      = INVALID_FONT_ID; }
 }
@@ -382,7 +398,7 @@ void MiniGolfGame::buildCurrentHole()
 
         m_players[i].finishedHole[m_currentHole] = false;
         m_players[i].holedOut[m_currentHole]     = false;
-        m_players[i].rotationRadians             = 0.0f;
+        m_players[i].roll                        = {};
         m_players[i].cupBounced                  = false;
         m_players[i].cupRejectTimer              = 0.0f;
         m_players[i].trail.clear();
@@ -446,15 +462,32 @@ void MiniGolfGame::update(float deltaTime)
 {
     // 1) Always step physics — even between phases — so balls finish
     //    settling visibly during the hole-transition banner.
-    if(m_world) m_world->step(deltaTime);
-
-    // 1a) Rolling friction, then the cup, so the cup reads settled velocities.
-    applyRollingFriction(deltaTime);
-
-    // 1b) Cup test runs in every phase, not just BallInMotion: the world is
-    //     stepped throughout, so a ball still creeping toward the hole during
-    //     a banner has to be able to drop.
-    updateCupInteraction(deltaTime);
+    if(m_world && std::isfinite(deltaTime) && deltaTime > 0.0f)
+    {
+        // Small steps preserve the path through rebounds instead of rolling
+        // along a single frame's start-to-end chord. Limit catch-up after stalls.
+        float remaining = std::min(deltaTime, 0.1f);
+        while(remaining > 0.0f)
+        {
+            const float dt = std::min(remaining, 1.0f / 120.0f);
+            std::array<Vec2, MAX_PLAYERS> before{};
+            for(size_t i=0; i<m_players.size(); ++i)
+                if(b2Body_IsValid(m_players[i].ballBody))
+                    getBodyPositionPx(*m_world, m_players[i].ballBody, before[i].x, before[i].y);
+            m_world->step(dt);
+            for(size_t i=0; i<m_players.size(); ++i)
+            {
+                auto& p = m_players[i];
+                if(!b2Body_IsValid(p.ballBody)) continue;
+                float x=0, y=0;
+                getBodyPositionPx(*m_world, p.ballBody, x, y);
+                p.roll.update((x-before[i].x)/dt, (y-before[i].y)/dt, BALL_RADIUS_PX, dt);
+            }
+            applyRollingFriction(dt);
+            updateCupInteraction(dt);
+            remaining -= dt;
+        }
+    }
 
     // Sample where each moving ball is, for the trail behind it.
     m_trailSampleTimer += deltaTime;
@@ -472,10 +505,7 @@ void MiniGolfGame::update(float deltaTime)
         }
     }
 
-    // 1c) Animation timers run in every phase. m_phaseTimer only ticks during
-    //     the two banner phases, so it cannot drive anything that has to keep
-    //     moving while the game waits for a dart.
-    m_animClock += deltaTime;
+    // Fade the aim arrow in every phase.
     if(m_aimArrowTimer > 0.0f)
     {
         m_aimArrowTimer = std::max(0.0f, m_aimArrowTimer - deltaTime);
@@ -630,9 +660,7 @@ void MiniGolfGame::processDart(const DartPosition& pos)
     // course coordinates.
     const float angleRad = pos.angle * (3.14159265358979f / 180.0f);
     const float r        = std::clamp(pos.normalizedRadius, 0.0f, 1.0f);
-    const float power    = std::pow(r, STROKE_POWER_CURVE);
-    const float speedPx  = STROKE_MIN_SPEED_PXPS
-                         + (STROKE_MAX_SPEED_PXPS - STROKE_MIN_SPEED_PXPS) * power;
+    const float speedPx = strokeSpeed(r);
     const float dx       = std::cos(angleRad);
     const float dy       = std::sin(angleRad);
 
@@ -845,16 +873,6 @@ void MiniGolfGame::updateBallMotion(float deltaTime)
 {
     if(m_currentPlayer >= m_players.size()) return;
     PlayerState& p = m_players[m_currentPlayer];
-
-    // Update ball roll-rotation accumulator (radians). This drives a
-    // future textured ball; for v1 it's invisible on a solid circle.
-    if(b2Body_IsValid(p.ballBody))
-    {
-        const float speedPx = getBodySpeedPx(*m_world, p.ballBody);
-        // dθ = (v / r). Treat r as ball radius in pixels, not metres —
-        // the ratio is unit-agnostic.
-        p.rotationRadians += (speedPx / BALL_RADIUS_PX) * deltaTime;
-    }
 
     const bool slow = m_lastShotHoled
                    || (b2Body_IsValid(p.ballBody)
@@ -1191,7 +1209,12 @@ void MiniGolfGame::renderHashCompass()
     m_camera.worldToScreen(bxW, byW, bxS, byS);
 
     const Color tickColor = (m_aimArrowTimer > 0.0f) ? HASH_FAINT_COLOR : HASH_COLOR;
-    const float tickLen   = HASH_OUTER_RADIUS_PX - HASH_INNER_RADIUS_PX;
+    // Unobstructed roll on felt: v^2 / (2a). The endpoint is measured
+    // from the ball centre, not from the start of the visible line.
+    const float referenceSpeed = strokeSpeed(DartBoardGeometry::RADIUS_TRIPLE_INNER);
+    const float outerRadius = m_camera.worldToScreenLength(
+        referenceSpeed * referenceSpeed / (2.0f * BALL_ROLL_DECEL_PXPS2));
+    const float innerRadius = m_camera.worldToScreenLength(HASH_INNER_RADIUS_PX);
     const float DEG2RAD   = 3.14159265358979f / 180.0f;
 
     // 1) Tick lines at segment boundaries (between two adjacent sections).
@@ -1204,8 +1227,18 @@ void MiniGolfGame::renderHashCompass()
         const float ang    = angDeg * DEG2RAD;
         const float dx     = std::cos(ang);
         const float dy     = std::sin(ang);
-        const float midX   = bxS + dx * (HASH_INNER_RADIUS_PX + 0.5f * tickLen);
-        const float midY   = byS + dy * (HASH_INNER_RADIUS_PX + 0.5f * tickLen);
+        // Keep the longer guides inside the course window. Clipping is
+        // visual only: these are distance references, not rebound predictions.
+        float endRadius = outerRadius;
+        constexpr float inset = HASH_THICKNESS_PX;
+        if(dx > 0.0001f) endRadius = std::min(endRadius, (COURSE_VIEW_X+COURSE_VIEW_W-inset-bxS)/dx);
+        if(dx < -0.0001f) endRadius = std::min(endRadius, (COURSE_VIEW_X+inset-bxS)/dx);
+        if(dy > 0.0001f) endRadius = std::min(endRadius, (COURSE_VIEW_Y+COURSE_VIEW_H-inset-byS)/dy);
+        if(dy < -0.0001f) endRadius = std::min(endRadius, (COURSE_VIEW_Y+inset-byS)/dy);
+        if(endRadius <= innerRadius) continue;
+        const float tickLen = endRadius - innerRadius;
+        const float midX = bxS + dx * (innerRadius + 0.5f * tickLen);
+        const float midY = byS + dy * (innerRadius + 0.5f * tickLen);
 
         auto tick = std::make_shared<RenderShape>();
         tick->m_type     = ShapeType::Box;
@@ -1222,7 +1255,7 @@ void MiniGolfGame::renderHashCompass()
     // 2) Section number labels at segment centres. Each label sits in
     //    the wedge between two ticks and tells the player which
     //    dartboard section to aim at for that direction.
-    TTF_Font* font = getFont(m_fontId);
+    TTF_Font* font = getFont(m_compassFontId);
     for(int i = 0; i < HASH_TICK_COUNT; ++i)
     {
         const float angDeg = -90.0f + i * 18.0f;
@@ -1235,12 +1268,12 @@ void MiniGolfGame::renderHashCompass()
         const std::string text = std::to_string(DARTBOARD_LAYOUT[i]);
         int tw = 0, th = 0;
         if(font) TTF_GetStringSize(font, text.c_str(), 0, &tw, &th);
-        const float scale = HASH_LABEL_TEXT_SCALE;
+        constexpr float scale = 1.0f;
 
         auto label = std::make_shared<RenderText>();
         label->m_text     = text;
         label->m_color    = tickColor;
-        label->m_fontId   = m_fontId;
+        label->m_fontId   = m_compassFontId;
         label->m_rotation = 0.0f;
         label->m_scaleX   = scale;
         label->m_scaleY   = scale;
@@ -1302,24 +1335,13 @@ void MiniGolfGame::renderBalls()
         const float r = m_camera.worldToScreenLength(BALL_RADIUS_PX);
 
         const bool isActive = (m_phase == Phase::Aiming) && (i == m_currentPlayer);
-        // Pulse the active ball by oscillating its radius.
-        float pulseScale = 1.0f;
-        if(isActive)
-        {
-            // m_animClock is the only timer that advances during Aiming;
-            // the previous m_phaseTimer + m_aimArrowTimer expression was
-            // constant there, so the "pulse" never actually moved.
-            pulseScale = 1.0f + 0.06f * std::sin(m_animClock * 6.0f);
-        }
-
-        auto ball = std::make_shared<RenderShape>();
-        ball->m_type   = ShapeType::Circle;
-        ball->m_color  = p.ballColor;
+        auto ball = std::make_shared<RenderGolfBall>();
+        ball->color = p.ballColor;
+        ball->orientation = p.roll.orientation;
         ball->m_x      = sx;
         ball->m_y      = sy;
         ball->m_z      = Z_BALL + (isActive ? 1u : 0u);
-        ball->m_width  = 2.0f * r * pulseScale;
-        ball->m_height = 0.0f;
+        ball->radius = r;
         renderQueueAdd(fid, ball);
     }
 }

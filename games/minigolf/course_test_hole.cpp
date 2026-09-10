@@ -37,7 +37,7 @@ static CourseHole makeTestHole()
     // 60 px of run-off behind each keeps the ball clear of the walls.
     h.cupPos    = { COURSE_VIEW_CENTER_X, h.areaTopLeft.y + 60.0f };
     h.startPos  = { COURSE_VIEW_CENTER_X, h.cupPos.y + TEE_TO_CUP };
-    h.cupRadius = 24.0f;
+    h.cupRadius = 30.0f;
     h.par       = 3;
 
     // No interior obstacles for the test hole.
