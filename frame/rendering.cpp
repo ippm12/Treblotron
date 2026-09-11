@@ -4,6 +4,7 @@
  * Rendering functions and render queue implementation.
  */
 
+#include <algorithm>
 #include <cmath>
 #include <functional>
 #include <memory>
@@ -381,6 +382,16 @@ Status renderQueueAdd(FrameID frameId, RenderObjectPtr obj)
     return STATUS_OK;
 }
 
+
+Status renderQueueSortByLayer(FrameID frameId)
+{
+    if(frameId >= MAX_NUM_FRAMES) return STATUS_ERROR_INVALID_PARAM;
+    auto& queue=f_renderQueues[frameId];
+    std::stable_sort(queue.begin(),queue.end(),[](const auto& a,const auto& b) {
+        return a->m_z < b->m_z;
+    });
+    return STATUS_OK;
+}
 
 Status renderQueueDrawFlush(FrameID frameId)
 {

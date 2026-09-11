@@ -39,6 +39,9 @@ struct GameDescriptor
     uint8_t     maxPlayers = 1;
     std::vector<GameSetting> settings;
 
+    // Optional dependent settings; may clamp selections after another row changes.
+    std::function<void(std::vector<GameSetting>&,std::vector<size_t>&)> updateSettings;
+
     /** Factory: given the chosen index for each setting, create a Game instance. */
     std::function<GamePtr(const std::vector<size_t>&)> createGame;
 };

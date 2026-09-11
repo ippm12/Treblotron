@@ -5,6 +5,7 @@
  */
 
 #include <chrono>
+#include "debug/crash_reporting.hpp"
 #include <memory>
 #include <thread>
 #include "common_inc.hpp"
@@ -15,14 +16,19 @@
 #include "vision/vision.hpp"
 #include "games/main_menu.hpp"
 
-int main()
+int main(int argc,char** argv)
 {
+    int helperExit=0;
+    if(runCrashDumpHelper(argc,argv,helperExit)) return helperExit;
+    const bool crashCapture=initializeCrashReporting();
     Status stat = initializeLoggingModule(LOGGING_LEVEL_INFO);
     if(IS_STATUS_NOT_OK(stat))
     {
         return -1;
     }
 
+    if(crashCapture) LOG_INFO(MAIN_LOG_ID,"Crash dumps enabled: {}",appDataPath("crashes/"));
+    else LOG_WARNING(MAIN_LOG_ID,"Crash dump helper could not be initialized");
     // First line of every log. A bug report that names a version is worth
     // several that do not, and where the data lives is the other question
     // always asked first.

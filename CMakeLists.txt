@@ -413,7 +413,7 @@ endif()
 # otherwise.
 if(WIN32)
     foreach(_t IN LISTS TREBLOTRON_TARGETS)
-        target_link_libraries(${_t} PRIVATE ws2_32)
+        target_link_libraries(${_t} PRIVATE ws2_32 dbghelp)
     endforeach()
 endif()
 

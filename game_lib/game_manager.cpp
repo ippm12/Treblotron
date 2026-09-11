@@ -85,14 +85,19 @@ bool Game::popDartPosition(DartPosition& out)
 
 void Game::onTurnSkipped()
 {
-    // Fire onMissedThrow() until the bar reports we're no longer in PlayerTurn
-    // with throws remaining. Capped at 16 iterations as a safety against a
-    // misbehaving override (e.g. one whose throwsRemaining doesn't decrement).
-    for(int safety = 0; safety < 16; safety++)
+    // Capture this turn's budget. A miss can synchronously start the next
+    // turn when the board is clear, so never follow replenished throws.
+    const GameBarInfo original=getBarInfo();
+    if(original.state!=GameState::PlayerTurn) return;
+    const int remaining=std::min<int>(original.throwsRemaining,16);
+    for(int skipped=0;skipped<remaining;++skipped)
     {
-        GameBarInfo info = getBarInfo();
-        if(info.state != GameState::PlayerTurn || info.throwsRemaining == 0) break;
+        const GameBarInfo before=getBarInfo();
+        if(before.state!=GameState::PlayerTurn || before.throwsRemaining==0 ||
+           before.playerName!=original.playerName) break;
         onMissedThrow();
+        const GameBarInfo after=getBarInfo();
+        if(after.throwsRemaining>=before.throwsRemaining) break;
     }
 }
 

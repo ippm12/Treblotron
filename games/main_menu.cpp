@@ -426,7 +426,8 @@ void MainMenu::openCard()
         m_selectedGameIndex = card.gameIndex;
 
         // Initialize setting choices to defaults
-        const auto& desc = getRegisteredGames()[m_selectedGameIndex];
+        auto desc = getRegisteredGames()[m_selectedGameIndex];
+    if(desc.updateSettings) desc.updateSettings(desc.settings,m_settingChoices);
         m_settingChoices.clear();
         for(const auto& setting : desc.settings)
         {
@@ -868,7 +869,8 @@ void MainMenu::handleGameSettingsKey(uint32_t keycode)
         return;
     }
 
-    const auto& desc = getRegisteredGames()[m_selectedGameIndex];
+    auto desc = getRegisteredGames()[m_selectedGameIndex];
+    if(desc.updateSettings) desc.updateSettings(desc.settings,m_settingChoices);
     int settingCount = static_cast<int>(desc.settings.size());
     int totalRows = settingCount + 1;  // settings + Start button
 
@@ -952,7 +954,8 @@ void MainMenu::handleGameSettingsKey(uint32_t keycode)
 void MainMenu::renderGameSettings()
 {
     FrameID fid = getFrameId();
-    const auto& desc = getRegisteredGames()[m_selectedGameIndex];
+    auto desc = getRegisteredGames()[m_selectedGameIndex];
+    if(desc.updateSettings) desc.updateSettings(desc.settings,m_settingChoices);
     int settingCount = static_cast<int>(desc.settings.size());
 
     // Title

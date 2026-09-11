@@ -22,6 +22,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 #include <memory>
 
 
@@ -38,13 +39,13 @@ namespace {
 // authoring side so a hole and the window it is drawn into cannot drift apart.
 
 // Z-ordering inside the course view
-constexpr uint32_t Z_FELT      = 1;
-constexpr uint32_t Z_HASH      = 5;
-constexpr uint32_t Z_WALL      = 10;
-constexpr uint32_t Z_CUP       = 15;
-constexpr uint32_t Z_TRAIL     = 18;
-constexpr uint32_t Z_BALL      = 20;
-constexpr uint32_t Z_AIM_ARROW = 25;
+constexpr uint32_t Z_FELT      = CourseLayer::Felt;
+constexpr uint32_t Z_HASH      = CourseLayer::Guide;
+constexpr uint32_t Z_WALL      = CourseLayer::Wall;
+constexpr uint32_t Z_CUP       = CourseLayer::Cup;
+constexpr uint32_t Z_TRAIL     = CourseLayer::Trail;
+constexpr uint32_t Z_BALL      = CourseLayer::Ball;
+constexpr uint32_t Z_AIM_ARROW = CourseLayer::Aim;
 constexpr uint32_t Z_BANNER    = 200;
 
 // Visual styling
@@ -227,8 +228,9 @@ constexpr std::array<uint8_t, 20> DARTBOARD_LAYOUT = {{
 // Construction & lifecycle
 // ============================================================================
 
-MiniGolfGame::MiniGolfGame(CourseId courseId)
+MiniGolfGame::MiniGolfGame(CourseId courseId, GameOptions options)
     : Game("Mini Golf"),
+      m_options(options),
       m_courseId(courseId)
 {
 }
@@ -243,7 +245,9 @@ Status MiniGolfGame::init(FrameID frameId)
 
     m_compassFontId = loadFont("assets/fonts/Roboto-Regular.ttf", HASH_LABEL_FONT_SIZE);
 
-    m_course = buildCourse(m_courseId);
+    if(m_options.holeCount!=3 && m_options.holeCount!=6 && m_options.holeCount!=9) m_options.holeCount=9;
+    m_options.startHole=m_options.holeCount==9 ? 0 : (m_options.startHole/3%3)*3;
+    m_course = selectedCourse(m_courseId,m_options);
 
     m_world = std::make_unique<PhysicsWorld>();
     m_world->setPixelsPerMeter(WORLD_PIXELS_PER_METER);
@@ -255,14 +259,15 @@ Status MiniGolfGame::init(FrameID frameId)
     // Build per-player state
     const uint8_t playerCount = std::min<uint8_t>(getPlayerCount(), MAX_PLAYERS);
     m_players.clear();
-    m_players.resize(playerCount);
-    for(uint8_t i = 0; i < playerCount; ++i)
+    configureTeams(playerCount);
+    m_players.resize(m_teams.empty() ? playerCount : m_teams.size());
+    for(uint8_t i = 0; i < m_players.size(); ++i)
     {
         m_players[i].ballColor = BALL_COLORS[i];
     }
 
     m_currentHole           = 0;
-    m_currentPlayer         = 0;
+    m_currentPlayer         = m_teams.empty() ? 0 : static_cast<uint8_t>(m_currentHole%m_teams.size());
     m_phase                 = Phase::HoleIntro;
     m_phaseTimer            = 0.0f;
     m_settleTimer           = 0.0f;
@@ -301,14 +306,21 @@ GameBarInfo MiniGolfGame::getBarInfo() const
         return makeBarInfo(true, false, 0, 0, "");
     }
 
+    if(m_phase==Phase::ScrambleChoice) {
+        auto info=makeBarInfo(false,false,activeMember(),0,"Choose a scramble result");
+        info.state=GameState::Blank;
+        return info;
+    }
     if((m_phase == Phase::Aiming || m_phase == Phase::BallInMotion
         || m_phase == Phase::HoleIntro)
        && !m_waitingForCollect)
     {
-        std::string status = "Hole " + std::to_string(m_currentHole + 1)
-                           + "/" + std::to_string(HOLES_PER_GAME);
-        return makeBarInfo(false, false, m_currentPlayer,
-                           m_throwsRemainingInTurn, status);
+        std::string status = "Hole " + std::to_string((m_options.startHole+m_currentHole)%9+1)
+                           + " (" + std::to_string(m_currentHole+1)+"/"+std::to_string(m_options.holeCount)+")";
+        auto info=makeBarInfo(false, false, activeMember(),
+                              m_throwsRemainingInTurn, status);
+        if(!m_teams.empty()) info.playerName=competitorName(m_currentPlayer)+" / "+getPlayerName(getPlayerByIndex(activeMember()));
+        return info;
     }
 
     // Ball moving / banner shown / waiting for collect — show "Collect" so
@@ -335,6 +347,8 @@ uint8_t MiniGolfGame::getMaxPlayers() const
 void MiniGolfGame::buildCurrentHole()
 {
     const CourseHole& h = m_course.holes[m_currentHole];
+
+    m_courseTime = 0;
 
     // ---- Camera bounds ----
     m_camera.setWorldBounds(h.areaTopLeft.x, h.areaTopLeft.y,
@@ -371,41 +385,49 @@ void MiniGolfGame::buildCurrentHole()
                             { 1.0f, 0.4f, 0.5f }));
     }
 
+    buildObstacles();
+
     // ---- Cup ----
     // No body: a sensor fires the instant the ball's circle grazes it, which
     // is what made every touch an instant hole-out, and it cannot express
     // "too fast to drop". updateCupInteraction() tests the geometry directly.
 
+    m_cascadeParticipants=0;
     // ---- Player balls ----
-    // Cluster them slightly so they don't all spawn in identical positions
-    // (Box2D resolves overlap, but it adds an unwanted impulse). Spread
-    // across a 90px-wide arc behind the start.
     const uint8_t n = static_cast<uint8_t>(m_players.size());
     for(uint8_t i = 0; i < n; ++i)
     {
-        const float t   = (n == 1) ? 0.0f : (static_cast<float>(i) / (n - 1) - 0.5f);
-        const float spawnX = h.startPos.x + t * 90.0f;
-        const float spawnY = h.startPos.y;
-
-        m_players[i].ballUserData.kind    = PhysicsBodyKind::Ball;
-        m_players[i].ballUserData.payload = reinterpret_cast<void*>(static_cast<uintptr_t>(i));
-
-        m_players[i].ballBody = createDynamicCircle(
-            *m_world, spawnX, spawnY,
-            BALL_RADIUS_PX, &m_players[i].ballUserData,
-            // No Box2D damping: applyRollingFriction() decelerates instead.
-            { 1.0f, 0.3f, 0.4f }, /*linearDamping*/ 0.0f);
-
+        const Vec2 tee=h.spawnPositions.empty() ? h.startPos : h.spawnPositions[i%h.spawnPositions.size()];
+        const float spawnX=tee.x,spawnY=tee.y;
+        m_players[i].ballBody=b2_nullBodyId;
+        m_players[i].hasSpawned=false;
+        m_players[i].pendingReturn=false;
+        m_players[i].returnDelay=0;
+        m_players[i].safeReturnRequired=false;
+        m_players[i].destructionTimer=0;
+        m_players[i].ballUserData.kind=PhysicsBodyKind::Ball;
+        m_players[i].ballUserData.payload=reinterpret_cast<void*>(static_cast<uintptr_t>(i));
         m_players[i].finishedHole[m_currentHole] = false;
         m_players[i].holedOut[m_currentHole]     = false;
         m_players[i].roll                        = {};
+        m_players[i].shotStart                   = {spawnX,spawnY};
+        m_players[i].hazardTimer                 = 0;
+        m_players[i].hazardImmunity              = 0;
+        m_players[i].respawnProtected            = false;
+        m_players[i].blockedPortalPair           = -1;
+        m_players[i].portalCooldown              = 0;
+        m_players[i].bumperCooldown              = 0;
         m_players[i].cupBounced                  = false;
         m_players[i].cupRejectTimer              = 0.0f;
         m_players[i].trail.clear();
     }
 
+    for(auto& team:m_teams) {
+        team.cursor=m_currentHole%team.members.size();
+        team.attemptsTaken=0; team.attempts.clear(); team.attemptStarted=false;
+    }
     // First player who hasn't finished
-    m_currentPlayer         = 0;
+    m_currentPlayer         = m_teams.empty() ? 0 : static_cast<uint8_t>(m_currentHole%m_teams.size());
     m_phase                 = Phase::HoleIntro;
     m_phaseTimer            = 0.0f;
     m_settleTimer           = 0.0f;
@@ -415,6 +437,137 @@ void MiniGolfGame::buildCurrentHole()
     m_throwsRemainingInTurn = throwsAvailableForPlayer(m_currentPlayer);
 }
 
+
+bool MiniGolfGame::ballPositionOccupied(Vec2 position,size_t except) const
+{
+    if(!m_options.ballCollisions) return false;
+    for(size_t i=0;i<m_players.size();++i) {
+        const auto& p=m_players[i];
+        if(i==except || !b2Body_IsValid(p.ballBody) || !b2Body_IsEnabled(p.ballBody)) continue;
+        Vec2 other; getBodyPositionPx(*m_world,p.ballBody,other.x,other.y);
+        if(std::hypot(position.x-other.x,position.y-other.y)<2*BALL_RADIUS_PX) return true;
+    }
+    return false;
+}
+
+bool MiniGolfGame::findSafeReturn(size_t player,Vec2 origin,Vec2& result) const
+{
+    const auto& h=m_course.holes[m_currentHole];
+    constexpr float r=BALL_RADIUS_PX+2;
+    auto safe=[&](Vec2 q) {
+        if(q.x<h.areaTopLeft.x+r || q.x>h.areaBottomRight.x-r ||
+           q.y<h.areaTopLeft.y+r || q.y>h.areaBottomRight.y-r ||
+           ballPositionOccupied(q,player)) return false;
+        auto near=[&](Vec2 p,float radius) { return std::hypot(q.x-p.x,q.y-p.y)<radius; };
+        if(near(h.startPos,2*r)) return false;
+        for(auto tee:h.spawnPositions) if(near(tee,2*r)) return false;
+        for(const auto& p:m_players) if(near(p.shotStart,2*r)) return false;
+        if(near(cupPosition(),h.cupRadius+r)) return false;
+        for(const auto& w:h.walls)
+            if(insidePatch(q,obstaclePosition({w.centerX,w.centerY},w.rail),
+                           {w.width+2*r,w.height+2*r})) return false;
+        for(const auto& patch:h.surfaces)
+            if(patch.kind==SurfaceKind::Water &&
+               insidePatch(q,patch.center,{patch.size.x+2*r,patch.size.y+2*r})) return false;
+        for(const auto& laser:h.lasers)
+            if(insidePatch(q,obstaclePosition(laser.center,laser.rail),
+                           {laser.size.x+2*r,laser.size.y+2*r})) return false;
+        for(const auto& bumper:h.bumpers)
+            if(near(obstaclePosition(bumper.center,bumper.rail),bumper.radius+r)) return false;
+        for(const auto& portal:h.portals)
+            if(near(obstaclePosition(portal.center,portal.rail),h.cupRadius+r)) return false;
+        return true;
+    };
+    float best=std::numeric_limits<float>::max();
+    auto consider=[&](Vec2 q) {
+        const float distance=(q.x-origin.x)*(q.x-origin.x)+(q.y-origin.y)*(q.y-origin.y);
+        if(distance<best && safe(q)) { best=distance; result=q; }
+    };
+    // Bounded whole-course search, followed by pixel refinement near the
+    // nearest valid grid sample. Rechecked on every delayed retry.
+    for(float y=h.areaTopLeft.y+r;y<=h.areaBottomRight.y-r;y+=8)
+        for(float x=h.areaTopLeft.x+r;x<=h.areaBottomRight.x-r;x+=8) consider({x,y});
+    if(best==std::numeric_limits<float>::max()) return false;
+    const Vec2 coarse=result;
+    for(float y=coarse.y-8;y<=coarse.y+8;y+=1)
+        for(float x=coarse.x-8;x<=coarse.x+8;x+=1) consider({x,y});
+    return true;
+}
+
+void MiniGolfGame::spawnBall(size_t player,Vec2 position)
+{
+    auto& p=m_players[player];
+    if(p.holedOut[m_currentHole]) return;
+    m_cascadeParticipants |= static_cast<uint8_t>(1u<<player);
+    bool cycle=false;
+    for(size_t i=0;i<m_players.size();++i) {
+        const auto& other=m_players[i];
+        if(!m_options.ballCollisions || i==player || !b2Body_IsValid(other.ballBody) || !b2Body_IsEnabled(other.ballBody)) continue;
+        Vec2 here; getBodyPositionPx(*m_world,other.ballBody,here.x,here.y);
+        if(std::hypot(position.x-here.x,position.y-here.y)<2*BALL_RADIUS_PX &&
+           (m_cascadeParticipants & (1u<<i))) cycle=true;
+    }
+    p.safeReturnRequired |= cycle;
+    if(p.safeReturnRequired && !findSafeReturn(player,position,position)) {
+        p.pendingReturn=true; p.returnDelay=0.4f;
+        if(b2Body_IsValid(p.ballBody)) b2DestroyBody(p.ballBody);
+        p.ballBody=b2_nullBodyId;
+        return;
+    }
+    if(b2Body_IsValid(p.ballBody)) b2DestroyBody(p.ballBody);
+    p.ballBody=b2_nullBodyId;
+    for(size_t i=0;i<m_players.size();++i) {
+        auto& other=m_players[i];
+        if(!m_options.ballCollisions || i==player || !b2Body_IsValid(other.ballBody) || !b2Body_IsEnabled(other.ballBody)) continue;
+        Vec2 here; getBodyPositionPx(*m_world,other.ballBody,here.x,here.y);
+        if(std::hypot(position.x-here.x,position.y-here.y)>=2*BALL_RADIUS_PX) continue;
+        b2DestroyBody(other.ballBody); other.ballBody=b2_nullBodyId;
+        other.pendingReturn=true; other.returnDelay=0.4f;
+        other.destructionTimer=0.4f; other.destructionPosition=here;
+        m_cascadeParticipants |= static_cast<uint8_t>(1u<<i);
+        other.trail.clear();
+    }
+    p.ballBody=createDynamicCircle(*m_world,position.x,position.y,
+        BALL_RADIUS_PX,&p.ballUserData,{1.0f,0.3f,0.4f},0.0f);
+    if(!m_options.ballCollisions) {
+        b2ShapeId shapes[1];
+        if(b2Body_GetShapes(p.ballBody,shapes,1)>0) {
+            auto filter=b2Shape_GetFilter(shapes[0]);
+            filter.groupIndex=-1; // Balls ignore one another; obstacle groups remain zero.
+            b2Shape_SetFilter(shapes[0],filter);
+        }
+    }
+    p.hasSpawned=true; p.pendingReturn=false; p.returnDelay=0; p.safeReturnRequired=false;
+    p.roll={}; p.trail.clear(); p.cupBounced=false; p.cupRejectTimer=0;
+    p.portalCooldown=0; p.blockedPortalPair=-1; p.bumperCooldown=0;
+    p.hazardTimer=0;
+    bool pending=false;
+    for(const auto& ball:m_players) pending |= ball.pendingReturn;
+    if(!pending) m_cascadeParticipants=0;
+}
+
+void MiniGolfGame::returnDisplacedBalls(float dt)
+{
+    // Take a snapshot before spawning: a new victim gets the full delay,
+    // regardless of its roster index.
+    std::vector<size_t> ready;
+    for(size_t i=0;i<m_players.size();++i) {
+        auto& p=m_players[i];
+        p.destructionTimer=std::max(0.0f,p.destructionTimer-dt);
+        if(!p.pendingReturn || p.holedOut[m_currentHole]) continue;
+        p.returnDelay=std::max(0.0f,p.returnDelay-dt);
+        if(p.returnDelay==0) ready.push_back(i);
+    }
+    for(auto i:ready) {
+        auto& p=m_players[i];
+        spawnBall(i,p.shotStart);
+        p.hazardImmunity=1;
+        p.respawnProtected=true;
+    }
+    bool pending=false;
+    for(const auto& p:m_players) pending |= p.pendingReturn;
+    if(!pending) m_cascadeParticipants=0;
+}
 
 uint8_t MiniGolfGame::throwsAvailableForPlayer(uint8_t playerIdx) const
 {
@@ -430,6 +583,10 @@ void MiniGolfGame::teardownCurrentHole()
 {
     if(!m_world) return;
 
+    for(b2BodyId b : m_bumperBodies)
+        if(b2Body_IsValid(b)) b2DestroyBody(b);
+    m_bumperBodies.clear();
+    m_bumperAnimation.clear();
     for(b2BodyId b : m_wallBodies)
     {
         if(b2Body_IsValid(b)) b2DestroyBody(b);
@@ -462,7 +619,7 @@ void MiniGolfGame::update(float deltaTime)
 {
     // 1) Always step physics — even between phases — so balls finish
     //    settling visibly during the hole-transition banner.
-    if(m_world && std::isfinite(deltaTime) && deltaTime > 0.0f)
+    if(m_world && m_currentHole < m_options.holeCount && std::isfinite(deltaTime) && deltaTime > 0.0f)
     {
         // Small steps preserve the path through rebounds instead of rolling
         // along a single frame's start-to-end chord. Limit catch-up after stalls.
@@ -474,16 +631,20 @@ void MiniGolfGame::update(float deltaTime)
             for(size_t i=0; i<m_players.size(); ++i)
                 if(b2Body_IsValid(m_players[i].ballBody))
                     getBodyPositionPx(*m_world, m_players[i].ballBody, before[i].x, before[i].y);
+            moveObstacles(dt);
             m_world->step(dt);
+            m_courseTime += dt;
             for(size_t i=0; i<m_players.size(); ++i)
             {
                 auto& p = m_players[i];
                 if(!b2Body_IsValid(p.ballBody)) continue;
                 float x=0, y=0;
                 getBodyPositionPx(*m_world, p.ballBody, x, y);
-                p.roll.update((x-before[i].x)/dt, (y-before[i].y)/dt, BALL_RADIUS_PX, dt);
+                const auto surface = surfaceResponse(m_course.holes[m_currentHole], {x,y}, m_courseTime);
+                p.roll.update((x-before[i].x)/dt, (y-before[i].y)/dt, BALL_RADIUS_PX, dt, surface.grip);
             }
             applyRollingFriction(dt);
+            updateObstacles(dt);
             updateCupInteraction(dt);
             remaining -= dt;
         }
@@ -530,7 +691,7 @@ void MiniGolfGame::update(float deltaTime)
         {
             advanceToNextHole();
         }
-        else
+        else if(m_phase!=Phase::ScrambleChoice)
         {
             beginNextTurn();
         }
@@ -547,7 +708,7 @@ void MiniGolfGame::update(float deltaTime)
             m_phaseTimer += deltaTime;
             if(m_phaseTimer >= HOLE_INTRO_SECS)
             {
-                m_phase      = Phase::Aiming;
+                beginNextTurn();
                 m_phaseTimer = 0.0f;
             }
             break;
@@ -565,6 +726,15 @@ void MiniGolfGame::update(float deltaTime)
                 break;
             }
 
+            auto& active = m_players[m_currentPlayer];
+            if(active.hazardTimer>0) break;
+            if(active.finishedHole[m_currentHole]) { endCurrentTurn(); break; }
+            if(active.pendingReturn) break;
+            if(b2Body_IsValid(active.ballBody) && getBodySpeedPx(*m_world,active.ballBody)>SETTLE_SPEED_PXPS)
+            {
+                m_phase=Phase::BallInMotion;
+                break;
+            }
             if(m_throwsRemainingInTurn == 0)
             {
                 // Nothing left to throw but the turn was never closed out.
@@ -611,6 +781,7 @@ void MiniGolfGame::update(float deltaTime)
             break;
         }
 
+        case Phase::ScrambleChoice:
         case Phase::GameOver:
         {
             DartPosition d;
@@ -666,6 +837,8 @@ void MiniGolfGame::processDart(const DartPosition& pos)
 
     const float vx = dx * speedPx;
     const float vy = dy * speedPx;
+    p.hazardImmunity=0;
+    p.respawnProtected=false;
     applyImpulsePxPerSec(*m_world, p.ballBody, vx, vy);
 
     // Aim arrow records origin so it renders in world space even as the
@@ -679,6 +852,10 @@ void MiniGolfGame::processDart(const DartPosition& pos)
     m_aimArrowDirY     = dy;
     m_aimArrowLengthPx = 60.0f + 220.0f * r;
     m_aimArrowTimer    = AIM_ARROW_FADE_SECS;
+
+    for(auto& ball : m_players)
+        if(b2Body_IsValid(ball.ballBody) && ball.hazardTimer<=0)
+            getBodyPositionPx(*m_world,ball.ballBody,ball.shotStart.x,ball.shotStart.y);
 
     // One trace on screen at a time — a stroke starts a clean picture.
     clearAllTrails();
@@ -695,7 +872,7 @@ void MiniGolfGame::applyRollingFriction(float deltaTime)
 {
     if(!m_world) return;
 
-    const float drop = BALL_ROLL_DECEL_PXPS2 * deltaTime;
+
 
     for(auto& p : m_players)
     {
@@ -709,6 +886,10 @@ void MiniGolfGame::applyRollingFriction(float deltaTime)
         // velocity on a sleeping body would wake it every frame.
         if(speed <= 0.0f) continue;
 
+        float x=0,y=0;
+        getBodyPositionPx(*m_world,p.ballBody,x,y);
+        const auto surface = surfaceResponse(m_course.holes[m_currentHole],{x,y},m_courseTime);
+        const float drop = BALL_ROLL_DECEL_PXPS2 * surface.resistance * deltaTime;
         const float next = speed - drop;
         if(next <= 0.0f)
         {
@@ -728,7 +909,7 @@ void MiniGolfGame::applyRollingFriction(float deltaTime)
 void MiniGolfGame::holeOutPlayer(uint8_t playerIdx)
 {
     if(playerIdx >= m_players.size()) return;
-    if(m_currentHole >= HOLES_PER_GAME) return;
+    if(m_currentHole >= m_options.holeCount) return;
 
     PlayerState& p = m_players[playerIdx];
     if(p.holedOut[m_currentHole]) return;
@@ -758,20 +939,25 @@ void MiniGolfGame::holeOutPlayer(uint8_t playerIdx)
 void MiniGolfGame::updateCupInteraction(float deltaTime)
 {
     if(!m_world) return;
-    if(m_currentHole >= HOLES_PER_GAME) return;
+    if(m_currentHole >= m_options.holeCount) return;
 
     const CourseHole& h = m_course.holes[m_currentHole];
+
+    const Vec2 cupNow=cupPosition();
+    const Vec2 cupBefore=attachedPosition(h,h.cupPos,h.cupRail,m_courseTime-std::max(0.0f,deltaTime));
+    const Vec2 cupVelocity=deltaTime>0 ? Vec2{(cupNow.x-cupBefore.x)/deltaTime,(cupNow.y-cupBefore.y)/deltaTime} : Vec2{};
 
     for(uint8_t i = 0; i < m_players.size(); ++i)
     {
         PlayerState& p = m_players[i];
-        if(p.holedOut[m_currentHole]) continue;
+        if(p.holedOut[m_currentHole] || p.hazardTimer>0) continue;
         if(!b2Body_IsValid(p.ballBody)) continue;
 
         float bx = 0.0f, by = 0.0f;
         getBodyPositionPx(*m_world, p.ballBody, bx, by);
-        const float dx = bx - h.cupPos.x;
-        const float dy = by - h.cupPos.y;
+        const Vec2 cup = cupPosition();
+        const float dx = bx - cup.x;
+        const float dy = by - cup.y;
         const float d  = std::sqrt(dx * dx + dy * dy);
 
         // The cup starts working on the ball as soon as the two overlap at
@@ -799,7 +985,10 @@ void MiniGolfGame::updateCupInteraction(float deltaTime)
             continue;
         }
 
-        const float speed = getBodySpeedPx(*m_world, p.ballBody);
+        float vx=0,vy=0;
+        getBodyVelocityPx(*m_world,p.ballBody,vx,vy);
+        vx-=cupVelocity.x; vy-=cupVelocity.y;
+        const float speed=std::hypot(vx,vy);
 
         // ---- 1) Does it drop? -------------------------------------------
         const float speedFrac  = std::clamp(speed / CUP_CAPTURE_MAX_SPEED_PXPS,
@@ -824,8 +1013,6 @@ void MiniGolfGame::updateCupInteraction(float deltaTime)
         const float nx = dx / d;          // outward radial unit vector
         const float ny = dy / d;
 
-        float vx = 0.0f, vy = 0.0f;
-        getBodyVelocityPx(*m_world, p.ballBody, vx, vy);
         const float vOut = vx * nx + vy * ny;   // outward radial speed
 
         // ---- 3) The far wall of the cup ----------------------------------
@@ -845,8 +1032,8 @@ void MiniGolfGame::updateCupInteraction(float deltaTime)
             const float tx = vx - vOut * nx;
             const float ty = vy - vOut * ny;
             setBodyVelocityPx(*m_world, p.ballBody,
-                tx * CUP_RIM_TANGENT_KEEP - nx * vOut * CUP_RIM_RESTITUTION,
-                ty * CUP_RIM_TANGENT_KEEP - ny * vOut * CUP_RIM_RESTITUTION);
+                cupVelocity.x + tx * CUP_RIM_TANGENT_KEEP - nx * vOut * CUP_RIM_RESTITUTION,
+                cupVelocity.y + ty * CUP_RIM_TANGENT_KEEP - ny * vOut * CUP_RIM_RESTITUTION);
             p.cupBounced     = true;
             p.cupRejectTimer = CUP_REJECT_SECS;
             continue;   // the bounce is this frame's cup interaction
@@ -873,6 +1060,8 @@ void MiniGolfGame::updateBallMotion(float deltaTime)
 {
     if(m_currentPlayer >= m_players.size()) return;
     PlayerState& p = m_players[m_currentPlayer];
+
+    if(p.hazardTimer > 0 || p.pendingReturn) { m_settleTimer=0; return; }
 
     const bool slow = m_lastShotHoled
                    || (b2Body_IsValid(p.ballBody)
@@ -925,6 +1114,7 @@ void MiniGolfGame::onBallSettled()
 
 void MiniGolfGame::endCurrentTurn()
 {
+    if(!m_committingScramble && finishTeamAttempt()) return;
     const bool holeDone = allPlayersFinishedHole();
     if(holeDone)
     {
@@ -971,6 +1161,10 @@ void MiniGolfGame::beginNextTurn()
         endCurrentTurn();
         return;
     }
+    m_lastShotHoled=false; m_settleTimer=0;
+    startTeamAttempt();
+    auto& p=m_players[m_currentPlayer];
+    if(!p.hasSpawned && !p.pendingReturn) spawnBall(m_currentPlayer,p.shotStart);
     m_phase = Phase::Aiming;
 }
 
@@ -1017,7 +1211,7 @@ void MiniGolfGame::advanceToNextHole()
 {
     teardownCurrentHole();
     m_currentHole++;
-    if(m_currentHole >= HOLES_PER_GAME)
+    if(m_currentHole >= m_options.holeCount)
     {
         m_phase             = Phase::GameOver;
         m_phaseTimer        = 0.0f;
@@ -1035,6 +1229,13 @@ void MiniGolfGame::advanceToNextHole()
 
 void MiniGolfGame::onKeyDown(uint32_t keycode)
 {
+    if(m_phase==Phase::ScrambleChoice) {
+        const auto n=m_teams[m_currentPlayer].attempts.size();
+        if(keycode==SDLK_UP || keycode==SDLK_LEFT) m_scrambleChoice=(m_scrambleChoice+n-1)%n;
+        else if(keycode==SDLK_DOWN || keycode==SDLK_RIGHT) m_scrambleChoice=(m_scrambleChoice+1)%n;
+        else if(keycode==SDLK_RETURN || keycode==SDLK_KP_ENTER) chooseScramble(m_scrambleChoice);
+        return;
+    }
     if(m_phase == Phase::GameOver)
     {
         const GameOverAction action = handleGameOverKey(keycode, m_gameOverCursor);
@@ -1049,6 +1250,12 @@ void MiniGolfGame::onKeyDown(uint32_t keycode)
 void MiniGolfGame::onGamepadButton(uint8_t button, bool pressed)
 {
     if(!pressed) return;
+    if(m_phase==Phase::ScrambleChoice) {
+        if(button==SDL_GAMEPAD_BUTTON_DPAD_UP) onKeyDown(SDLK_UP);
+        else if(button==SDL_GAMEPAD_BUTTON_DPAD_DOWN) onKeyDown(SDLK_DOWN);
+        else if(button==SDL_GAMEPAD_BUTTON_SOUTH) onKeyDown(SDLK_RETURN);
+        return;
+    }
     if(m_phase == Phase::GameOver)
     {
         const GameOverAction action = handleGameOverGamepad(button, m_gameOverCursor);
@@ -1068,6 +1275,7 @@ void MiniGolfGame::onMissedThrow()
     if(m_waitingForCollect) return;
     if(m_currentPlayer >= m_players.size()) return;
     if(m_throwsRemainingInTurn == 0) return;
+    if(m_players[m_currentPlayer].hazardTimer > 0 || m_players[m_currentPlayer].pendingReturn) return;
 
     PlayerState& p = m_players[m_currentPlayer];
     p.strokes[m_currentHole] = static_cast<uint8_t>(
@@ -1102,12 +1310,15 @@ void MiniGolfGame::render()
     }
 
     renderCourse();
+    renderObstacles();
     renderHashCompass();
     renderBallTrails();
     renderBalls();
     renderAimArrow();
     renderHoleBanner();
     renderScorecardPanel();
+    renderScramble();
+    renderQueueSortByLayer(getFrameId());
 }
 
 
@@ -1162,13 +1373,15 @@ void MiniGolfGame::renderCourse()
 
     for(const auto& w : h.walls)
     {
-        drawWall(w.centerX, w.centerY, w.width, w.height);
+        const auto position = obstaclePosition({w.centerX,w.centerY}, w.rail);
+        drawWall(position.x, position.y, w.width, w.height);
     }
 
     // Cup: dark fill + light rim.
     {
         float sx = 0.0f, sy = 0.0f;
-        m_camera.worldToScreen(h.cupPos.x, h.cupPos.y, sx, sy);
+        const Vec2 cupCenter = cupPosition();
+        m_camera.worldToScreen(cupCenter.x, cupCenter.y, sx, sy);
         const float r = m_camera.worldToScreenLength(h.cupRadius);
 
         auto rim = std::make_shared<RenderShape>();
@@ -1269,6 +1482,11 @@ void MiniGolfGame::renderHashCompass()
         int tw = 0, th = 0;
         if(font) TTF_GetStringSize(font, text.c_str(), 0, &tw, &th);
         constexpr float scale = 1.0f;
+        // Keep the entire label out of the header, sidebar and player bar.
+        if(labelX-tw*0.5f<COURSE_VIEW_X ||
+           labelX+tw*0.5f>COURSE_VIEW_X+COURSE_VIEW_W ||
+           labelY-th*0.5f<COURSE_VIEW_Y ||
+           labelY+th*0.5f>COURSE_VIEW_Y+COURSE_VIEW_H) continue;
 
         auto label = std::make_shared<RenderText>();
         label->m_text     = text;
@@ -1326,7 +1544,7 @@ void MiniGolfGame::renderBalls()
     {
         const PlayerState& p = m_players[i];
         if(!b2Body_IsValid(p.ballBody)) continue;
-        if(p.holedOut[m_currentHole]) continue;  // ball removed visually after holing
+        if(p.holedOut[m_currentHole] || p.hazardTimer>0) continue;  // ball removed visually after holing
 
         float wx = 0.0f, wy = 0.0f;
         getBodyPositionPx(*m_world, p.ballBody, wx, wy);
@@ -1393,12 +1611,12 @@ void MiniGolfGame::renderHoleBanner()
     std::string text;
     if(m_phase == Phase::HoleIntro)
     {
-        text = "Hole " + std::to_string(m_currentHole + 1)
-             + " / " + std::to_string(HOLES_PER_GAME);
+        text = "Hole " + std::to_string((m_options.startHole+m_currentHole)%9+1)
+             + " ("+std::to_string(m_currentHole+1)+" / "+std::to_string(m_options.holeCount)+")";
     }
     else if(m_phase == Phase::HoleTransition)
     {
-        text = "Hole " + std::to_string(m_currentHole + 1) + " complete";
+        text = "Hole " + std::to_string((m_options.startHole+m_currentHole)%9+1) + " complete";
     }
 
     if(text.empty()) return;
@@ -1440,18 +1658,16 @@ void MiniGolfGame::renderScorecardPanel()
     {
         const PlayerState& p = m_players[i];
         ScoreboardEntry e;
-        const PlayerID pid = getPlayerByIndex(i);
-        e.name       = (pid != INVALID_PLAYER_ID) ? getPlayerName(pid)
-                                                  : ("Player " + std::to_string(i + 1));
+        e.name=competitorName(i);
         e.value      = std::to_string(p.totalStrokes());
         e.valueColor = p.ballColor;
         // Detail: strokes on the current hole. advanceToNextHole() leaves
-        // m_currentHole == HOLES_PER_GAME once the round is over, so the
+        // m_currentHole == m_options.holeCount once the round is over, so the
         // per-hole line is only valid while a hole is actually in play.
-        if(m_currentHole < HOLES_PER_GAME)
+        if(m_currentHole < m_options.holeCount)
         {
             const uint8_t s = p.strokes[m_currentHole];
-            e.detailText = "Hole " + std::to_string(m_currentHole + 1)
+            e.detailText = "Hole " + std::to_string((m_options.startHole+m_currentHole)%9+1)
                          + ": " + std::to_string(s);
         }
         entries.push_back(e);
@@ -1471,9 +1687,7 @@ void MiniGolfGame::renderGameOverScreen()
         uint16_t s = m_players[i].totalStrokes();
         if(s < bestScore) { bestScore = s; winner = i; }
     }
-    std::string name = "Player " + std::to_string(winner + 1);
-    const PlayerID pid = getPlayerByIndex(winner);
-    if(pid != INVALID_PLAYER_ID) name = getPlayerName(pid);
+    std::string name=competitorName(winner);
 
     renderGameOverOverlay(getFrameId(), m_largeFontId, m_fontId,
                           name, m_gameOverCursor);

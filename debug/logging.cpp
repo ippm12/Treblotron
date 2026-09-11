@@ -4,13 +4,11 @@
  * Functions to abstract logging functions
  */
 
-#include <atomic>
 #include <memory>
 #include <vector>
 #include <string>
 #include "spdlog/spdlog.h"
-#include "spdlog/async.h"
-#include "spdlog/sinks/basic_file_sink.h"
+#include "spdlog/sinks/rotating_file_sink.h"
 #include "spdlog/sinks/stdout_color_sinks.h"
 #include "common_types.hpp"
 #include "debug/app_paths.hpp"
@@ -66,28 +64,27 @@ static inline SpdLogLevel convertLogLevel(LogLevel input)
 /**
  * Create a log with the given ID at the given level
  */
-static Status createAsyncLog(LogID logID, LogLevel logLevel, std::string& name)
+static Status createLog(LogID logID, LogLevel logLevel, std::string& name)
 {
     try
     {
-        // Create async logger that logs to both console and file
+        // Synchronous delivery: no queued messages are lost on process failure.
         std::string logger_name = std::to_string(logID) + "_" + name;
-        // appDataPath creates the directory, which basic_file_sink_mt will not
-        // do for a path whose parent is missing.
+        // Preserve previous runs, with bounded retention (three 5 MiB backups).
         std::string log_filename =
             appDataPath("logs/treblotron_" + logger_name + ".log");
 
-        auto file_sink = std::make_shared<spdlog::sinks::basic_file_sink_mt>(log_filename, true);
+        auto file_sink = std::make_shared<spdlog::sinks::rotating_file_sink_mt>(
+            log_filename, 5 * 1024 * 1024, 3, true);
         auto console_sink = std::make_shared<spdlog::sinks::stdout_color_sink_mt>();
 
         std::vector<spdlog::sink_ptr> sinks{file_sink, console_sink};
 
-        auto logger = std::make_shared<spdlog::async_logger>(
-            logger_name,
-            sinks.begin(),
-            sinks.end(),
-            spdlog::thread_pool(),
-            spdlog::async_overflow_policy::overrun_oldest);
+        auto logger = std::make_shared<spdlog::logger>(
+            logger_name, sinks.begin(), sinks.end());
+        // fflush every accepted message before its logging call returns.
+        // This survives abrupt process exit, not power loss or an interrupted write.
+        logger->flush_on(spdlog::level::trace);
 
         // Set the log level
         SpdLogLevel spdLevel = convertLogLevel(logLevel);
@@ -121,16 +118,14 @@ Status initializeLoggingModule(LogLevel logLevel)
         return STATUS_ERROR_GENERIC;
     }
 
-    // Initialize the thread pool
-    spdlog::init_thread_pool(LOG_THREAD_POOL_Q_LEN, LOG_THREAD_POOL_NUM_THREADS);
-
     // Init logging array to nullptrs
     for(int i = 0; i < MAX_ASYNC_LOGS; i++)
     {
         // Create a new log at each index
-        Status status = createAsyncLog(i, logLevel, f_loggerNames[i]);
+        Status status = createLog(i, logLevel, f_loggerNames[i]);
         if(IS_STATUS_NOT_OK(status))
         {
+            shutdownLoggingModule();
             return STATUS_ERROR_GENERIC;
         }
     }
@@ -185,13 +180,18 @@ Status setConsoleLog(LogID logID, LogLevel consoleLogLevel)
         return STATUS_ERROR_GENERIC;
     }
 
+    f_consoleLogID=logID;
     return STATUS_OK;
 }
 
 
 void shutdownLoggingModule()
 {
+    for(auto& logger:f_loggers) if(logger) logger->flush();
     spdlog::shutdown();
+    for(auto& logger:f_loggers) logger.reset();
+    f_consoleLogID=LOG_ID_INVALID;
+    f_loggingInitialized=false;
 }
 
 

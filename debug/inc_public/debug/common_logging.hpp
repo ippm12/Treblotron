@@ -10,18 +10,13 @@
 #include <memory>
 #include <string>
 #include "spdlog/spdlog.h"
-#include "spdlog/async.h"
 #include "common_types.hpp"
 
-typedef spdlog::details::async_logger_ptr LoggerPtr;
+using LoggerPtr = std::shared_ptr<spdlog::logger>;
 
 // Log ID definitions
 typedef ssize_t LogID;
 #define LOG_ID_INVALID  (-1)
-
-// Thread pool settings
-#define LOG_THREAD_POOL_Q_LEN           1024
-#define LOG_THREAD_POOL_NUM_THREADS     1
 
 // IDs for each sink
 #define LOG_SINK_FILE_INDEX         0
@@ -54,17 +49,17 @@ typedef ssize_t LogLevel;
 #define LOG_CRITICAL(logID, ...)    logAsyncMessage(logID, LOGGING_LEVEL_CRITICAL, __VA_ARGS__)
 
 /**
- * Initializes logging module as well as a main asynchronous log.
+ * Initializes logging module as well as a synchronous, flushed logs with bounded rotating backups.
  */
 Status initializeLoggingModule(LogLevel logLevel);
 
 /**
- * Shuts down logging module and clears list of async queues
+ * Flushes and releases loggers after producer threads have stopped
  */
 void shutdownLoggingModule();
 
 /**
- * Set the async log that is attached to the console
+ * Set the log that is attached to the console
  */
 Status setConsoleLog(LogID logID, LogLevel consoleLogLevel);
 
@@ -74,7 +69,8 @@ Status setConsoleLog(LogID logID, LogLevel consoleLogLevel);
 LoggerPtr getLogger(LogID logID);
 
 /**
- * Logs a message with the given logging level, string should use {} formatting notation
+ * Logs synchronously and flushes before returning. The legacy function name
+ * remains for source compatibility. Strings use {} formatting notation.
  */
 template<typename... Args>
 void logAsyncMessage(LogID asyncLogID, LogLevel level, spdlog::format_string_t<Args...> fmt, Args&&... args)

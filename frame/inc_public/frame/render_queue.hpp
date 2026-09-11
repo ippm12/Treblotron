@@ -22,6 +22,11 @@ Status renderQueueAdd(FrameID frameId, RenderObjectPtr obj);
  */
 Status renderQueueDrawFlush(FrameID frameId);
 
+/** Opt in to ascending z order for currently queued objects only.
+ * Equal layers retain submission order; later submissions remain on top.
+ */
+Status renderQueueSortByLayer(FrameID frameId);
+
 /**
  * Discard all queued objects for the given frame without rendering.
  */

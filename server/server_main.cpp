@@ -1,3 +1,4 @@
+#include "debug/crash_reporting.hpp"
 /**
  * server_main.cpp
  *
@@ -91,6 +92,9 @@ namespace
 
 int main(int argc, char** argv)
 {
+    int helperExit=0;
+    if(runCrashDumpHelper(argc,argv,helperExit)) return helperExit;
+    const bool crashCapture=initializeCrashReporting();
     DartServerConfig config;
     std::string replayDir;
     std::string calibrationPath = appDataPath("config/wire_calibration.txt");
@@ -195,6 +199,7 @@ int main(int argc, char** argv)
         std::fprintf(stderr, "Failed to initialize logging\n");
         return -1;
     }
+    if(!crashCapture) LOG_WARNING(SERVER_LOG_ID,"Crash dump helper could not be initialized");
     setConsoleLog(SERVER_LOG_ID, LOGGING_LEVEL_INFO);
     // The detector's own log too. This is a headless tool with no other UI, and
     // the things it says are the things you need: which conditioning layout the

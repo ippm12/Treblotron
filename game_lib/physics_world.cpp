@@ -3,10 +3,19 @@
  */
 
 #include "game_lib/box2d/physics_world.hpp"
+#include "debug/crash_reporting.hpp"
+#include <cstdio>
 
 
 PhysicsWorld::PhysicsWorld()
 {
+#ifdef _WIN32
+    b2SetAssertFcn([](const char* condition,const char* file,int line) -> int {
+        char reason[512];
+        std::snprintf(reason,sizeof(reason),"Box2D assertion: %s at %s:%d",condition,file,line);
+        reportFatalCrash(reason);
+    });
+#endif
     b2WorldDef def = b2DefaultWorldDef();
     def.gravity = { 0.0f, 0.0f };  // top-down default
     m_worldId = b2CreateWorld(&def);

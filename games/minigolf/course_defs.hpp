@@ -19,6 +19,8 @@
 #include <array>
 #include <cstdint>
 #include <vector>
+#include <initializer_list>
+#include <string_view>
 
 
 namespace MiniGolf
@@ -37,6 +39,71 @@ struct Vec2
 {
     float x = 0.0f;
     float y = 0.0f;
+};
+
+enum class RailMode { Loop, PingPong };
+struct RailStop
+{
+    Vec2 offset;                 // Offset from each attached element's base position.
+    float pauseSeconds = 0;
+    float speed = 100;            // Pixels/second leaving this stop.
+};
+struct Rail
+{
+    std::vector<RailStop> stops;
+    RailMode mode = RailMode::PingPong;
+    float phaseSeconds = 0;
+};
+
+enum class SurfaceKind { Rough, Sand, Ice, Water };
+
+// Leave room above each layer for details. All course geometry stays below
+// GameLayout::SIDEBAR_Z (100); chrome/overlays retain their existing priority.
+namespace CourseLayer {
+constexpr uint32_t Felt=1, Rail=20;
+constexpr uint32_t Ice=10, Rough=12, Sand=14, Water=16;
+constexpr uint32_t Guide=95, Wall=30, Bumper=40, Laser=45;
+constexpr uint32_t Portal=50, Cup=60, Trail=70, Ball=80, Aim=85, Effect=90;
+}
+constexpr uint32_t surfaceLayer(SurfaceKind kind)
+{
+    switch(kind) {
+        case SurfaceKind::Ice: return CourseLayer::Ice;
+        case SurfaceKind::Rough: return CourseLayer::Rough;
+        case SurfaceKind::Sand: return CourseLayer::Sand;
+        case SurfaceKind::Water: return CourseLayer::Water;
+    }
+    return CourseLayer::Felt;
+}
+struct SurfacePatch
+{
+    Vec2 center;
+    Vec2 size;
+    SurfaceKind kind = SurfaceKind::Rough; // Surfaces are always stationary.
+};
+struct Bumper
+{
+    Vec2 center;
+    float radius = 40;
+    float kickSpeed = 550;
+    int rail = -1;
+};
+struct Laser
+{
+    Vec2 center;
+    Vec2 size{250, 8};
+    float onSeconds = 2;
+    float offSeconds = 2;
+    float phaseSeconds = 0;
+    int rail = -1;
+};
+struct Portal
+{
+    Vec2 center;
+    // Portals use their hole's cupRadius for both drawing and entry tests.
+    int pair = 0;                // Exactly two portals per pair, sharing a colour.
+    Color color{170, 90, 220};
+    int rail = -1;
 };
 
 
@@ -83,12 +150,15 @@ struct WallBox
     float centerY = 0.0f;
     float width   = 0.0f;
     float height  = 0.0f;
+    int rail = -1;
+    bool showRail = true;
 };
 
 
 struct CourseHole
 {
     Vec2  startPos;
+    std::vector<Vec2> spawnPositions; // Optional tees, assigned round-robin by player.
     Vec2  cupPos;
     float cupRadius = 22.0f;
 
@@ -101,8 +171,36 @@ struct CourseHole
     // Interior obstacles only — boundary walls are auto-generated.
     std::vector<WallBox> walls;
 
+    const char* name = "Practice";
+    std::vector<Rail> rails;
+    int cupRail = -1;
+    std::vector<SurfacePatch> surfaces;
+    std::vector<Bumper> bumpers;
+    std::vector<Laser> lasers;
+    std::vector<Portal> portals;
+
     int   par = 3;
 };
+
+
+// Build a compound barrier from a square grid. '#' is solid; other cells
+// are empty. Tiles share one rail so the entire shape translates together.
+// Adjacent square faces meet exactly in both drawing and collision geometry.
+inline void addTileBarrier(CourseHole& hole,Vec2 topLeft,float tileSize,
+                           std::initializer_list<std::string_view> rows,int rail=-1)
+{
+    if(tileSize<=0) return;
+    size_t y=0;
+    bool first=true;
+    for(auto row:rows) {
+        for(size_t x=0;x<row.size();++x) if(row[x]=='#') {
+            hole.walls.push_back({topLeft.x+(x+0.5f)*tileSize,
+                topLeft.y+(y+0.5f)*tileSize,tileSize,tileSize,rail,first});
+            first=false;
+        }
+        ++y;
+    }
+}
 
 
 struct Course
