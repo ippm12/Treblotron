@@ -1,0 +1,159 @@
+{
+    "formatVersion": 1,
+    "id": "canyon-echo",
+    "name": "Canyon Echo",
+    "par": 4,
+    "bounds": {
+        "topLeft": [ 165, 225 ],
+        "bottomRight": [ 1245, 785 ]
+    },
+    "tee": {
+        "id": "tee",
+        "position": [ 265, 325 ]
+    },
+    "extraTees": [
+    ],
+    "cup": {
+        "id": "cup",
+        "position": [ 1145, 685 ],
+        "radius": 30,
+        "rail": ""
+    },
+    "rails": [
+    ],
+    "walls": [
+        {
+            "id": "wall-1",
+            "group": "barrier-1",
+            "center": [ 555, 445 ],
+            "size": [ 40, 40 ],
+            "rail": "",
+            "showRail": 1
+        },
+        {
+            "id": "wall-2",
+            "group": "barrier-1",
+            "center": [ 555, 485 ],
+            "size": [ 40, 40 ],
+            "rail": "",
+            "showRail": 0
+        },
+        {
+            "id": "wall-3",
+            "group": "barrier-1",
+            "center": [ 555, 525 ],
+            "size": [ 40, 40 ],
+            "rail": "",
+            "showRail": 0
+        },
+        {
+            "id": "wall-4",
+            "group": "barrier-1",
+            "center": [ 555, 565 ],
+            "size": [ 40, 40 ],
+            "rail": "",
+            "showRail": 0
+        },
+        {
+            "id": "wall-5",
+            "group": "barrier-1",
+            "center": [ 555, 605 ],
+            "size": [ 40, 40 ],
+            "rail": "",
+            "showRail": 0
+        },
+        {
+            "id": "wall-6",
+            "group": "barrier-1",
+            "center": [ 555, 645 ],
+            "size": [ 40, 40 ],
+            "rail": "",
+            "showRail": 0
+        },
+        {
+            "id": "wall-7",
+            "group": "barrier-1",
+            "center": [ 555, 685 ],
+            "size": [ 40, 40 ],
+            "rail": "",
+            "showRail": 0
+        },
+        {
+            "id": "wall-8",
+            "group": "barrier-8",
+            "center": [ 875, 305 ],
+            "size": [ 40, 40 ],
+            "rail": "",
+            "showRail": 1
+        },
+        {
+            "id": "wall-9",
+            "group": "barrier-8",
+            "center": [ 875, 345 ],
+            "size": [ 40, 40 ],
+            "rail": "",
+            "showRail": 0
+        },
+        {
+            "id": "wall-10",
+            "group": "barrier-8",
+            "center": [ 875, 385 ],
+            "size": [ 40, 40 ],
+            "rail": "",
+            "showRail": 0
+        },
+        {
+            "id": "wall-11",
+            "group": "barrier-8",
+            "center": [ 875, 425 ],
+            "size": [ 40, 40 ],
+            "rail": "",
+            "showRail": 0
+        },
+        {
+            "id": "wall-12",
+            "group": "barrier-8",
+            "center": [ 875, 465 ],
+            "size": [ 40, 40 ],
+            "rail": "",
+            "showRail": 0
+        },
+        {
+            "id": "wall-13",
+            "group": "barrier-8",
+            "center": [ 875, 505 ],
+            "size": [ 40, 40 ],
+            "rail": "",
+            "showRail": 0
+        },
+        {
+            "id": "wall-14",
+            "group": "barrier-8",
+            "center": [ 875, 545 ],
+            "size": [ 40, 40 ],
+            "rail": "",
+            "showRail": 0
+        }
+    ],
+    "surfaces": [
+        {
+            "id": "sand-1",
+            "kind": "sand",
+            "center": [ 1065, 475 ],
+            "size": [ 120, 140 ]
+        }
+    ],
+    "bumpers": [
+        {
+            "id": "bumper-1",
+            "center": [ 755, 485 ],
+            "radius": 42,
+            "kickSpeed": 450,
+            "rail": ""
+        }
+    ],
+    "lasers": [
+    ],
+    "portals": [
+    ]
+}

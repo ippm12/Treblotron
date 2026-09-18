@@ -1,0 +1,98 @@
+{
+    "formatVersion": 2,
+    "id": "oak-avenue",
+    "name": "The Ancient Oak",
+    "par": 4,
+    "bounds": {
+        "topLeft": [ 105, 185 ],
+        "bottomRight": [ 1305, 825 ]
+    },
+    "tee": {
+        "id": "tee",
+        "position": [ 249, 505 ]
+    },
+    "extraTees": [
+    ],
+    "cup": {
+        "id": "cup",
+        "position": [ 1161, 505 ],
+        "radius": 30,
+        "rail": ""
+    },
+    "rails": [
+    ],
+    "walls": [
+    ],
+    "surfaces": [
+        {
+            "id": "root-plate",
+            "kind": "rough",
+            "center": [ 705, 505 ],
+            "size": [ 300, 224 ]
+        },
+        {
+            "id": "leaf-fall",
+            "kind": "sand",
+            "center": [ 717, 755.666687 ],
+            "size": [ 360, 53.333332 ]
+        }
+    ],
+    "bumpers": [
+        {
+            "id": "oak-trunk-2",
+            "center": [ 843.414734, 634.262817 ],
+            "radius": 26,
+            "kickSpeed": 300,
+            "rail": ""
+        },
+        {
+            "id": "oak-trunk-3",
+            "center": [ 655.600342, 666.18811 ],
+            "radius": 26,
+            "kickSpeed": 300,
+            "rail": ""
+        },
+        {
+            "id": "oak-trunk-6",
+            "center": [ 655.600342, 343.81192 ],
+            "radius": 26,
+            "kickSpeed": 300,
+            "rail": ""
+        },
+        {
+            "id": "oak-trunk-7",
+            "center": [ 843.414734, 375.737183 ],
+            "radius": 26,
+            "kickSpeed": 300,
+            "rail": ""
+        }
+    ],
+    "lasers": [
+        {
+            "id": "laser-1",
+            "center": [ 880, 510 ],
+            "size": [ 260, 8 ],
+            "angleDegrees": 90,
+            "onSeconds": 2,
+            "offSeconds": 2,
+            "phaseSeconds": 0,
+            "rail": ""
+        }
+    ],
+    "portals": [
+        {
+            "id": "portal-1",
+            "center": [ 840, 500 ],
+            "pair": 0,
+            "color": [ 170, 90, 220 ],
+            "rail": ""
+        },
+        {
+            "id": "portal-2",
+            "center": [ 920, 500 ],
+            "pair": 0,
+            "color": [ 170, 90, 220 ],
+            "rail": ""
+        }
+    ]
+}

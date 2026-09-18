@@ -32,10 +32,16 @@ class BuildContext:
         subprocess.run([self.ninja, '-C', str(build), 'bin/Treblotron.exe'], env=self.env, check=True)
         entries = json.loads((build / 'compile_commands.json').read_text())
         self.entry = next(e for e in entries if e['file'].replace(chr(92), '/').endswith('/startup.cpp'))
-        commands = subprocess.check_output([self.ninja, '-C', str(build), '-t', 'commands', 'bin/Treblotron.exe'], env=self.env, text=True)
-        link = next(part.strip() for line in reversed(commands.splitlines()) for part in line.split(' && ')
-                    if 'startup.cpp.obj' in part and ' -o ' in part)
+        # Ask Ninja to expand response files; otherwise a long link command can
+        # look like @Treblotron.rsp and be mistaken for startup's compile rule.
+        commands = json.loads(subprocess.check_output(
+            [self.ninja, '-C', str(build), '-t', 'compdb', '-x'], env=self.env, text=True))
+        executable = next(e for e in commands if e['output'].replace(chr(92), '/') == 'bin/Treblotron.exe')
+        link = next(part.strip() for part in executable['command'].split(' && ')
+                    if 'startup.cpp.obj' in part and ' -o ' in part and ' -c ' not in part)
         self.link = tokens(link)
+        if '-c' in self.link or any(arg.startswith('@') for arg in self.link):
+            raise RuntimeError('Expected a fully expanded executable link command')
 
     def directory(self, name):
         output = (self.build / 'tests' / name).resolve()

@@ -1,0 +1,17 @@
+{
+    "formatVersion": 2,
+    "id": "ochemont",
+    "name": "Ochemont",
+    "theme": "ochemont",
+    "holes": [
+        "clubhouse-lawn",
+        "oak-avenue",
+        "deep-bunkers",
+        "members-bounce",
+        "stone-arcade",
+        "winter-green",
+        "groundskeepers-gate",
+        "championship-pond",
+        "the-grandstand"
+    ]
+}

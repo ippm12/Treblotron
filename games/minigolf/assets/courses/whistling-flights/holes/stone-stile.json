@@ -1,0 +1,114 @@
+{
+    "formatVersion": 2,
+    "id": "stone-stile",
+    "name": "The Standing Circle",
+    "par": 3,
+    "bounds": {
+        "topLeft": [ 275, 155 ],
+        "bottomRight": [ 1135, 855 ]
+    },
+    "tee": {
+        "id": "tee",
+        "position": [ 705, 755.833313 ]
+    },
+    "extraTees": [
+    ],
+    "cup": {
+        "id": "cup",
+        "position": [ 705, 505 ],
+        "radius": 30,
+        "rail": ""
+    },
+    "rails": [
+    ],
+    "walls": [
+        {
+            "id": "standing-stone-1",
+            "group": "standing-stone-1",
+            "center": [ 945.799988, 505 ],
+            "size": [ 36.119999, 49 ],
+            "rail": "",
+            "showRail": 1
+        },
+        {
+            "id": "standing-stone-2",
+            "group": "standing-stone-2",
+            "center": [ 889.463501, 647.484558 ],
+            "size": [ 36.119999, 49 ],
+            "angleDegrees": 40,
+            "rail": "",
+            "showRail": 1
+        },
+        {
+            "id": "standing-stone-5",
+            "group": "standing-stone-5",
+            "center": [ 478.722015, 580.814453 ],
+            "size": [ 36.119999, 49 ],
+            "angleDegrees": 160,
+            "rail": "",
+            "showRail": 1
+        },
+        {
+            "id": "standing-stone-6",
+            "group": "standing-stone-6",
+            "center": [ 478.722015, 429.185547 ],
+            "size": [ 36.119999, 49 ],
+            "angleDegrees": 200,
+            "rail": "",
+            "showRail": 1
+        },
+        {
+            "id": "standing-stone-7",
+            "group": "standing-stone-7",
+            "center": [ 584.599976, 313.031036 ],
+            "size": [ 36.119999, 49 ],
+            "angleDegrees": 240,
+            "rail": "",
+            "showRail": 1
+        },
+        {
+            "id": "standing-stone-8",
+            "group": "standing-stone-8",
+            "center": [ 746.814453, 286.700958 ],
+            "size": [ 36.119999, 49 ],
+            "angleDegrees": 280,
+            "rail": "",
+            "showRail": 1
+        },
+        {
+            "id": "standing-stone-9",
+            "group": "standing-stone-9",
+            "center": [ 889.463501, 362.515411 ],
+            "size": [ 36.119999, 49 ],
+            "angleDegrees": 320,
+            "rail": "",
+            "showRail": 1
+        },
+        {
+            "id": "inner-stone-west",
+            "group": "inner-stone-west",
+            "center": [ 606.099976, 493.333344 ],
+            "size": [ 32.68, 105 ],
+            "angleDegrees": -20,
+            "rail": "",
+            "showRail": 1
+        },
+        {
+            "id": "inner-stone-east",
+            "group": "inner-stone-east",
+            "center": [ 812.5, 452.5 ],
+            "size": [ 32.68, 75.833336 ],
+            "angleDegrees": 25,
+            "rail": "",
+            "showRail": 1
+        }
+    ],
+    "surfaces": [
+    ],
+    "bumpers": [
+    ],
+    "lasers": [
+    ],
+    "portals": [
+    ]
+}

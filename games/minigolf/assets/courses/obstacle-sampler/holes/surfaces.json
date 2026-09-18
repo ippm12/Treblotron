@@ -1,0 +1,58 @@
+{
+    "formatVersion": 1,
+    "id": "surfaces",
+    "name": "Surfaces: sand / ice / rough / water",
+    "par": 3,
+    "bounds": {
+        "topLeft": [ 65, 145 ],
+        "bottomRight": [ 1345, 865 ]
+    },
+    "tee": {
+        "id": "tee",
+        "position": [ 705, 800 ]
+    },
+    "extraTees": [
+    ],
+    "cup": {
+        "id": "cup",
+        "position": [ 705, 205 ],
+        "radius": 30,
+        "rail": ""
+    },
+    "rails": [
+    ],
+    "walls": [
+    ],
+    "surfaces": [
+        {
+            "id": "surface-1",
+            "kind": "sand",
+            "center": [ 280, 505 ],
+            "size": [ 240, 300 ]
+        },
+        {
+            "id": "surface-2",
+            "kind": "ice",
+            "center": [ 565, 505 ],
+            "size": [ 240, 300 ]
+        },
+        {
+            "id": "surface-3",
+            "kind": "rough",
+            "center": [ 850, 505 ],
+            "size": [ 240, 300 ]
+        },
+        {
+            "id": "surface-4",
+            "kind": "water",
+            "center": [ 1135, 505 ],
+            "size": [ 200, 260 ]
+        }
+    ],
+    "bumpers": [
+    ],
+    "lasers": [
+    ],
+    "portals": [
+    ]
+}

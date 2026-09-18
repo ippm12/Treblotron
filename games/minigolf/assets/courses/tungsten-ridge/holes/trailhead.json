@@ -1,0 +1,70 @@
+{
+    "formatVersion": 2,
+    "id": "trailhead",
+    "name": "The Split Summit",
+    "par": 4,
+    "bounds": {
+        "topLeft": [ 255, 155 ],
+        "bottomRight": [ 1155, 855 ]
+    },
+    "tee": {
+        "id": "tee",
+        "position": [ 701.760925, 765.930481 ]
+    },
+    "extraTees": [
+    ],
+    "cup": {
+        "id": "cup",
+        "position": [ 705, 260 ],
+        "radius": 30,
+        "rail": ""
+    },
+    "rails": [
+    ],
+    "walls": [
+        {
+            "id": "west-face",
+            "group": "west-face",
+            "center": [ 588, 510.833344 ],
+            "size": [ 261, 37.333332 ],
+            "angleDegrees": -52,
+            "rail": "",
+            "showRail": 1
+        },
+        {
+            "id": "east-face",
+            "group": "east-face",
+            "center": [ 822, 510.833344 ],
+            "size": [ 261, 37.333332 ],
+            "angleDegrees": 52,
+            "rail": "",
+            "showRail": 1
+        }
+    ],
+    "surfaces": [
+        {
+            "id": "snow-face",
+            "kind": "ice",
+            "center": [ 705, 458.333344 ],
+            "size": [ 126, 262.5 ]
+        },
+        {
+            "id": "scree-west",
+            "kind": "rough",
+            "center": [ 426, 493.333344 ],
+            "size": [ 99, 291.666656 ]
+        },
+        {
+            "id": "scree-east",
+            "kind": "sand",
+            "center": [ 993, 580.833313 ],
+            "size": [ 108, 210 ]
+        }
+    ],
+    "bumpers": [
+    ],
+    "lasers": [
+    ],
+    "portals": [
+    ]
+}

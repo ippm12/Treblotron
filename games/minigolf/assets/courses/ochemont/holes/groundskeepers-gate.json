@@ -1,0 +1,136 @@
+{
+    "formatVersion": 2,
+    "id": "groundskeepers-gate",
+    "name": "Groundskeepers on Parade",
+    "par": 4,
+    "bounds": {
+        "topLeft": [ 105, 185 ],
+        "bottomRight": [ 1305, 825 ]
+    },
+    "tee": {
+        "id": "tee",
+        "position": [ 249, 707.666687 ]
+    },
+    "extraTees": [
+    ],
+    "cup": {
+        "id": "cup",
+        "position": [ 1141, 351.666656 ],
+        "radius": 30,
+        "rail": ""
+    },
+    "rails": [
+        {
+            "id": "mower-route-0",
+            "mode": "pingPong",
+            "phaseSeconds": 0,
+            "stops": [
+                {
+                    "id": "mower-route-0-1",
+                    "offset": [ 0, 0 ],
+                    "pauseSeconds": 0,
+                    "speed": 55
+                },
+                {
+                    "id": "mower-route-0-2",
+                    "offset": [ 660, 0 ],
+                    "pauseSeconds": 0,
+                    "speed": 55
+                }
+            ]
+        },
+        {
+            "id": "mower-route-1",
+            "mode": "pingPong",
+            "phaseSeconds": 0,
+            "stops": [
+                {
+                    "id": "mower-route-1-1",
+                    "offset": [ 0, 0 ],
+                    "pauseSeconds": 0,
+                    "speed": 160
+                },
+                {
+                    "id": "mower-route-1-2",
+                    "offset": [ 480, 0 ],
+                    "pauseSeconds": 0,
+                    "speed": 80
+                }
+            ]
+        },
+        {
+            "id": "mower-route-2",
+            "mode": "pingPong",
+            "phaseSeconds": 0,
+            "stops": [
+                {
+                    "id": "mower-route-2-1",
+                    "offset": [ 0, 0 ],
+                    "pauseSeconds": 0,
+                    "speed": 210
+                },
+                {
+                    "id": "mower-route-2-2",
+                    "offset": [ 480, 0 ],
+                    "pauseSeconds": 0,
+                    "speed": 105
+                }
+            ]
+        }
+    ],
+    "walls": [
+        {
+            "id": "mower-0",
+            "group": "mower-0",
+            "center": [ 453, 387.666656 ],
+            "size": [ 120, 38.400002 ],
+            "angleDegrees": 90,
+            "rail": "mower-route-0",
+            "showRail": 1
+        },
+        {
+            "id": "mower-1",
+            "group": "mower-1",
+            "center": [ 453, 515.666687 ],
+            "size": [ 120, 38.400002 ],
+            "angleDegrees": 106.610573,
+            "rail": "mower-route-1",
+            "showRail": 1
+        },
+        {
+            "id": "mower-2",
+            "group": "mower-2",
+            "center": [ 453, 643.666687 ],
+            "size": [ 120, 38.400002 ],
+            "angleDegrees": 106.501495,
+            "rail": "mower-route-2",
+            "showRail": 1
+        }
+    ],
+    "surfaces": [
+        {
+            "id": "unmown-strip-0",
+            "kind": "rough",
+            "center": [ 717, 387.666656 ],
+            "size": [ 804, 58.666668 ]
+        },
+        {
+            "id": "unmown-strip-1",
+            "kind": "rough",
+            "center": [ 717, 515.666687 ],
+            "size": [ 804, 58.666668 ]
+        },
+        {
+            "id": "unmown-strip-2",
+            "kind": "rough",
+            "center": [ 717, 643.666687 ],
+            "size": [ 804, 58.666668 ]
+        }
+    ],
+    "bumpers": [
+    ],
+    "lasers": [
+    ],
+    "portals": [
+    ]
+}

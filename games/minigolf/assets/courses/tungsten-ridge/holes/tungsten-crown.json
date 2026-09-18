@@ -1,0 +1,172 @@
+{
+    "formatVersion": 2,
+    "id": "tungsten-crown",
+    "name": "The Tungsten Crown",
+    "par": 5,
+    "bounds": {
+        "topLeft": [ 205, 155 ],
+        "bottomRight": [ 1205, 855 ]
+    },
+    "tee": {
+        "id": "tee",
+        "position": [ 705, 767.5 ]
+    },
+    "extraTees": [
+    ],
+    "cup": {
+        "id": "cup",
+        "position": [ 705, 505 ],
+        "radius": 30,
+        "rail": ""
+    },
+    "rails": [
+    ],
+    "walls": [
+        {
+            "id": "crown-tooth-1",
+            "group": "crown-tooth-1",
+            "center": [ 975, 505 ],
+            "size": [ 42, 49 ],
+            "rail": "",
+            "showRail": 1
+        },
+        {
+            "id": "crown-tooth-2",
+            "group": "crown-tooth-2",
+            "center": [ 938.826843, 615.833313 ],
+            "size": [ 42, 49 ],
+            "angleDegrees": 30,
+            "rail": "",
+            "showRail": 1
+        },
+        {
+            "id": "crown-tooth-6",
+            "group": "crown-tooth-6",
+            "center": [ 471.173126, 615.833313 ],
+            "size": [ 42, 49 ],
+            "angleDegrees": 150,
+            "rail": "",
+            "showRail": 1
+        },
+        {
+            "id": "crown-tooth-7",
+            "group": "crown-tooth-7",
+            "center": [ 435, 505 ],
+            "size": [ 42, 49 ],
+            "angleDegrees": 180,
+            "rail": "",
+            "showRail": 1
+        },
+        {
+            "id": "crown-tooth-8",
+            "group": "crown-tooth-8",
+            "center": [ 471.173126, 394.166656 ],
+            "size": [ 42, 49 ],
+            "angleDegrees": 210,
+            "rail": "",
+            "showRail": 1
+        },
+        {
+            "id": "crown-tooth-9",
+            "group": "crown-tooth-9",
+            "center": [ 570, 313.031036 ],
+            "size": [ 42, 49 ],
+            "angleDegrees": 240,
+            "rail": "",
+            "showRail": 1
+        },
+        {
+            "id": "crown-tooth-10",
+            "group": "crown-tooth-10",
+            "center": [ 705, 283.333344 ],
+            "size": [ 42, 49 ],
+            "angleDegrees": 270,
+            "rail": "",
+            "showRail": 1
+        },
+        {
+            "id": "crown-tooth-11",
+            "group": "crown-tooth-11",
+            "center": [ 840, 313.031036 ],
+            "size": [ 42, 49 ],
+            "angleDegrees": 300,
+            "rail": "",
+            "showRail": 1
+        },
+        {
+            "id": "crown-tooth-12",
+            "group": "crown-tooth-12",
+            "center": [ 938.826843, 394.166656 ],
+            "size": [ 42, 49 ],
+            "angleDegrees": 330,
+            "rail": "",
+            "showRail": 1
+        }
+    ],
+    "surfaces": [
+        {
+            "id": "frost-1",
+            "kind": "ice",
+            "center": [ 1075, 505 ],
+            "size": [ 105, 72.333336 ],
+            "angleDegrees": 90
+        },
+        {
+            "id": "frost-2",
+            "kind": "ice",
+            "center": [ 1025.429443, 659.583313 ],
+            "size": [ 105, 72.333336 ],
+            "angleDegrees": 120
+        },
+        {
+            "id": "frost-6",
+            "kind": "ice",
+            "center": [ 384.570587, 659.583313 ],
+            "size": [ 105, 72.333336 ],
+            "angleDegrees": 240
+        },
+        {
+            "id": "frost-7",
+            "kind": "ice",
+            "center": [ 335, 505 ],
+            "size": [ 105, 72.333336 ],
+            "angleDegrees": 270
+        },
+        {
+            "id": "frost-8",
+            "kind": "ice",
+            "center": [ 384.570587, 350.416656 ],
+            "size": [ 105, 72.333336 ],
+            "angleDegrees": 300
+        },
+        {
+            "id": "frost-12",
+            "kind": "ice",
+            "center": [ 1025.429443, 350.416656 ],
+            "size": [ 105, 72.333336 ],
+            "angleDegrees": 420
+        }
+    ],
+    "bumpers": [
+        {
+            "id": "crown-stud",
+            "center": [ 705, 283.333344 ],
+            "radius": 34,
+            "kickSpeed": 520,
+            "rail": ""
+        }
+    ],
+    "lasers": [
+        {
+            "id": "survey-west",
+            "center": [ 700, 660 ],
+            "size": [ 120, 8 ],
+            "onSeconds": 1,
+            "offSeconds": 0,
+            "phaseSeconds": 0,
+            "rail": ""
+        }
+    ],
+    "portals": [
+    ]
+}

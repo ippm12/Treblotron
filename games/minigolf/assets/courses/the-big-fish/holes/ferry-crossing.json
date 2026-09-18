@@ -1,0 +1,87 @@
+{
+    "formatVersion": 1,
+    "id": "ferry-crossing",
+    "name": "Three Island Ferry",
+    "par": 5,
+    "bounds": {
+        "topLeft": [ 105, 185 ],
+        "bottomRight": [ 1305, 825 ]
+    },
+    "tee": {
+        "id": "tee",
+        "position": [ 261, 686.333313 ]
+    },
+    "extraTees": [
+    ],
+    "cup": {
+        "id": "cup",
+        "position": [ 1149, 313 ],
+        "radius": 30,
+        "rail": ""
+    },
+    "rails": [
+    ],
+    "walls": [
+    ],
+    "surfaces": [
+        {
+            "id": "west-channel",
+            "kind": "water",
+            "center": [ 513, 505 ],
+            "size": [ 114, 640 ]
+        },
+        {
+            "id": "east-channel",
+            "kind": "water",
+            "center": [ 903, 505 ],
+            "size": [ 114, 640 ]
+        },
+        {
+            "id": "middle-beach",
+            "kind": "sand",
+            "center": [ 687, 499.666656 ],
+            "size": [ 180, 96 ]
+        }
+    ],
+    "bumpers": [
+        {
+            "id": "island-buoy",
+            "center": [ 1143, 467.666656 ],
+            "radius": 28,
+            "kickSpeed": 350,
+            "rail": ""
+        }
+    ],
+    "lasers": [
+    ],
+    "portals": [
+        {
+            "id": "amber-ferry-a",
+            "center": [ 333, 409 ],
+            "pair": 0,
+            "color": [ 235, 170, 60 ],
+            "rail": ""
+        },
+        {
+            "id": "amber-ferry-b",
+            "center": [ 693, 665 ],
+            "pair": 0,
+            "color": [ 235, 170, 60 ],
+            "rail": ""
+        },
+        {
+            "id": "blue-ferry-a",
+            "center": [ 711, 334.333344 ],
+            "pair": 1,
+            "color": [ 70, 170, 230 ],
+            "rail": ""
+        },
+        {
+            "id": "blue-ferry-b",
+            "center": [ 1095, 611.666687 ],
+            "pair": 1,
+            "color": [ 70, 170, 230 ],
+            "rail": ""
+        }
+    ]
+}

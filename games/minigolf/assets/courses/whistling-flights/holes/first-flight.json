@@ -1,0 +1,64 @@
+{
+    "formatVersion": 2,
+    "id": "first-flight",
+    "name": "The Exposed Spine",
+    "par": 4,
+    "bounds": {
+        "topLeft": [ 105, 185 ],
+        "bottomRight": [ 1305, 825 ]
+    },
+    "tee": {
+        "id": "tee",
+        "position": [ 225, 707.666687 ]
+    },
+    "extraTees": [
+    ],
+    "cup": {
+        "id": "cup",
+        "position": [ 1185, 302.333344 ],
+        "radius": 30,
+        "rail": ""
+    },
+    "rails": [
+    ],
+    "walls": [
+        {
+            "id": "ridge-stone",
+            "group": "ridge-stone",
+            "center": [ 747, 505 ],
+            "size": [ 54, 48 ],
+            "angleDegrees": 20,
+            "rail": "",
+            "showRail": 1
+        }
+    ],
+    "surfaces": [
+        {
+            "id": "west-marram",
+            "kind": "rough",
+            "center": [ 525, 387.666656 ],
+            "size": [ 504, 181.333328 ],
+            "angleDegrees": -25
+        },
+        {
+            "id": "east-marram",
+            "kind": "rough",
+            "center": [ 885, 622.333313 ],
+            "size": [ 504, 181.333328 ],
+            "angleDegrees": -25
+        },
+        {
+            "id": "exposed-spine",
+            "kind": "ice",
+            "center": [ 705, 505 ],
+            "size": [ 744, 74.666664 ],
+            "angleDegrees": -25
+        }
+    ],
+    "bumpers": [
+    ],
+    "lasers": [
+    ],
+    "portals": [
+    ]
+}

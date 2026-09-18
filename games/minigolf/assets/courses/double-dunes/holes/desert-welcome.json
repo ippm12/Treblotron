@@ -1,0 +1,84 @@
+{
+    "formatVersion": 1,
+    "id": "desert-welcome",
+    "name": "Desert Welcome",
+    "par": 3,
+    "bounds": {
+        "topLeft": [ 165, 225 ],
+        "bottomRight": [ 1245, 785 ]
+    },
+    "tee": {
+        "id": "tee",
+        "position": [ 245, 685 ]
+    },
+    "extraTees": [
+    ],
+    "cup": {
+        "id": "cup",
+        "position": [ 1145, 365 ],
+        "radius": 30,
+        "rail": ""
+    },
+    "rails": [
+    ],
+    "walls": [
+        {
+            "id": "wall-1",
+            "group": "barrier-1",
+            "center": [ 495, 415 ],
+            "size": [ 40, 40 ],
+            "rail": "",
+            "showRail": 1
+        },
+        {
+            "id": "wall-2",
+            "group": "barrier-1",
+            "center": [ 535, 415 ],
+            "size": [ 40, 40 ],
+            "rail": "",
+            "showRail": 0
+        },
+        {
+            "id": "wall-3",
+            "group": "barrier-1",
+            "center": [ 575, 415 ],
+            "size": [ 40, 40 ],
+            "rail": "",
+            "showRail": 0
+        },
+        {
+            "id": "wall-4",
+            "group": "barrier-1",
+            "center": [ 615, 415 ],
+            "size": [ 40, 40 ],
+            "rail": "",
+            "showRail": 0
+        }
+    ],
+    "surfaces": [
+        {
+            "id": "sand-1",
+            "kind": "sand",
+            "center": [ 632.5, 642.5 ],
+            "size": [ 295, 155 ]
+        },
+        {
+            "id": "sand-2",
+            "kind": "sand",
+            "center": [ 965, 465 ],
+            "size": [ 180, 120 ]
+        },
+        {
+            "id": "surface-1",
+            "kind": "sand",
+            "center": [ 260, 265 ],
+            "size": [ 160, 70 ]
+        }
+    ],
+    "bumpers": [
+    ],
+    "lasers": [
+    ],
+    "portals": [
+    ]
+}

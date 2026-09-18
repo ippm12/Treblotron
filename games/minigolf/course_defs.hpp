@@ -2,9 +2,8 @@
  * course_defs.hpp
  *
  * Course / hole data structures for mini golf, plus the per-player ball
- * colour palette. Courses are hard-coded as static const data for now.
- * The struct fields mirror what a future JSON loader would parse, so
- * migrating to data files is mechanical when courses are user-authored.
+ * colour palette. Courses are loaded from versioned JSON files.
+ * course_io.hpp is the shared editor/game persistence API. IDs survive edits.
  *
  * All coordinates are in **course pixels** (the world space the
  * PhysicsCamera looks into). One course pixel == one screen pixel at the
@@ -21,6 +20,7 @@
 #include <vector>
 #include <initializer_list>
 #include <string_view>
+#include <string>
 
 
 namespace MiniGolf
@@ -47,12 +47,14 @@ struct RailStop
     Vec2 offset;                 // Offset from each attached element's base position.
     float pauseSeconds = 0;
     float speed = 100;            // Pixels/second leaving this stop.
+    std::string id{};
 };
 struct Rail
 {
     std::vector<RailStop> stops;
     RailMode mode = RailMode::PingPong;
     float phaseSeconds = 0;
+    std::string id{};
 };
 
 enum class SurfaceKind { Rough, Sand, Ice, Water };
@@ -80,6 +82,8 @@ struct SurfacePatch
     Vec2 center;
     Vec2 size;
     SurfaceKind kind = SurfaceKind::Rough; // Surfaces are always stationary.
+    std::string id{};
+    float angleDegrees = 0;
 };
 struct Bumper
 {
@@ -87,6 +91,7 @@ struct Bumper
     float radius = 40;
     float kickSpeed = 550;
     int rail = -1;
+    std::string id{};
 };
 struct Laser
 {
@@ -96,6 +101,8 @@ struct Laser
     float offSeconds = 2;
     float phaseSeconds = 0;
     int rail = -1;
+    std::string id{};
+    float angleDegrees = 0; // Beam direction; size.x is length, size.y is thickness.
 };
 struct Portal
 {
@@ -104,6 +111,7 @@ struct Portal
     int pair = 0;                // Exactly two portals per pair, sharing a colour.
     Color color{170, 90, 220};
     int rail = -1;
+    std::string id{};
 };
 
 
@@ -140,7 +148,7 @@ constexpr float COURSE_MAX_AREA_H = COURSE_VIEW_H - 2.0f * COURSE_WALL_THICKNESS
 
 
 /**
- * Axis-aligned wall box. The course's outer rectangle is constructed as
+ * Rotatable wall box. The course's outer rectangle is constructed as
  * four of these by the loader; obstacles are extra entries in the
  * walls vector.
  */
@@ -152,6 +160,9 @@ struct WallBox
     float height  = 0.0f;
     int rail = -1;
     bool showRail = true;
+    std::string id{};
+    std::string group{}; // Stable editor grouping; each wall retains its own geometry.
+    float angleDegrees = 0;
 };
 
 
@@ -171,7 +182,7 @@ struct CourseHole
     // Interior obstacles only — boundary walls are auto-generated.
     std::vector<WallBox> walls;
 
-    const char* name = "Practice";
+    std::string name = "Practice";
     std::vector<Rail> rails;
     int cupRail = -1;
     std::vector<SurfacePatch> surfaces;
@@ -180,6 +191,8 @@ struct CourseHole
     std::vector<Portal> portals;
 
     int   par = 3;
+    std::string id{};
+    std::vector<std::string> spawnIds{};
 };
 
 
@@ -190,12 +203,14 @@ inline void addTileBarrier(CourseHole& hole,Vec2 topLeft,float tileSize,
                            std::initializer_list<std::string_view> rows,int rail=-1)
 {
     if(tileSize<=0) return;
+    const auto group="barrier-"+std::to_string(hole.walls.size()+1);
     size_t y=0;
     bool first=true;
     for(auto row:rows) {
         for(size_t x=0;x<row.size();++x) if(row[x]=='#') {
             hole.walls.push_back({topLeft.x+(x+0.5f)*tileSize,
                 topLeft.y+(y+0.5f)*tileSize,tileSize,tileSize,rail,first});
+            hole.walls.back().group=group;
             first=false;
         }
         ++y;
@@ -205,8 +220,10 @@ inline void addTileBarrier(CourseHole& hole,Vec2 topLeft,float tileSize,
 
 struct Course
 {
-    const char* name = "";
+    std::string name = "";
+    std::string theme = "classic";
     std::array<CourseHole, HOLES_PER_GAME> holes;
+    std::string id{};
 };
 
 
@@ -216,7 +233,7 @@ enum class CourseId : uint8_t
 };
 
 
-/** Build the course for a given id. Lives in course_<name>.cpp. */
+/** Load a built-in course (including any local override) from JSON. */
 Course buildCourse(CourseId id);
 
 

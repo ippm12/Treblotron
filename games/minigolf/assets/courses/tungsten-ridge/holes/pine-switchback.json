@@ -1,0 +1,76 @@
+{
+    "formatVersion": 1,
+    "id": "pine-switchback",
+    "name": "Pine Needle Switchbacks",
+    "par": 5,
+    "bounds": {
+        "topLeft": [ 315, 155 ],
+        "bottomRight": [ 1095, 855 ]
+    },
+    "tee": {
+        "id": "tee",
+        "position": [ 408.600006, 248.333328 ]
+    },
+    "extraTees": [
+    ],
+    "cup": {
+        "id": "cup",
+        "position": [ 993.599976, 755.833313 ],
+        "radius": 30,
+        "rail": ""
+    },
+    "rails": [
+    ],
+    "walls": [
+        {
+            "id": "shelf-0",
+            "group": "shelf-0",
+            "center": [ 619.200012, 341.666656 ],
+            "size": [ 436.799988, 32.666668 ],
+            "rail": "",
+            "showRail": 1
+        },
+        {
+            "id": "shelf-1",
+            "group": "shelf-1",
+            "center": [ 822, 505 ],
+            "size": [ 436.799988, 32.666668 ],
+            "rail": "",
+            "showRail": 1
+        },
+        {
+            "id": "shelf-2",
+            "group": "shelf-2",
+            "center": [ 595.799988, 668.333313 ],
+            "size": [ 436.799988, 32.666668 ],
+            "rail": "",
+            "showRail": 1
+        }
+    ],
+    "surfaces": [
+        {
+            "id": "pine-needles-0",
+            "kind": "rough",
+            "center": [ 619.200012, 390.666656 ],
+            "size": [ 335.399994, 49 ]
+        },
+        {
+            "id": "pine-needles-1",
+            "kind": "rough",
+            "center": [ 822, 554 ],
+            "size": [ 335.399994, 49 ]
+        },
+        {
+            "id": "pine-needles-2",
+            "kind": "rough",
+            "center": [ 595.799988, 717.333313 ],
+            "size": [ 335.399994, 49 ]
+        }
+    ],
+    "bumpers": [
+    ],
+    "lasers": [
+    ],
+    "portals": [
+    ]
+}

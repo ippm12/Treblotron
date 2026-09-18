@@ -1,0 +1,133 @@
+{
+    "formatVersion": 2,
+    "id": "moving-moorings",
+    "name": "Fishing Net Gauntlet",
+    "par": 4,
+    "bounds": {
+        "topLeft": [ 105, 185 ],
+        "bottomRight": [ 1305, 825 ]
+    },
+    "tee": {
+        "id": "tee",
+        "position": [ 249, 718.333313 ]
+    },
+    "extraTees": [
+    ],
+    "cup": {
+        "id": "cup",
+        "position": [ 1173, 291.666656 ],
+        "radius": 30,
+        "rail": ""
+    },
+    "rails": [
+        {
+            "id": "mooring-drift-0",
+            "mode": "pingPong",
+            "phaseSeconds": 0,
+            "stops": [
+                {
+                    "id": "mooring-drift-0-1",
+                    "offset": [ 0, 0 ],
+                    "pauseSeconds": 0.8,
+                    "speed": 60
+                },
+                {
+                    "id": "mooring-drift-0-2",
+                    "offset": [ 120, -74.666664 ],
+                    "pauseSeconds": 0.8,
+                    "speed": 60
+                }
+            ]
+        },
+        {
+            "id": "mooring-drift-1",
+            "mode": "pingPong",
+            "phaseSeconds": 0,
+            "stops": [
+                {
+                    "id": "mooring-drift-1-1",
+                    "offset": [ 0, 0 ],
+                    "pauseSeconds": 0.8,
+                    "speed": 60
+                },
+                {
+                    "id": "mooring-drift-1-2",
+                    "offset": [ 120, -74.666664 ],
+                    "pauseSeconds": 0.8,
+                    "speed": 60
+                }
+            ]
+        }
+    ],
+    "walls": [
+    ],
+    "surfaces": [
+        {
+            "id": "net-weights",
+            "kind": "rough",
+            "center": [ 729, 505 ],
+            "size": [ 600, 69.333336 ],
+            "angleDegrees": -28
+        }
+    ],
+    "bumpers": [
+        {
+            "id": "mooring-0",
+            "center": [ 477, 377 ],
+            "radius": 32,
+            "kickSpeed": 370,
+            "rail": "mooring-drift-0"
+        },
+        {
+            "id": "mooring-1",
+            "center": [ 909, 670.333313 ],
+            "radius": 32,
+            "kickSpeed": 370,
+            "rail": "mooring-drift-1"
+        }
+    ],
+    "lasers": [
+        {
+            "id": "net-strand-0",
+            "center": [ 474, 689 ],
+            "size": [ 136.471405, 8 ],
+            "angleDegrees": 41.633537,
+            "onSeconds": 0.9,
+            "offSeconds": 3.4,
+            "phaseSeconds": 0,
+            "rail": ""
+        },
+        {
+            "id": "net-strand-1",
+            "center": [ 654, 603.666687 ],
+            "size": [ 136.471405, 8 ],
+            "angleDegrees": 41.633537,
+            "onSeconds": 0.9,
+            "offSeconds": 3.4,
+            "phaseSeconds": 0.75,
+            "rail": ""
+        },
+        {
+            "id": "net-strand-2",
+            "center": [ 834, 518.333313 ],
+            "size": [ 136.471405, 8 ],
+            "angleDegrees": 41.633537,
+            "onSeconds": 0.9,
+            "offSeconds": 3.4,
+            "phaseSeconds": 1.5,
+            "rail": ""
+        },
+        {
+            "id": "net-strand-3",
+            "center": [ 1014, 433 ],
+            "size": [ 136.471405, 8 ],
+            "angleDegrees": 41.633537,
+            "onSeconds": 0.9,
+            "offSeconds": 3.4,
+            "phaseSeconds": 2.25,
+            "rail": ""
+        }
+    ],
+    "portals": [
+    ]
+}

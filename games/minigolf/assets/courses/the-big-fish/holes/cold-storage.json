@@ -1,0 +1,94 @@
+{
+    "formatVersion": 1,
+    "id": "cold-storage",
+    "name": "The Ice Cannery",
+    "par": 4,
+    "bounds": {
+        "topLeft": [ 75, 265 ],
+        "bottomRight": [ 1335, 745 ]
+    },
+    "tee": {
+        "id": "tee",
+        "position": [ 201, 505 ]
+    },
+    "extraTees": [
+    ],
+    "cup": {
+        "id": "cup",
+        "position": [ 1209, 505 ],
+        "radius": 30,
+        "rail": ""
+    },
+    "rails": [
+        {
+            "id": "loading-track",
+            "mode": "pingPong",
+            "phaseSeconds": 0,
+            "stops": [
+                {
+                    "id": "loading-track-1",
+                    "offset": [ 0, 0 ],
+                    "pauseSeconds": 1,
+                    "speed": 95
+                },
+                {
+                    "id": "loading-track-2",
+                    "offset": [ 0, 200 ],
+                    "pauseSeconds": 1,
+                    "speed": 95
+                }
+            ]
+        }
+    ],
+    "walls": [
+        {
+            "id": "loading-gate",
+            "group": "loading-gate",
+            "center": [ 1089.300049, 401 ],
+            "size": [ 35.279999, 76 ],
+            "rail": "loading-track",
+            "showRail": 1
+        }
+    ],
+    "surfaces": [
+        {
+            "id": "packing-line",
+            "kind": "ice",
+            "center": [ 705, 505 ],
+            "size": [ 1008, 144 ]
+        },
+        {
+            "id": "sawdust-catcher",
+            "kind": "sand",
+            "center": [ 705, 673 ],
+            "size": [ 819, 60 ]
+        }
+    ],
+    "bumpers": [
+        {
+            "id": "packing-wheel-0",
+            "center": [ 478.200012, 441 ],
+            "radius": 36,
+            "kickSpeed": 500,
+            "rail": ""
+        },
+        {
+            "id": "packing-wheel-1",
+            "center": [ 705, 569 ],
+            "radius": 36,
+            "kickSpeed": 500,
+            "rail": ""
+        },
+        {
+            "id": "packing-wheel-2",
+            "center": [ 931.799988, 441 ],
+            "radius": 36,
+            "kickSpeed": 500,
+            "rail": ""
+        }
+    ],
+    "lasers": [
+    ],
+    "portals": [
+    ]
+}

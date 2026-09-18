@@ -7,10 +7,11 @@ from support.build import BuildContext
 
 def main():
     root = Path(__file__).resolve().parents[1]
-    files = sorted([*root.glob('games/*/tests/suite.py'),
+    files = sorted({*root.glob('games/**/tests/suite.py'),
+                    *root.glob('tools/*/tests/suite.py'),
                     *root.glob('*/tests/*/suite.py'),
                     *root.glob('*/tests/suite.py'),
-                    *root.glob('tests/integration/*/suite.py')])
+                    *root.glob('tests/integration/*/suite.py')})
     suites = {}
     for i, path in enumerate(files):
         spec = importlib.util.spec_from_file_location(f'test_suite_{i}', path)

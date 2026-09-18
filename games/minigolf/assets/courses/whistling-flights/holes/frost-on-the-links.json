@@ -1,0 +1,85 @@
+{
+    "formatVersion": 2,
+    "id": "frost-on-the-links",
+    "name": "Frost Runnels",
+    "par": 4,
+    "bounds": {
+        "topLeft": [ 85, 245 ],
+        "bottomRight": [ 1325, 765 ]
+    },
+    "tee": {
+        "id": "tee",
+        "position": [ 209, 505 ]
+    },
+    "extraTees": [
+    ],
+    "cup": {
+        "id": "cup",
+        "position": [ 1201, 505 ],
+        "radius": 30,
+        "rail": ""
+    },
+    "rails": [
+    ],
+    "walls": [
+        {
+            "id": "weathered-bank-north",
+            "group": "weathered-bank-north",
+            "center": [ 748.400024, 327.333344 ],
+            "size": [ 533.200012, 24.266666 ],
+            "rail": "",
+            "showRail": 1
+        },
+        {
+            "id": "weathered-bank-south",
+            "group": "weathered-bank-south",
+            "center": [ 748.400024, 682.666687 ],
+            "size": [ 533.200012, 24.266666 ],
+            "rail": "",
+            "showRail": 1
+        }
+    ],
+    "surfaces": [
+        {
+            "id": "runnel-0",
+            "kind": "ice",
+            "center": [ 395, 505 ],
+            "size": [ 99.199997, 294.666656 ],
+            "angleDegrees": 25
+        },
+        {
+            "id": "runnel-1",
+            "kind": "rough",
+            "center": [ 556.200012, 505 ],
+            "size": [ 99.199997, 294.666656 ],
+            "angleDegrees": -25
+        },
+        {
+            "id": "runnel-2",
+            "kind": "ice",
+            "center": [ 717.400024, 505 ],
+            "size": [ 99.199997, 294.666656 ],
+            "angleDegrees": 25
+        },
+        {
+            "id": "runnel-3",
+            "kind": "rough",
+            "center": [ 878.599976, 505 ],
+            "size": [ 99.199997, 294.666656 ],
+            "angleDegrees": -25
+        },
+        {
+            "id": "runnel-4",
+            "kind": "ice",
+            "center": [ 1039.800049, 505 ],
+            "size": [ 99.199997, 294.666656 ],
+            "angleDegrees": 25
+        }
+    ],
+    "bumpers": [
+    ],
+    "lasers": [
+    ],
+    "portals": [
+    ]
+}

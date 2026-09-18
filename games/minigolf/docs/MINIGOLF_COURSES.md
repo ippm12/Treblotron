@@ -30,11 +30,12 @@ identifies what each hole demonstrates.
   Dim beams are off. All obstacles and the cup affect inactive players too.
 - **Bumpers:** larger solid orange caps that kick contacted balls outward and
   compress, flash and emit impact rays on contact. Each bumper
-  has its own kick speed. The kick adds only the missing outward speed rather
-  than repeatedly adding energy on every physics step.
-- **Portals:** exactly two per pair ID, with the same colour. Entry transports
-  the ball just outside the partner along its travel direction relative to
-  the entrance. Portals have the same radius as the cup and no facing angle.
+  has its own additive speed boost. Each impact reflects inward motion and adds
+  that boost to total ball speed, capped at 2,250 pixels/second (three times
+  maximum shot speed). Glancing hits also gain speed. A 0.16-second cooldown
+  prevents repeated boosts from the same contact.
+- **Portals:** exactly two per pair ID, with the same colour. Entry preserves the ball's exact offset from
+  the center at the paired exit, including off-center and moving-portal hits. Portals have the same radius as the cup and no facing angle.
   Fixed portals preserve world-axis velocity exactly. Moving portals use
   `outgoing = ball velocity - entrance velocity + exit velocity`, without rotation.
   Visual orientation is preserved and the old trail clears.
@@ -53,12 +54,16 @@ unobstructed **normal felt** estimate, not a prediction through patches.
 
 ## Authoring rails
 
-Definitions live in `games/minigolf/course_defs.hpp`; layouts live in
-`course_test_hole.cpp`. Every bumper, laser, portal and interior wall
+Layouts now live in `games/minigolf/assets/courses/obstacle-sampler/holes/*.json`. See
+[course file format](MINIGOLF_FILES.md) for the shared save/load API. Runtime
+definitions live in `games/minigolf/course_defs.hpp`. Every bumper, laser, portal and interior wall
 has a `rail` index (`-1` means fixed). `CourseHole::cupRail` attaches the cup.
 Boundary walls and all surface patches remain fixed; surfaces have no rail field.
 
 A rail has a sequence of `RailStop { offset, pauseSeconds, speed }` values.
+The following C++ example describes the runtime representation; course files use
+stable rail IDs rather than indices.
+
 Offsets translate the attached element from its base position. Speed is in
 pixels/second and applies when leaving that stop, including on the return
 journey. `PingPong` traverses the stops then reverses; `Loop` includes the
@@ -154,3 +159,36 @@ Only the chosen attempt's strokes and penalties enter the team score; a chosen
 holed result finishes the hole. The next cycle starts at that selected position.
 The choice panel leaves the course visible. Saved results stay fixed while
 moving obstacles continue to run.
+
+## Give up a hole
+
+Open Pause and choose **Give up hole (8 strokes)**. The current competitor gets
+maximum strokes for this hole, their ball and pending respawn effects disappear,
+and their remaining shots end. Collect any darts still on the board before the
+next turn. If everyone is finished, the normal hole transition runs.
+
+For alternate shot and scramble, **Give up team hole** retires the entire shared
+team score; saved scramble alternatives are discarded. The action is unavailable
+between holes, after the game, or while waiting for dart collection.
+
+## Cup pace and back lip
+
+Centered putts can be captured up to 700 pixels/second; the acceptable offset
+still narrows as speed increases. Fast rejected putts that dip far enough into
+the cup lose most of their speed at the back lip, retaining 22% of outward
+motion and 55% of tangential motion. They continue over the lip rather than
+bouncing backward. Off-center hits can deflect; exact center hits stay straight.
+Very fast shots still skim over, and outer lip curvature is unchanged.
+
+## Crushing walls
+
+Moving walls can crush active or inactive balls against another wall, including
+course boundaries. Two opposing wall contacts must compress the ball's available
+gap below its diameter for 0.15 seconds. At least one wall must have started
+closing the gap; a pause while still compressed counts, but opening the press
+cancels the timer. Static narrow gaps, ordinary corner contact, and walls moving
+together do not initiate a crush.
+
+A crush uses the laser explosion and hazard reset: one penalty stroke (up to the
+stroke cap), no collidable ball during the effect, and return to the shot origin.
+Respawn protection prevents repeat penalties while still pinched at that origin.

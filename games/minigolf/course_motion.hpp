@@ -65,10 +65,38 @@ inline bool laserActive(const Laser& laser, double time)
     const double on=std::max(0.0f,laser.onSeconds), off=std::max(0.0f,laser.offSeconds);
     return on>0 && std::fmod(std::max(0.0,time+laser.phaseSeconds),on+off)<on;
 }
-inline bool insidePatch(Vec2 p, Vec2 center, Vec2 size, float inset=0)
+inline Vec2 laserEnd(const Laser& laser,Vec2 center,int end)
 {
-    return std::abs(p.x-center.x)<=std::max(0.0f,size.x*0.5f-inset)
-        && std::abs(p.y-center.y)<=std::max(0.0f,size.y*0.5f-inset);
+    // Legacy files can encode a vertical beam as a tall, unrotated rectangle.
+    const float a=(laser.angleDegrees+(laser.size.y>laser.size.x?90:0))*0.01745329252f;
+    const float distance=(end==0?-0.5f:0.5f)*std::max(laser.size.x,laser.size.y);
+    return {center.x+std::cos(a)*distance,center.y+std::sin(a)*distance};
+}
+inline void setLaserEnds(Laser& laser,Vec2 a,Vec2 b)
+{
+    laser.center={(a.x+b.x)/2,(a.y+b.y)/2};
+    laser.size.y=std::min(laser.size.x,laser.size.y);
+    laser.size.x=std::max(1.0f,std::hypot(b.x-a.x,b.y-a.y));
+    laser.angleDegrees=std::atan2(b.y-a.y,b.x-a.x)*57.295779513f;
+}
+inline bool touchesLaser(Vec2 point,const Laser& laser,Vec2 center,float radius)
+{
+    const float angle=laser.angleDegrees*0.01745329252f;
+    const float dx=point.x-center.x,dy=point.y-center.y;
+    const float x=std::abs(dx*std::cos(angle)+dy*std::sin(angle));
+    const float y=std::abs(-dx*std::sin(angle)+dy*std::cos(angle));
+    return x<=laser.size.x/2+radius && y<=laser.size.y/2+radius;
+}
+inline Vec2 rotateVector(Vec2 p,float degrees)
+{
+    const float a=degrees*0.01745329252f,c=std::cos(a),s=std::sin(a);
+    return {p.x*c-p.y*s,p.x*s+p.y*c};
+}
+inline bool insidePatch(Vec2 p, Vec2 center, Vec2 size, float inset=0,float degrees=0)
+{
+    auto local=rotateVector({p.x-center.x,p.y-center.y},-degrees);
+    return std::abs(local.x)<=std::max(0.0f,size.x*0.5f-inset)
+        && std::abs(local.y)<=std::max(0.0f,size.y*0.5f-inset);
 }
 struct SurfaceResponse { float resistance=1; float grip=45; };
 inline SurfaceResponse surfaceResponse(const CourseHole& h, Vec2 p, double /*time*/)
@@ -77,7 +105,7 @@ inline SurfaceResponse surfaceResponse(const CourseHole& h, Vec2 p, double /*tim
     SurfaceResponse result;
     uint32_t priority=0;
     for(const auto& s:h.surfaces) {
-        if(!insidePatch(p,s.center,s.size)) continue;
+        if(!insidePatch(p,s.center,s.size,0,s.angleDegrees)) continue;
         if(surfaceLayer(s.kind)<priority) continue;
         priority=surfaceLayer(s.kind);
         switch(s.kind) {

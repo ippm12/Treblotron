@@ -1,0 +1,190 @@
+{
+    "formatVersion": 1,
+    "id": "rails",
+    "name": "Rails: moving cup, walls and bumpers",
+    "par": 3,
+    "bounds": {
+        "topLeft": [ 65, 145 ],
+        "bottomRight": [ 1345, 865 ]
+    },
+    "tee": {
+        "id": "tee",
+        "position": [ 705, 805 ]
+    },
+    "extraTees": [
+    ],
+    "cup": {
+        "id": "cup",
+        "position": [ 585, 235 ],
+        "radius": 30,
+        "rail": "rail-1"
+    },
+    "rails": [
+        {
+            "id": "rail-1",
+            "mode": "pingPong",
+            "phaseSeconds": 0,
+            "stops": [
+                {
+                    "id": "stop-1",
+                    "offset": [ 0, 0 ],
+                    "pauseSeconds": 1,
+                    "speed": 90
+                },
+                {
+                    "id": "stop-2",
+                    "offset": [ 240, 0 ],
+                    "pauseSeconds": 0.5,
+                    "speed": 160
+                }
+            ]
+        },
+        {
+            "id": "rail-2",
+            "mode": "loop",
+            "phaseSeconds": 0,
+            "stops": [
+                {
+                    "id": "stop-1",
+                    "offset": [ 0, 0 ],
+                    "pauseSeconds": 0.8,
+                    "speed": 100
+                },
+                {
+                    "id": "stop-2",
+                    "offset": [ 0, -140 ],
+                    "pauseSeconds": 0.3,
+                    "speed": 65
+                },
+                {
+                    "id": "stop-3",
+                    "offset": [ 180, -140 ],
+                    "pauseSeconds": 0.5,
+                    "speed": 140
+                },
+                {
+                    "id": "stop-4",
+                    "offset": [ 180, 0 ],
+                    "pauseSeconds": 0,
+                    "speed": 100
+                }
+            ]
+        },
+        {
+            "id": "rail-3",
+            "mode": "pingPong",
+            "phaseSeconds": 0,
+            "stops": [
+                {
+                    "id": "stop-1",
+                    "offset": [ 0, 0 ],
+                    "pauseSeconds": 0.6,
+                    "speed": 150
+                },
+                {
+                    "id": "stop-2",
+                    "offset": [ -330, 0 ],
+                    "pauseSeconds": 1,
+                    "speed": 85
+                }
+            ]
+        }
+    ],
+    "walls": [
+        {
+            "id": "wall-1",
+            "group": "barrier-1",
+            "center": [ 320, 570 ],
+            "size": [ 40, 40 ],
+            "rail": "rail-2",
+            "showRail": 1
+        },
+        {
+            "id": "wall-2",
+            "group": "barrier-1",
+            "center": [ 320, 610 ],
+            "size": [ 40, 40 ],
+            "rail": "rail-2",
+            "showRail": 0
+        },
+        {
+            "id": "wall-3",
+            "group": "barrier-1",
+            "center": [ 320, 650 ],
+            "size": [ 40, 40 ],
+            "rail": "rail-2",
+            "showRail": 0
+        },
+        {
+            "id": "wall-4",
+            "group": "barrier-1",
+            "center": [ 360, 650 ],
+            "size": [ 40, 40 ],
+            "rail": "rail-2",
+            "showRail": 0
+        },
+        {
+            "id": "wall-5",
+            "group": "barrier-1",
+            "center": [ 400, 650 ],
+            "size": [ 40, 40 ],
+            "rail": "rail-2",
+            "showRail": 0
+        },
+        {
+            "id": "wall-6",
+            "group": "barrier-6",
+            "center": [ 1010, 410 ],
+            "size": [ 40, 40 ],
+            "rail": "rail-3",
+            "showRail": 1
+        },
+        {
+            "id": "wall-7",
+            "group": "barrier-6",
+            "center": [ 1050, 410 ],
+            "size": [ 40, 40 ],
+            "rail": "rail-3",
+            "showRail": 0
+        },
+        {
+            "id": "wall-8",
+            "group": "barrier-6",
+            "center": [ 1090, 410 ],
+            "size": [ 40, 40 ],
+            "rail": "rail-3",
+            "showRail": 0
+        },
+        {
+            "id": "wall-9",
+            "group": "barrier-6",
+            "center": [ 1050, 450 ],
+            "size": [ 40, 40 ],
+            "rail": "rail-3",
+            "showRail": 0
+        },
+        {
+            "id": "wall-10",
+            "group": "barrier-6",
+            "center": [ 1050, 490 ],
+            "size": [ 40, 40 ],
+            "rail": "rail-3",
+            "showRail": 0
+        }
+    ],
+    "surfaces": [
+    ],
+    "bumpers": [
+        {
+            "id": "bumper-1",
+            "center": [ 780, 640 ],
+            "radius": 40,
+            "kickSpeed": 520,
+            "rail": "rail-2"
+        }
+    ],
+    "lasers": [
+    ],
+    "portals": [
+    ]
+}

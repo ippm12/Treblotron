@@ -44,4 +44,56 @@ void test_physics()
         static_assert(CourseLayer::Water<CourseLayer::Rail && CourseLayer::Rail<CourseLayer::Wall);
         static_assert(CourseLayer::Wall<CourseLayer::Bumper && CourseLayer::Portal<CourseLayer::Cup);
     }
+    {
+        // Faster centered putts now drop, while speed and alignment still matter.
+        for(float speed:{550.0f,650.0f,700.0f,750.0f}) {
+            prepare(g,base); place(g,g.cupPosition());
+            setBodyVelocityPx(*g.m_world,g.m_players[0].ballBody,speed,0);
+            g.updateCupInteraction(1.0f/120);
+            assert(g.m_players[0].holedOut[0]==(speed<=700));
+        }
+        prepare(g,base);
+        const auto cup=g.cupPosition();
+        place(g,{cup.x,cup.y+base.cupRadius+8});
+        setBodyVelocityPx(*g.m_world,g.m_players[0].ballBody,500,0);
+        g.updateCupInteraction(1.0f/120);
+        assert(!g.m_players[0].holedOut[0]); // Overlap alone is not capture.
+        // Centered fast hits continue forward much slower; mirror-image grazing
+        // hits deflect symmetrically, with no random kick or energy gain.
+        for(float tangent:{-100.0f,0.0f,100.0f}) {
+            prepare(g,base); place(g,{cup.x+base.cupRadius*0.75f,cup.y});
+            setBodyVelocityPx(*g.m_world,g.m_players[0].ballBody,750,tangent);
+            g.updateCupInteraction(1.0f/120);
+            float vx,vy; getBodyVelocityPx(*g.m_world,g.m_players[0].ballBody,vx,vy);
+            assert(g.m_players[0].cupBounced && !g.m_players[0].holedOut[0]);
+            assert(vx>0 && vx<200 && near(vy,tangent*0.55f));
+            assert(std::hypot(vx,vy)<200);
+            g.updateCupInteraction(1.0f/120);
+            float afterX,afterY; getBodyVelocityPx(*g.m_world,g.m_players[0].ballBody,afterX,afterY);
+            assert(near(afterX,vx) && near(afterY,vy)); // No repeated strike/suction.
+        }
+        prepare(g,base); place(g,{cup.x-80,cup.y});
+        setBodyVelocityPx(*g.m_world,g.m_players[0].ballBody,900,0);
+        for(int step=0;step<60 && !g.m_players[0].cupBounced && !g.m_players[0].holedOut[0];++step)
+            g.stepCoursePhysics(1.0f/120);
+        float crossingX,crossingY;
+        getBodyVelocityPx(*g.m_world,g.m_players[0].ballBody,crossingX,crossingY);
+        assert(g.m_players[0].cupBounced && crossingX>0 && crossingX<250 && near(crossingY,0));
+        auto moving=base;
+        moving.rails={{{{{0,0},0,100},{{200,0},0,100}},RailMode::PingPong}};
+        moving.cupRail=0;
+        prepare(g,moving); g.m_courseTime=0.5;
+        const auto movingCup=g.cupPosition();
+        place(g,{movingCup.x+moving.cupRadius*0.75f,movingCup.y});
+        setBodyVelocityPx(*g.m_world,g.m_players[0].ballBody,850,100);
+        g.updateCupInteraction(1.0f/120);
+        getBodyVelocityPx(*g.m_world,g.m_players[0].ballBody,crossingX,crossingY);
+        assert(near(crossingX,265,0.1f) && near(crossingY,55,0.1f));
+        prepare(g,base); place(g,{cup.x+base.cupRadius*0.75f,cup.y});
+        setBodyVelocityPx(*g.m_world,g.m_players[0].ballBody,1250,0);
+        g.updateCupInteraction(1.0f/120);
+        assert(!g.m_players[0].holedOut[0] && !g.m_players[0].cupBounced);
+        assert(near(getBodySpeedPx(*g.m_world,g.m_players[0].ballBody),1250));
+    }
+
 }

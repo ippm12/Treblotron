@@ -1,0 +1,59 @@
+{
+    "formatVersion": 1,
+    "id": "creekside",
+    "name": "Creekside",
+    "par": 3,
+    "bounds": {
+        "topLeft": [ 165, 225 ],
+        "bottomRight": [ 1245, 785 ]
+    },
+    "tee": {
+        "id": "tee",
+        "position": [ 265, 505 ]
+    },
+    "extraTees": [
+    ],
+    "cup": {
+        "id": "cup",
+        "position": [ 1145, 505 ],
+        "radius": 30,
+        "rail": ""
+    },
+    "rails": [
+    ],
+    "walls": [
+    ],
+    "surfaces": [
+        {
+            "id": "water-1",
+            "kind": "water",
+            "center": [ 595, 325 ],
+            "size": [ 100, 160 ]
+        },
+        {
+            "id": "water-2",
+            "kind": "water",
+            "center": [ 595, 685 ],
+            "size": [ 100, 160 ]
+        },
+        {
+            "id": "rough-3",
+            "kind": "rough",
+            "center": [ 925, 645 ],
+            "size": [ 180, 120 ]
+        }
+    ],
+    "bumpers": [
+        {
+            "id": "bumper-1",
+            "center": [ 935, 505 ],
+            "radius": 36,
+            "kickSpeed": 360,
+            "rail": ""
+        }
+    ],
+    "lasers": [
+    ],
+    "portals": [
+    ]
+}

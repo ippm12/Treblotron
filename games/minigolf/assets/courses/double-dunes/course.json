@@ -1,0 +1,17 @@
+{
+    "formatVersion": 2,
+    "id": "double-dunes",
+    "name": "Double Dunes",
+    "theme": "double-dunes",
+    "holes": [
+        "desert-welcome",
+        "sandstone-bend",
+        "oasis-crossing",
+        "mirage-tunnels",
+        "canyon-echo",
+        "cold-desert-night",
+        "sunbeam-gate",
+        "shifting-stone",
+        "double-or-nothing"
+    ]
+}

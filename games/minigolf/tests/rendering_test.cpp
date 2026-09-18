@@ -1,3 +1,4 @@
+#include "course_themes.hpp"
 #include "fixtures/golf_fixture.hpp"
 
 void test_rendering(const std::string& output)
@@ -88,6 +89,45 @@ void test_rendering(const std::string& output)
         assert(settingsImage);
         assert(SDL_SaveBMP(settingsImage,(output+"/settings.bmp").c_str()));
         SDL_DestroySurface(settingsImage);
+    }
+    prepare(g,base);
+    g.m_camera.setZoom(0.75f);
+    for(const auto& theme:COURSE_THEMES) {
+        g.m_course.theme=theme.id;
+        renderQueueClearFrame(frame,20,25,30);
+        g.renderCourse(); g.renderObstacles(); g.renderBalls();
+        assert(renderQueueSortByLayer(frame)==STATUS_OK && renderQueueDrawFlush(frame)==STATUS_OK);
+        auto* themed=SDL_RenderReadPixels(getFrameRenderer(frame),nullptr);
+        assert(themed);
+        assert(SDL_SaveBMP(themed,(output+"/theme-"+theme.id+".bmp").c_str()));
+        assert(SDL_ReadSurfacePixel(themed,500,30,&red,&green,&blue,&alpha));
+        assert(red==20 && green==25 && blue==30);
+        SDL_DestroySurface(themed);
+    }
+    // Exercise all 63 hole initializations, moving objects and shared rendering.
+    // Each atlas contains holes 1-9 in reading order for author review.
+    for(const auto& theme:COURSE_THEMES) {
+        if(std::string(theme.id)=="classic") continue;
+        const auto authored=loadCourse(defaultCourseDirectory().parent_path()/theme.id);
+        auto* atlas=SDL_CreateSurface(1410,849,SDL_PIXELFORMAT_RGBA32);
+        assert(atlas);
+        for(size_t n=0;n<authored.holes.size();++n) {
+            g.m_course.theme=authored.theme;
+            prepare(g,authored.holes[n]);
+            g.m_camera.setZoom(1.0f);
+            for(size_t player=0;player<g.m_players.size();++player) g.m_players[player].ballColor=BALL_COLORS[player];
+            for(int tick=0;tick<240;++tick) g.stepCoursePhysics(1.0f/120);
+            renderQueueClearFrame(frame,20,25,30);
+            g.renderCourse(); g.renderObstacles(); g.renderBalls();
+            assert(renderQueueSortByLayer(frame)==STATUS_OK && renderQueueDrawFlush(frame)==STATUS_OK);
+            auto* shot=SDL_RenderReadPixels(getFrameRenderer(frame),nullptr);
+            assert(shot);
+            SDL_Rect source{0,80,1410,850},destination{int(n%3)*470,int(n/3)*283,470,283};
+            assert(SDL_BlitSurfaceScaled(shot,&source,atlas,&destination,SDL_SCALEMODE_LINEAR));
+            SDL_DestroySurface(shot);
+        }
+        assert(SDL_SaveBMP(atlas,(output+"/course-"+theme.id+".bmp").c_str()));
+        SDL_DestroySurface(atlas);
     }
     g.shutdown(); deleteFrame(frame); shutdownFrameModule();
 }

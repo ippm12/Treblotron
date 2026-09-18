@@ -1,0 +1,166 @@
+{
+    "formatVersion": 1,
+    "id": "mirage-tunnels",
+    "name": "Mirage Tunnels",
+    "par": 4,
+    "bounds": {
+        "topLeft": [ 165, 225 ],
+        "bottomRight": [ 1245, 785 ]
+    },
+    "tee": {
+        "id": "tee",
+        "position": [ 245, 685 ]
+    },
+    "extraTees": [
+    ],
+    "cup": {
+        "id": "cup",
+        "position": [ 1145, 325 ],
+        "radius": 30,
+        "rail": ""
+    },
+    "rails": [
+    ],
+    "walls": [
+        {
+            "id": "wall-1",
+            "group": "barrier-1",
+            "center": [ 555, 375 ],
+            "size": [ 40, 40 ],
+            "rail": "",
+            "showRail": 1
+        },
+        {
+            "id": "wall-2",
+            "group": "barrier-1",
+            "center": [ 595, 375 ],
+            "size": [ 40, 40 ],
+            "rail": "",
+            "showRail": 0
+        },
+        {
+            "id": "wall-3",
+            "group": "barrier-1",
+            "center": [ 635, 375 ],
+            "size": [ 40, 40 ],
+            "rail": "",
+            "showRail": 0
+        },
+        {
+            "id": "wall-4",
+            "group": "barrier-1",
+            "center": [ 675, 375 ],
+            "size": [ 40, 40 ],
+            "rail": "",
+            "showRail": 0
+        },
+        {
+            "id": "wall-5",
+            "group": "barrier-1",
+            "center": [ 715, 375 ],
+            "size": [ 40, 40 ],
+            "rail": "",
+            "showRail": 0
+        },
+        {
+            "id": "wall-6",
+            "group": "barrier-1",
+            "center": [ 755, 375 ],
+            "size": [ 40, 40 ],
+            "rail": "",
+            "showRail": 0
+        },
+        {
+            "id": "wall-7",
+            "group": "barrier-1",
+            "center": [ 795, 375 ],
+            "size": [ 40, 40 ],
+            "rail": "",
+            "showRail": 0
+        },
+        {
+            "id": "wall-8",
+            "group": "barrier-8",
+            "center": [ 555, 635 ],
+            "size": [ 40, 40 ],
+            "rail": "",
+            "showRail": 1
+        },
+        {
+            "id": "wall-9",
+            "group": "barrier-8",
+            "center": [ 595, 635 ],
+            "size": [ 40, 40 ],
+            "rail": "",
+            "showRail": 0
+        },
+        {
+            "id": "wall-10",
+            "group": "barrier-8",
+            "center": [ 635, 635 ],
+            "size": [ 40, 40 ],
+            "rail": "",
+            "showRail": 0
+        },
+        {
+            "id": "wall-11",
+            "group": "barrier-8",
+            "center": [ 675, 635 ],
+            "size": [ 40, 40 ],
+            "rail": "",
+            "showRail": 0
+        },
+        {
+            "id": "wall-12",
+            "group": "barrier-8",
+            "center": [ 715, 635 ],
+            "size": [ 40, 40 ],
+            "rail": "",
+            "showRail": 0
+        },
+        {
+            "id": "wall-13",
+            "group": "barrier-8",
+            "center": [ 755, 635 ],
+            "size": [ 40, 40 ],
+            "rail": "",
+            "showRail": 0
+        },
+        {
+            "id": "wall-14",
+            "group": "barrier-8",
+            "center": [ 795, 635 ],
+            "size": [ 40, 40 ],
+            "rail": "",
+            "showRail": 0
+        }
+    ],
+    "surfaces": [
+        {
+            "id": "sand-1",
+            "kind": "sand",
+            "center": [ 725, 505 ],
+            "size": [ 180, 120 ]
+        }
+    ],
+    "bumpers": [
+    ],
+    "lasers": [
+    ],
+    "portals": [
+        {
+            "id": "portal-1",
+            "center": [ 505, 385 ],
+            "pair": 0,
+            "color": [ 235, 155, 75 ],
+            "rail": ""
+        },
+        {
+            "id": "portal-2",
+            "center": [ 1015, 465 ],
+            "pair": 0,
+            "color": [ 235, 155, 75 ],
+            "rail": ""
+        }
+    ]
+}

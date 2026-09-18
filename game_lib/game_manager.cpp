@@ -450,8 +450,10 @@ Status GameManager::loadGame(GamePtr game, std::function<GamePtr()> restartFacto
 
         // Route mouse clicks on the game window to the game
         registerFrameClickHandler(m_frameId,
-            [game](FrameID, float x, float y, uint8_t button)
+            [this,game](FrameID, float x, float y, uint8_t button)
             {
+                if(m_settingsOpen) return;
+                if(m_paused) { handlePauseClick(x,y,button); return; }
                 game->onMouseClick(x, y, button);
             });
     }
@@ -602,14 +604,18 @@ void GameManager::tick()
 namespace
 {
 
-enum class PauseAction : uint8_t { Resume, Restart, SaveCapture, MainMenu };
+enum class PauseAction : uint8_t { Resume, Restart, SaveCapture, MainMenu, GameAction };
 
-struct PauseOption { const char* label; PauseAction action; };
+struct PauseOption { std::string label; PauseAction action; size_t gameIndex=0; };
 
-std::vector<PauseOption> buildPauseOptions(bool hasRestart)
+std::vector<PauseOption> buildPauseOptions(bool hasRestart,const GamePtr& game)
 {
     std::vector<PauseOption> opts;
     opts.push_back({"Resume", PauseAction::Resume});
+    if(game) {
+        const auto actions=game->getPauseActions();
+        for(size_t i=0;i<actions.size();++i) opts.push_back({actions[i],PauseAction::GameAction,i});
+    }
     if(hasRestart) opts.push_back({"Restart", PauseAction::Restart});
     opts.push_back({"Save Capture", PauseAction::SaveCapture});
     opts.push_back({"Main Menu", PauseAction::MainMenu});
@@ -622,8 +628,9 @@ std::vector<PauseOption> buildPauseOptions(bool hasRestart)
 void GameManager::handlePauseKey(uint32_t keycode)
 {
     bool hasRestart = (m_gameFactory != nullptr);
-    auto options = buildPauseOptions(hasRestart);
+    auto options = buildPauseOptions(hasRestart,m_currentGame);
     uint8_t optionCount = static_cast<uint8_t>(options.size());
+    if(m_pauseCursor>=optionCount) m_pauseCursor=0;
 
     switch(keycode)
     {
@@ -640,6 +647,11 @@ void GameManager::handlePauseKey(uint32_t keycode)
             {
                 case PauseAction::Resume:
                     m_paused = false;
+                    m_pauseStatus.clear();
+                    break;
+                case PauseAction::GameAction:
+                    m_currentGame->onPauseAction(options[m_pauseCursor].gameIndex);
+                    m_paused=false;
                     m_pauseStatus.clear();
                     break;
                 case PauseAction::Restart:
@@ -676,6 +688,19 @@ void GameManager::handlePauseKey(uint32_t keycode)
 }
 
 
+void GameManager::handlePauseClick(float x,float y,uint8_t button)
+{
+    if(!m_paused || button!=1) return;
+    const auto options=buildPauseOptions(m_gameFactory!=nullptr,m_currentGame);
+    const float panelHeight=150.0f+75.0f*options.size()+(m_pauseStatus.empty() ? 0.0f:50.0f);
+    const float firstRow=(1080.0f-panelHeight)*0.5f+120.0f;
+    if(x<680 || x>1240 || y<firstRow) return;
+    const size_t row=static_cast<size_t>((y-firstRow)/75);
+    if(row>=options.size() || y-firstRow-row*75>=66) return;
+    m_pauseCursor=static_cast<uint8_t>(row);
+    handlePauseKey(SDLK_RETURN);
+}
+
 static constexpr uint32_t PAUSE_OVERLAY_Z = 500;
 
 void GameManager::renderPauseMenu()
@@ -698,8 +723,9 @@ void GameManager::renderPauseMenu()
 
     // Center panel
     bool hasRestart = (m_gameFactory != nullptr);
-    auto options = buildPauseOptions(hasRestart);
+    auto options = buildPauseOptions(hasRestart,m_currentGame);
     uint8_t optionCount = static_cast<uint8_t>(options.size());
+    if(m_pauseCursor>=optionCount) m_pauseCursor=0;
     float panelW = 600.0f;
     float rowH   = 75.0f;
     float statusH = m_pauseStatus.empty() ? 0.0f : 50.0f;
@@ -738,7 +764,7 @@ void GameManager::renderPauseMenu()
     titleText->m_z        = PAUSE_OVERLAY_Z + 2;
     renderQueueAdd(m_frameId, titleText);
 
-    float optRowW = 390.0f;
+    float optRowW = 560.0f;
     float optStartY = panelY + 120.0f;
     FontID optFontId = (m_pauseFontId != INVALID_FONT_ID) ? m_pauseFontId : m_barFontId;
     TTF_Font* optFont = getFont(optFontId);
@@ -765,7 +791,7 @@ void GameManager::renderPauseMenu()
         int optW = 0, optH = 0;
         if(optFont)
         {
-            TTF_GetStringSize(optFont, options[i].label, 0, &optW, &optH);
+            TTF_GetStringSize(optFont, options[i].label.c_str(), 0, &optW, &optH);
         }
 
         auto optText = std::make_shared<RenderText>();

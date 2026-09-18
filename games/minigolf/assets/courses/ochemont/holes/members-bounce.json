@@ -1,0 +1,73 @@
+{
+    "formatVersion": 2,
+    "id": "members-bounce",
+    "name": "Members Billiard Room",
+    "par": 3,
+    "bounds": {
+        "topLeft": [ 155, 245 ],
+        "bottomRight": [ 1255, 765 ]
+    },
+    "tee": {
+        "id": "tee",
+        "position": [ 276, 505 ]
+    },
+    "extraTees": [
+    ],
+    "cup": {
+        "id": "cup",
+        "position": [ 1106.5, 505 ],
+        "radius": 30,
+        "rail": ""
+    },
+    "rails": [
+    ],
+    "walls": [
+        {
+            "id": "upper-cushion",
+            "group": "upper-cushion",
+            "center": [ 677.5, 323 ],
+            "size": [ 528, 21.666668 ],
+            "angleDegrees": 10,
+            "rail": "",
+            "showRail": 1
+        },
+        {
+            "id": "lower-cushion",
+            "group": "lower-cushion",
+            "center": [ 677.5, 687 ],
+            "size": [ 528, 21.666668 ],
+            "angleDegrees": -10,
+            "rail": "",
+            "showRail": 1
+        }
+    ],
+    "surfaces": [
+    ],
+    "bumpers": [
+        {
+            "id": "polished-post-0",
+            "center": [ 683, 505 ],
+            "radius": 38,
+            "kickSpeed": 440,
+            "rail": ""
+        },
+        {
+            "id": "polished-post-1",
+            "center": [ 798.5, 455.666656 ],
+            "radius": 38,
+            "kickSpeed": 440,
+            "rail": ""
+        },
+        {
+            "id": "polished-post-2",
+            "center": [ 798.5, 554.333313 ],
+            "radius": 38,
+            "kickSpeed": 440,
+            "rail": ""
+        }
+    ],
+    "lasers": [
+    ],
+    "portals": [
+    ]
+}

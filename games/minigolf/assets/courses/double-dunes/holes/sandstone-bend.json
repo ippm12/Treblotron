@@ -1,0 +1,162 @@
+{
+    "formatVersion": 1,
+    "id": "sandstone-bend",
+    "name": "Sandstone Bend",
+    "par": 4,
+    "bounds": {
+        "topLeft": [ 165, 225 ],
+        "bottomRight": [ 1245, 785 ]
+    },
+    "tee": {
+        "id": "tee",
+        "position": [ 1165, 365 ]
+    },
+    "extraTees": [
+    ],
+    "cup": {
+        "id": "cup",
+        "position": [ 505, 445 ],
+        "radius": 30,
+        "rail": ""
+    },
+    "rails": [
+    ],
+    "walls": [
+        {
+            "id": "wall-1",
+            "group": "barrier-1",
+            "center": [ 585, 315 ],
+            "size": [ 40, 40 ],
+            "rail": "",
+            "showRail": 1
+        },
+        {
+            "id": "wall-2",
+            "group": "barrier-1",
+            "center": [ 585, 355 ],
+            "size": [ 40, 40 ],
+            "rail": "",
+            "showRail": 0
+        },
+        {
+            "id": "wall-3",
+            "group": "barrier-1",
+            "center": [ 585, 395 ],
+            "size": [ 40, 40 ],
+            "rail": "",
+            "showRail": 0
+        },
+        {
+            "id": "wall-4",
+            "group": "barrier-1",
+            "center": [ 585, 435 ],
+            "size": [ 40, 40 ],
+            "rail": "",
+            "showRail": 0
+        },
+        {
+            "id": "wall-5",
+            "group": "barrier-1",
+            "center": [ 585, 475 ],
+            "size": [ 40, 40 ],
+            "rail": "",
+            "showRail": 0
+        },
+        {
+            "id": "wall-6",
+            "group": "barrier-1",
+            "center": [ 585, 515 ],
+            "size": [ 40, 40 ],
+            "rail": "",
+            "showRail": 0
+        },
+        {
+            "id": "wall-7",
+            "group": "barrier-1",
+            "center": [ 585, 555 ],
+            "size": [ 40, 40 ],
+            "rail": "",
+            "showRail": 0
+        },
+        {
+            "id": "wall-8",
+            "group": "barrier-8",
+            "center": [ 625, 555 ],
+            "size": [ 40, 40 ],
+            "rail": "",
+            "showRail": 1
+        },
+        {
+            "id": "wall-9",
+            "group": "barrier-8",
+            "center": [ 665, 555 ],
+            "size": [ 40, 40 ],
+            "rail": "",
+            "showRail": 0
+        },
+        {
+            "id": "wall-10",
+            "group": "barrier-8",
+            "center": [ 705, 555 ],
+            "size": [ 40, 40 ],
+            "rail": "",
+            "showRail": 0
+        },
+        {
+            "id": "wall-11",
+            "group": "barrier-8",
+            "center": [ 745, 555 ],
+            "size": [ 40, 40 ],
+            "rail": "",
+            "showRail": 0
+        },
+        {
+            "id": "wall-12",
+            "group": "barrier-8",
+            "center": [ 785, 555 ],
+            "size": [ 40, 40 ],
+            "rail": "",
+            "showRail": 0
+        },
+        {
+            "id": "wall-13",
+            "group": "barrier-8",
+            "center": [ 825, 555 ],
+            "size": [ 40, 40 ],
+            "rail": "",
+            "showRail": 0
+        }
+    ],
+    "surfaces": [
+        {
+            "id": "sand-1",
+            "kind": "sand",
+            "center": [ 945, 365 ],
+            "size": [ 260, 120 ]
+        },
+        {
+            "id": "surface-1",
+            "kind": "sand",
+            "center": [ 290, 680 ],
+            "size": [ 180, 120 ]
+        },
+        {
+            "id": "surface-2",
+            "kind": "sand",
+            "center": [ 585, 260 ],
+            "size": [ 70, 80 ]
+        },
+        {
+            "id": "surface-3",
+            "kind": "sand",
+            "center": [ 700, 590 ],
+            "size": [ 320, 60 ]
+        }
+    ],
+    "bumpers": [
+    ],
+    "lasers": [
+    ],
+    "portals": [
+    ]
+}

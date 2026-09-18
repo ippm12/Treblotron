@@ -3,6 +3,7 @@
  */
 
 #include "minigolf.hpp"
+#include "course_themes.hpp"
 #include "render_golf_ball.hpp"
 #include "dart/dart_board_geometry.hpp"
 
@@ -49,8 +50,6 @@ constexpr uint32_t Z_AIM_ARROW = CourseLayer::Aim;
 constexpr uint32_t Z_BANNER    = 200;
 
 // Visual styling
-const Color FELT_COLOR        = {  35, 110,  55 };
-const Color WALL_COLOR        = { 100,  70,  40 };
 const Color CUP_COLOR         = {  10,  10,  10 };
 const Color CUP_RIM_COLOR     = { 230, 220, 180 };
 const Color HASH_COLOR        = { 220, 220, 220 };
@@ -175,28 +174,21 @@ constexpr float WALL_BOUNCE_MIN_SPEED_PXPS = 20.0f;
 // drops, at CUP_CAPTURE_MAX_SPEED_PXPS it must be nearly dead centre, and past
 // that speed it always runs over the top. FALLOFF is the fraction of the cup
 // radius taken away at the speed limit.
-constexpr float CUP_CAPTURE_MAX_SPEED_PXPS = 400.0f;
+constexpr float CUP_CAPTURE_MAX_SPEED_PXPS = 700.0f;
 constexpr float CUP_CAPTURE_RADIUS_FALLOFF = 0.8f;
 
-// A ball that does not drop is treated as falling partway into the cup and
-// meeting its far wall. How deep it gets is set by pace: a slow ball sinks in
-// far enough to hit the wall square and is thrown back out, while a fast one
-// is still crossing the mouth when it reaches the far side and only clips the
-// rim. At CUP_SKIM_SPEED_PXPS it never drops at all and sails straight over.
+// A rejected ball dips into the cup and clips the far lip. Moderate-fast
+// approaches lose most of their radial speed climbing out; very fast shots
+// stay high enough to skim across. Keep forward motion rather than reflecting
+// it as though the cup were a vertical bumper.
 constexpr float CUP_SKIM_SPEED_PXPS  = 1200.0f;
-// Where the far wall sits, as a fraction of the cup radius.
 constexpr float CUP_LIP_RADIUS_FRAC  = 0.62f;
-// The wall only exists once the ball has fallen far enough to meet it; above
-// this pace it is still skimming the surface and crosses with only a nudge.
-constexpr float CUP_WALL_MIN_DIP     = 0.45f;
-// After being thrown off the wall the ball is riding the rim rather than
-// sitting in the cup. For this long nothing acts on it — no capture and, just
-// as importantly, no pull, or the cup would simply reel it straight back in.
+constexpr float CUP_WALL_MIN_DIP     = 0.20f;
+// Briefly suppress capture/pull after a lip strike so the outgoing ball can
+// clear the rim instead of being immediately reeled back in.
 constexpr float CUP_REJECT_SECS      = 0.28f;
-// Wall bounce: how much of the speed into the wall comes back, and how much
-// of the speed along it survives the scrape.
-constexpr float CUP_RIM_RESTITUTION  = 0.50f;
-constexpr float CUP_RIM_TANGENT_KEEP = 0.75f;
+constexpr float CUP_BACK_LIP_NORMAL_KEEP = 0.22f;
+constexpr float CUP_RIM_TANGENT_KEEP = 0.55f;
 // While riding the bowl the ball is pulled toward the middle and scrubbed by
 // the rim. Both scale with how deep it has fallen.
 constexpr float CUP_LIP_PULL_PXPS2 = 2400.0f;   // accel toward cup centre
@@ -417,6 +409,7 @@ void MiniGolfGame::buildCurrentHole()
         m_players[i].blockedPortalPair           = -1;
         m_players[i].portalCooldown              = 0;
         m_players[i].bumperCooldown              = 0;
+        m_players[i].crushTimer=0; m_players[i].crushWallA=m_players[i].crushWallB=-1;
         m_players[i].cupBounced                  = false;
         m_players[i].cupRejectTimer              = 0.0f;
         m_players[i].trail.clear();
@@ -465,13 +458,12 @@ bool MiniGolfGame::findSafeReturn(size_t player,Vec2 origin,Vec2& result) const
         if(near(cupPosition(),h.cupRadius+r)) return false;
         for(const auto& w:h.walls)
             if(insidePatch(q,obstaclePosition({w.centerX,w.centerY},w.rail),
-                           {w.width+2*r,w.height+2*r})) return false;
+                           {w.width+2*r,w.height+2*r},0,w.angleDegrees)) return false;
         for(const auto& patch:h.surfaces)
             if(patch.kind==SurfaceKind::Water &&
-               insidePatch(q,patch.center,{patch.size.x+2*r,patch.size.y+2*r})) return false;
+               insidePatch(q,patch.center,{patch.size.x+2*r,patch.size.y+2*r},0,patch.angleDegrees)) return false;
         for(const auto& laser:h.lasers)
-            if(insidePatch(q,obstaclePosition(laser.center,laser.rail),
-                           {laser.size.x+2*r,laser.size.y+2*r})) return false;
+            if(touchesLaser(q,laser,obstaclePosition(laser.center,laser.rail),r)) return false;
         for(const auto& bumper:h.bumpers)
             if(near(obstaclePosition(bumper.center,bumper.rail),bumper.radius+r)) return false;
         for(const auto& portal:h.portals)
@@ -540,7 +532,7 @@ void MiniGolfGame::spawnBall(size_t player,Vec2 position)
     p.hasSpawned=true; p.pendingReturn=false; p.returnDelay=0; p.safeReturnRequired=false;
     p.roll={}; p.trail.clear(); p.cupBounced=false; p.cupRejectTimer=0;
     p.portalCooldown=0; p.blockedPortalPair=-1; p.bumperCooldown=0;
-    p.hazardTimer=0;
+    p.hazardTimer=0; p.crushTimer=0; p.crushWallA=p.crushWallB=-1;
     bool pending=false;
     for(const auto& ball:m_players) pending |= ball.pendingReturn;
     if(!pending) m_cascadeParticipants=0;
@@ -615,7 +607,7 @@ void MiniGolfGame::resetBallsToStart()
 // Update (phase machine)
 // ============================================================================
 
-void MiniGolfGame::update(float deltaTime)
+void MiniGolfGame::stepCoursePhysics(float deltaTime)
 {
     // 1) Always step physics — even between phases — so balls finish
     //    settling visibly during the hole-transition banner.
@@ -672,6 +664,11 @@ void MiniGolfGame::update(float deltaTime)
         m_aimArrowTimer = std::max(0.0f, m_aimArrowTimer - deltaTime);
     }
 
+}
+
+void MiniGolfGame::update(float deltaTime)
+{
+    stepCoursePhysics(deltaTime);
     // 2) Drain landed counter (we don't use it; one DartPosition == one stroke).
     (void)consumeDartLandedCount();
 
@@ -974,7 +971,7 @@ void MiniGolfGame::updateCupInteraction(float deltaTime)
             continue;
         }
 
-        // Just thrown off the far wall: the ball has been kicked up onto the
+        // Just clipped the back lip: the ball has climbed up onto the
         // rim and is on its way out. Nothing acts on it until that expires —
         // no capture, and no pull either. The pull is a 1400 px/s^2 central
         // attractor, easily strong enough to arrest a rejected ball and drag
@@ -1026,17 +1023,18 @@ void MiniGolfGame::updateCupInteraction(float deltaTime)
         if(!p.cupBounced && dip >= CUP_WALL_MIN_DIP
            && d >= lipRadius && d <= h.cupRadius && vOut > 0.0f)
         {
-            // Not enough pace to climb back over the rim: it strikes the wall
-            // and is thrown back across the hole. Speed into the wall comes
-            // back reduced; speed along it is scrubbed by the scrape.
+            // Lose energy climbing over the back lip, retaining a small
+            // forward component. More tangential motion survives, producing
+            // a deterministic deflection on off-center hits without reversing
+            // a centered putt or adding arbitrary sideways motion.
             const float tx = vx - vOut * nx;
             const float ty = vy - vOut * ny;
             setBodyVelocityPx(*m_world, p.ballBody,
-                cupVelocity.x + tx * CUP_RIM_TANGENT_KEEP - nx * vOut * CUP_RIM_RESTITUTION,
-                cupVelocity.y + ty * CUP_RIM_TANGENT_KEEP - ny * vOut * CUP_RIM_RESTITUTION);
+                cupVelocity.x + tx * CUP_RIM_TANGENT_KEEP + nx * vOut * CUP_BACK_LIP_NORMAL_KEEP,
+                cupVelocity.y + ty * CUP_RIM_TANGENT_KEEP + ny * vOut * CUP_BACK_LIP_NORMAL_KEEP);
             p.cupBounced     = true;
             p.cupRejectTimer = CUP_REJECT_SECS;
-            continue;   // the bounce is this frame's cup interaction
+            continue;   // the lip strike is this frame's cup interaction
         }
 
         // ---- 4) Riding the lip -------------------------------------------
@@ -1111,6 +1109,38 @@ void MiniGolfGame::onBallSettled()
     endCurrentTurn();
 }
 
+
+std::vector<std::string> MiniGolfGame::getPauseActions() const
+{
+    if(m_currentHole>=m_options.holeCount || m_currentPlayer>=m_players.size() ||
+       m_waitingForCollect || m_players[m_currentPlayer].finishedHole[m_currentHole] ||
+       (m_phase!=Phase::Aiming && m_phase!=Phase::BallInMotion && m_phase!=Phase::ScrambleChoice)) return {};
+    return {std::string(m_teams.empty() ? "Give up hole":"Give up team hole")+
+        " ("+std::to_string(STROKE_CAP)+(m_teams.empty() ? " strokes)":")")};
+}
+
+void MiniGolfGame::onPauseAction(size_t index)
+{
+    if(index!=0 || getPauseActions().empty()) return;
+    auto& p=m_players[m_currentPlayer];
+    p.strokes[m_currentHole]=STROKE_CAP;
+    holeOutPlayer(m_currentPlayer);
+    p.pendingReturn=false; p.returnDelay=0; p.safeReturnRequired=false;
+    p.hazardTimer=0; p.crushTimer=0; p.crushWallA=p.crushWallB=-1; p.destructionTimer=0; p.trail.clear();
+    m_lastShotHoled=false; m_settleTimer=0; m_throwsRemainingInTurn=0;
+    consumeDartLandedCount();
+    DartPosition queued;
+    while(popDartPosition(queued)) {}
+    if(!m_teams.empty()) {
+        auto& team=m_teams[m_currentPlayer];
+        team.attempts.clear(); team.attemptsTaken=0; team.attemptStarted=false;
+        team.baseStrokes=STROKE_CAP;
+    }
+    // Giving up commits the whole shared hole, not another scramble attempt.
+    m_committingScramble=true;
+    endCurrentTurn();
+    m_committingScramble=false;
+}
 
 void MiniGolfGame::endCurrentTurn()
 {
@@ -1330,7 +1360,7 @@ void MiniGolfGame::renderCourse()
     // Floor: fill course view area with felt colour.
     auto floor = std::make_shared<RenderShape>();
     floor->m_type   = ShapeType::Box;
-    floor->m_color  = FELT_COLOR;
+    floor->m_color  = courseTheme(m_course.theme).grass;
     floor->m_x      = COURSE_VIEW_X;
     floor->m_y      = COURSE_VIEW_Y;
     floor->m_z      = Z_FELT;
@@ -1338,21 +1368,100 @@ void MiniGolfGame::renderCourse()
     floor->m_height = COURSE_VIEW_H;
     renderQueueAdd(fid, floor);
 
+    // Cosmetic scenery outside the physical boundary. Fixed counts keep large
+    // courses cheap, and viewport checks keep scenery below the game chrome.
+    const auto& theme=courseTheme(m_course.theme);
+    if(m_course.theme!="classic") {
+        floor->m_color=theme.backdrop;
+        float left,top,right,bottom;
+        m_camera.worldToScreen(h.areaTopLeft.x,h.areaTopLeft.y,left,top);
+        m_camera.worldToScreen(h.areaBottomRight.x,h.areaBottomRight.y,right,bottom);
+        left=std::max(left,COURSE_VIEW_X); top=std::max(top,COURSE_VIEW_Y);
+        right=std::min(right,COURSE_VIEW_X+COURSE_VIEW_W);
+        bottom=std::min(bottom,COURSE_VIEW_Y+COURSE_VIEW_H);
+        if(right>left && bottom>top) {
+            auto turf=std::make_shared<RenderShape>();
+            turf->m_type=ShapeType::Box; turf->m_color=theme.grass;
+            turf->m_x=left; turf->m_y=top; turf->m_width=right-left;
+            turf->m_height=bottom-top; turf->m_z=Z_FELT+1;
+            renderQueueAdd(fid,turf);
+        }
+        auto mark=[&](float x,float y,float w,float ht,Color color,bool round=false) {
+            float sx,sy; m_camera.worldToScreen(x,y,sx,sy);
+            w=m_camera.worldToScreenLength(w); ht=m_camera.worldToScreenLength(ht);
+            if(sx-w/2<COURSE_VIEW_X || sx+w/2>COURSE_VIEW_X+COURSE_VIEW_W ||
+               sy-ht/2<COURSE_VIEW_Y || sy+ht/2>COURSE_VIEW_Y+COURSE_VIEW_H) return;
+            auto shape=std::make_shared<RenderShape>();
+            shape->m_type=round ? ShapeType::Circle:ShapeType::Box;
+            shape->m_x=round ? sx:sx-w/2; shape->m_y=round ? sy:sy-ht/2;
+            shape->m_width=w; shape->m_height=round ? 0:ht;
+            shape->m_color=color; shape->m_z=Z_FELT+2;
+            renderQueueAdd(fid,shape);
+        };
+        for(int edge=0;edge<4;++edge) for(int i=0;i<6;++i) {
+            const float t=(i+0.5f)/6;
+            const bool horizontal=edge<2;
+            const float x=horizontal ? h.areaTopLeft.x+t*(h.areaBottomRight.x-h.areaTopLeft.x):
+                (edge==2 ? h.areaTopLeft.x-65:h.areaBottomRight.x+65);
+            const float y=horizontal ? (edge==0 ? h.areaTopLeft.y-65:h.areaBottomRight.y+65):
+                h.areaTopLeft.y+t*(h.areaBottomRight.y-h.areaTopLeft.y);
+            if(m_course.theme=="tungsten-ridge") {
+                if(i%3==0) {
+                    mark(x,y,42,32,theme.wall); mark(x,y+4,22,22,{27,37,39});
+                    mark(x,y-11,28,5,theme.accent);
+                } else {
+                    mark(x,y+13,6,16,theme.accent);
+                    for(int j=0;j<3;++j) mark(x,y+9-j*10,36-j*10,12,theme.foliage);
+                }
+            } else if(m_course.theme=="checkout-valley" || m_course.theme=="ochemont") {
+                mark(x,y+12,8,20,theme.wall);
+                mark(x-10,y,27,27,theme.foliage,true);
+                mark(x+9,y-4,30,30,i%2 ? theme.foliage:theme.accent,true);
+                mark(x,y-13,27,27,theme.foliage,true);
+            } else if(m_course.theme=="double-dunes") {
+                if(i%3==0) {mark(x,y,40,24,theme.wall); mark(x-5,y-14,25,12,theme.accent);}
+                else {
+                    mark(x,y,8,40,theme.foliage); mark(x-9,y+3,16,7,theme.foliage);
+                    mark(x-14,y-3,6,18,theme.foliage); mark(x+9,y-4,14,7,theme.foliage);
+                    mark(x+13,y-11,6,19,theme.foliage);
+                }
+            } else if(m_course.theme=="the-big-fish") {
+                if(i==2) {
+                    mark(x,y,42,42,theme.wall,true); mark(x,y,31,31,{235,229,207},true);
+                    mark(x,y,20,20,{182,66,56},true); mark(x,y,9,9,theme.accent,true);
+                } else {
+                    mark(x,y,34,12,theme.wall);
+                    for(int j=-1;j<=1;++j) mark(x+j*10,y,2,12,theme.accent);
+                    mark(x+12,y+19,9,9,{226,104,74},true);
+                }
+            } else if(m_course.theme=="treble-beach") {
+                mark(x,y,40,40,theme.wall,true);
+                mark(x+7,y-6,25,25,theme.sand,true);
+                mark(x-3,y+22,38,3,theme.waterDetail);
+                mark(x+5,y+30,24,3,theme.waterDetail);
+            } else {
+                mark(x-11,y+8,16,12,theme.wall);
+                for(int j=0;j<4;++j) mark(x+j*5,y-j%2*5,2,24+j%3*5,theme.accent);
+            }
+        }
+    }
+
     // Walls — draw each as a screen-space box. We reuse the course's
     // wall list (interior obstacles) plus the four implicit boundaries.
-    auto drawWall = [&](float cx, float cy, float w, float ht) {
+    auto drawWall = [&](float cx, float cy, float w, float ht,float degrees=0) {
         float sx = 0.0f, sy = 0.0f;
         m_camera.worldToScreen(cx, cy, sx, sy);
         const float sw = m_camera.worldToScreenLength(w);
         const float sh = m_camera.worldToScreenLength(ht);
         auto wall = std::make_shared<RenderShape>();
         wall->m_type   = ShapeType::Box;
-        wall->m_color  = WALL_COLOR;
+        wall->m_color  = courseTheme(m_course.theme).wall;
         wall->m_x      = sx - 0.5f * sw;
         wall->m_y      = sy - 0.5f * sh;
         wall->m_z      = Z_WALL;
         wall->m_width  = sw;
         wall->m_height = sh;
+        wall->m_rotation = degrees*0.01745329252f;
         renderQueueAdd(fid, wall);
     };
 
@@ -1374,7 +1483,7 @@ void MiniGolfGame::renderCourse()
     for(const auto& w : h.walls)
     {
         const auto position = obstaclePosition({w.centerX,w.centerY}, w.rail);
-        drawWall(position.x, position.y, w.width, w.height);
+        drawWall(position.x, position.y, w.width, w.height,w.angleDegrees);
     }
 
     // Cup: dark fill + light rim.
@@ -1523,7 +1632,7 @@ void MiniGolfGame::renderBallTrails()
 
             auto dot = std::make_shared<RenderShape>();
             dot->m_type   = ShapeType::Circle;
-            dot->m_color  = lerpColor(FELT_COLOR, p.ballColor,
+            dot->m_color  = lerpColor(courseTheme(m_course.theme).grass, p.ballColor,
                                       TRAIL_FADE_TAIL
                                       + (TRAIL_FADE_HEAD - TRAIL_FADE_TAIL) * age);
             dot->m_x      = sx;

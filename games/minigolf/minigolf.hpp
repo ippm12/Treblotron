@@ -19,6 +19,7 @@
 #include "game_lib/box2d/physics_body.hpp"
 #include "game_lib/box2d/physics_camera.hpp"
 #include "course_defs.hpp"
+#include "course_io.hpp"
 #include "ball_roll.hpp"
 #include "course_motion.hpp"
 
@@ -38,9 +39,10 @@ struct GameOptions {
     uint8_t holeCount=9;
     uint8_t startHole=0;
     TeamMode teams=TeamMode::Individual;
+    std::string courseDirectory{};
 };
 inline Course selectedCourse(CourseId id,const GameOptions& options) {
-    const auto source=buildCourse(id);
+    const auto source=options.courseDirectory.empty() ? buildCourse(id) : loadCourse(options.courseDirectory);
     auto result=source;
     for(size_t i=0;i<HOLES_PER_GAME;++i)
         result.holes[i]=source.holes[(options.startHole+i)%HOLES_PER_GAME];
@@ -92,6 +94,8 @@ struct PlayerState
     int               blockedPortalPair = -1;
     float             portalCooldown = 0;
     float             bumperCooldown = 0;
+    float             crushTimer = 0;
+    int               crushWallA = -1, crushWallB = -1;
     Vec2              hazardPosition;
     bool              waterSplash = false;
 
@@ -133,6 +137,8 @@ class MiniGolfGame : public Game
         void   shutdown() override;
 
         GameBarInfo getBarInfo() const override;
+        std::vector<std::string> getPauseActions() const override;
+        void onPauseAction(size_t index) override;
         uint8_t     getMaxPlayers() const override;
 
         void onKeyDown(uint32_t keycode) override;
@@ -141,6 +147,8 @@ class MiniGolfGame : public Game
         void onMouseClick(float x,float y,uint8_t button) override;
 
     private:
+        friend class CoursePreview;
+        void stepCoursePhysics(float deltaTime);
         // ── Hole lifecycle ─────────────────────────────────────────────
         void buildCurrentHole();
         void spawnBall(size_t player, Vec2 position);
@@ -169,7 +177,7 @@ class MiniGolfGame : public Game
         void buildObstacles();
         void moveObstacles(float dt);
         void updateObstacles(float dt);
-        void renderObstacles();
+        void renderObstacles(bool drawSurfaces=true,bool drawRails=true);
         void penalizeHazard(size_t player, Vec2 position, bool water);
         Vec2 obstaclePosition(Vec2 base, int rail) const;
         Vec2 cupPosition() const;

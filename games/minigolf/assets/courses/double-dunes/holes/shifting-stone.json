@@ -1,0 +1,211 @@
+{
+    "formatVersion": 1,
+    "id": "shifting-stone",
+    "name": "Shifting Stone",
+    "par": 4,
+    "bounds": {
+        "topLeft": [ 165, 225 ],
+        "bottomRight": [ 1245, 785 ]
+    },
+    "tee": {
+        "id": "tee",
+        "position": [ 1125, 725 ]
+    },
+    "extraTees": [
+    ],
+    "cup": {
+        "id": "cup",
+        "position": [ 265, 705 ],
+        "radius": 30,
+        "rail": ""
+    },
+    "rails": [
+        {
+            "id": "rail-1",
+            "mode": "pingPong",
+            "phaseSeconds": 0,
+            "stops": [
+                {
+                    "id": "stop-1",
+                    "offset": [ 0, 0 ],
+                    "pauseSeconds": 0.8,
+                    "speed": 60
+                },
+                {
+                    "id": "stop-2",
+                    "offset": [ 0, 150 ],
+                    "pauseSeconds": 0.8,
+                    "speed": 75
+                }
+            ]
+        },
+        {
+            "id": "rail-1789615177240155234",
+            "mode": "pingPong",
+            "phaseSeconds": 0,
+            "stops": [
+                {
+                    "id": "stop-1789615177240155235",
+                    "offset": [ 0, 0 ],
+                    "pauseSeconds": 0.2,
+                    "speed": 40
+                },
+                {
+                    "id": "stop-1789615177240155236",
+                    "offset": [ 0, 160 ],
+                    "pauseSeconds": 0.2,
+                    "speed": 40
+                }
+            ]
+        }
+    ],
+    "walls": [
+        {
+            "id": "wall-8",
+            "group": "barrier-8",
+            "center": [ 745, 245 ],
+            "size": [ 40, 40 ],
+            "rail": "rail-1",
+            "showRail": 1
+        },
+        {
+            "id": "wall-9",
+            "group": "barrier-8",
+            "center": [ 785, 245 ],
+            "size": [ 40, 40 ],
+            "rail": "rail-1",
+            "showRail": 0
+        },
+        {
+            "id": "wall-10",
+            "group": "barrier-8",
+            "center": [ 825, 245 ],
+            "size": [ 40, 40 ],
+            "rail": "rail-1",
+            "showRail": 0
+        },
+        {
+            "id": "wall-11",
+            "group": "barrier-8",
+            "center": [ 865, 245 ],
+            "size": [ 40, 40 ],
+            "rail": "rail-1",
+            "showRail": 0
+        },
+        {
+            "id": "wall-1789615177240155210",
+            "group": "barrier-1789615177240155209",
+            "center": [ 500, 240 ],
+            "size": [ 40, 40 ],
+            "rail": "rail-1789615177240155234",
+            "showRail": 1
+        },
+        {
+            "id": "wall-1789615177240155211",
+            "group": "barrier-1789615177240155209",
+            "center": [ 500, 280 ],
+            "size": [ 40, 40 ],
+            "rail": "rail-1789615177240155234",
+            "showRail": 0
+        },
+        {
+            "id": "wall-1789615177240155212",
+            "group": "barrier-1789615177240155209",
+            "center": [ 500, 320 ],
+            "size": [ 40, 40 ],
+            "rail": "rail-1789615177240155234",
+            "showRail": 0
+        },
+        {
+            "id": "wall-1789615177240155213",
+            "group": "barrier-1789615177240155209",
+            "center": [ 500, 360 ],
+            "size": [ 40, 40 ],
+            "rail": "rail-1789615177240155234",
+            "showRail": 0
+        },
+        {
+            "id": "wall-1789615177240155224",
+            "group": "barrier-1789615177240155223",
+            "center": [ 500, 400 ],
+            "size": [ 40, 40 ],
+            "rail": "",
+            "showRail": 1
+        },
+        {
+            "id": "wall-1789615177240155225",
+            "group": "barrier-1789615177240155223",
+            "center": [ 500, 440 ],
+            "size": [ 40, 40 ],
+            "rail": "",
+            "showRail": 0
+        },
+        {
+            "id": "wall-1789615177240155226",
+            "group": "barrier-1789615177240155223",
+            "center": [ 500, 480 ],
+            "size": [ 40, 40 ],
+            "rail": "",
+            "showRail": 0
+        },
+        {
+            "id": "wall-1789615177240155227",
+            "group": "barrier-1789615177240155223",
+            "center": [ 500, 520 ],
+            "size": [ 40, 40 ],
+            "rail": "",
+            "showRail": 0
+        },
+        {
+            "id": "wall-1789615177240155228",
+            "group": "barrier-1789615177240155223",
+            "center": [ 500, 560 ],
+            "size": [ 40, 40 ],
+            "rail": "",
+            "showRail": 0
+        },
+        {
+            "id": "wall-1789615177240155229",
+            "group": "barrier-1789615177240155223",
+            "center": [ 500, 600 ],
+            "size": [ 40, 40 ],
+            "rail": "",
+            "showRail": 0
+        },
+        {
+            "id": "wall-1789615177240155230",
+            "group": "barrier-1789615177240155223",
+            "center": [ 500, 640 ],
+            "size": [ 40, 40 ],
+            "rail": "",
+            "showRail": 0
+        }
+    ],
+    "surfaces": [
+        {
+            "id": "sand-1",
+            "kind": "sand",
+            "center": [ 985, 595 ],
+            "size": [ 120, 100 ]
+        },
+        {
+            "id": "water-2",
+            "kind": "water",
+            "center": [ 457.5, 722.5 ],
+            "size": [ 165, 155 ]
+        }
+    ],
+    "bumpers": [
+        {
+            "id": "bumper-1",
+            "center": [ 665, 485 ],
+            "radius": 36,
+            "kickSpeed": 390,
+            "rail": ""
+        }
+    ],
+    "lasers": [
+    ],
+    "portals": [
+    ]
+}

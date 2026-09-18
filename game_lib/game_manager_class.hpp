@@ -66,6 +66,7 @@ class GameManager
 
         /** Handle a key press while the pause menu is open. */
         void handlePauseKey(uint32_t keycode);
+        void handlePauseClick(float x,float y,uint8_t button);
 
         /**
          * Render the connection-settings overlay.

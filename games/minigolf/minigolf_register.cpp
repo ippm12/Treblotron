@@ -9,6 +9,8 @@
 #include "minigolf.hpp"
 
 #include <memory>
+#include <SDL3/SDL.h>
+#include <exception>
 
 
 static struct MiniGolfRegistrar
@@ -29,6 +31,8 @@ static struct MiniGolfRegistrar
             {"Teams",{{"Individual"},{"Alternate shot"},{"Scramble"}},0}
         };
         desc.updateSettings=[](std::vector<GameSetting>& settings,std::vector<size_t>& choices) {
+            settings[0].options.clear();
+            for(const auto& course:MiniGolf::availableCourses()) settings[0].options.push_back({course.name});
             if(choices.size()!=settings.size()) {
                 choices.clear();
                 for(const auto& setting:settings) choices.push_back(setting.defaultIndex);
@@ -46,7 +50,16 @@ static struct MiniGolfRegistrar
             options.holeCount=choices.size()>2 && choices[2]<3 ? static_cast<uint8_t>((choices[2]+1)*3) : 9;
             options.startHole=options.holeCount<9 && choices.size()>3 && choices[3]<3 ? static_cast<uint8_t>(choices[3]*3):0;
             options.teams=choices.size()>4 && choices[4]<3 ? static_cast<MiniGolf::TeamMode>(choices[4]):MiniGolf::TeamMode::Individual;
-            return std::make_shared<MiniGolf::MiniGolfGame>(MiniGolf::CourseId::TestHole,options);
+            try {
+                const auto courses=MiniGolf::availableCourses();
+                const auto selected=choices.empty() ? 0 : choices[0];
+                if(selected>=courses.size()) throw std::runtime_error("Selected course is no longer available");
+                options.courseDirectory=courses[selected].directory.string();
+                return std::make_shared<MiniGolf::MiniGolfGame>(MiniGolf::CourseId::TestHole,options);
+            } catch(const std::exception& error) {
+                SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR,"Cannot load Mini Golf course",error.what(),nullptr);
+                return nullptr;
+            }
         };
         registerGame(desc);
     }

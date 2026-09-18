@@ -1,0 +1,91 @@
+{
+    "formatVersion": 2,
+    "id": "weathered-banks",
+    "name": "The Broken Chapel",
+    "par": 5,
+    "bounds": {
+        "topLeft": [ 180, 155 ],
+        "bottomRight": [ 1230, 855 ]
+    },
+    "tee": {
+        "id": "tee",
+        "position": [ 327, 715 ]
+    },
+    "extraTees": [
+    ],
+    "cup": {
+        "id": "cup",
+        "position": [ 1041, 330 ],
+        "radius": 30,
+        "rail": ""
+    },
+    "rails": [
+    ],
+    "walls": [
+        {
+            "id": "west-nave",
+            "group": "west-nave",
+            "center": [ 563.25, 505 ],
+            "size": [ 33.599998, 361.666656 ],
+            "angleDegrees": 25,
+            "rail": "",
+            "showRail": 1
+        },
+        {
+            "id": "east-nave",
+            "group": "east-nave",
+            "center": [ 867.75, 569.166687 ],
+            "size": [ 33.599998, 245 ],
+            "angleDegrees": 25,
+            "rail": "",
+            "showRail": 1
+        },
+        {
+            "id": "chancel",
+            "group": "chancel",
+            "center": [ 789, 295 ],
+            "size": [ 252, 32.666668 ],
+            "angleDegrees": 25,
+            "rail": "",
+            "showRail": 1
+        },
+        {
+            "id": "fallen-column",
+            "group": "fallen-column",
+            "center": [ 699.75, 540 ],
+            "size": [ 115.5, 35 ],
+            "angleDegrees": -35,
+            "rail": "",
+            "showRail": 1
+        }
+    ],
+    "surfaces": [
+        {
+            "id": "altar-sand",
+            "kind": "sand",
+            "center": [ 736.5, 388.333344 ],
+            "size": [ 105, 110.833336 ],
+            "angleDegrees": 25
+        }
+    ],
+    "bumpers": [
+    ],
+    "lasers": [
+    ],
+    "portals": [
+        {
+            "id": "crypt-a",
+            "center": [ 353.25, 359.166656 ],
+            "pair": 0,
+            "color": [ 150, 165, 210 ],
+            "rail": ""
+        },
+        {
+            "id": "crypt-b",
+            "center": [ 1056.75, 662.5 ],
+            "pair": 0,
+            "color": [ 150, 165, 210 ],
+            "rail": ""
+        }
+    ]
+}

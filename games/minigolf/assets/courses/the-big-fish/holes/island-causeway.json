@@ -1,0 +1,106 @@
+{
+    "formatVersion": 2,
+    "id": "island-causeway",
+    "name": "Shipwreck Causeway",
+    "par": 5,
+    "bounds": {
+        "topLeft": [ 105, 185 ],
+        "bottomRight": [ 1305, 825 ]
+    },
+    "tee": {
+        "id": "tee",
+        "position": [ 225, 665 ]
+    },
+    "extraTees": [
+    ],
+    "cup": {
+        "id": "cup",
+        "position": [ 1185, 323.666656 ],
+        "radius": 30,
+        "rail": ""
+    },
+    "rails": [
+    ],
+    "walls": [
+        {
+            "id": "port-hull",
+            "group": "port-hull",
+            "center": [ 681, 403.666656 ],
+            "size": [ 648, 32 ],
+            "angleDegrees": -18,
+            "rail": "",
+            "showRail": 1
+        },
+        {
+            "id": "starboard-hull",
+            "group": "starboard-hull",
+            "center": [ 747, 627.666687 ],
+            "size": [ 648, 32 ],
+            "angleDegrees": -18,
+            "rail": "",
+            "showRail": 1
+        },
+        {
+            "id": "broken-rib-0",
+            "group": "broken-rib-0",
+            "center": [ 531, 505 ],
+            "size": [ 36, 69.333336 ],
+            "angleDegrees": -18,
+            "rail": "",
+            "showRail": 1
+        },
+        {
+            "id": "broken-rib-1",
+            "group": "broken-rib-1",
+            "center": [ 705, 505 ],
+            "size": [ 36, 69.333336 ],
+            "angleDegrees": -18,
+            "rail": "",
+            "showRail": 1
+        },
+        {
+            "id": "broken-rib-2",
+            "group": "broken-rib-2",
+            "center": [ 879, 505 ],
+            "size": [ 36, 69.333336 ],
+            "angleDegrees": -18,
+            "rail": "",
+            "showRail": 1
+        }
+    ],
+    "surfaces": [
+        {
+            "id": "hull-sand",
+            "kind": "sand",
+            "center": [ 705, 515.666687 ],
+            "size": [ 528, 128 ],
+            "angleDegrees": -18
+        },
+        {
+            "id": "tidal-pool",
+            "kind": "water",
+            "center": [ 1071, 718.333313 ],
+            "size": [ 240, 106.666664 ]
+        }
+    ],
+    "bumpers": [
+    ],
+    "lasers": [
+    ],
+    "portals": [
+        {
+            "id": "hatchway-a",
+            "center": [ 309, 371.666656 ],
+            "pair": 0,
+            "color": [ 110, 195, 210 ],
+            "rail": ""
+        },
+        {
+            "id": "hatchway-b",
+            "center": [ 1143, 446.333344 ],
+            "pair": 0,
+            "color": [ 110, 195, 210 ],
+            "rail": ""
+        }
+    ]
+}

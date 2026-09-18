@@ -1,4 +1,5 @@
 #include "fixtures/golf_fixture.hpp"
+#include "course_motion.hpp"
 #include <stdexcept>
 
 void test_obstacles()
@@ -7,6 +8,28 @@ void test_obstacles()
     [[maybe_unused]] auto& g=fixture.game;
     [[maybe_unused]] auto& course=fixture.course;
     [[maybe_unused]] auto& base=fixture.base;
+    {
+        auto h=base;h.walls.clear();h.surfaces.clear();h.lasers={{{705,500},{300,8}}};
+        h.lasers[0].angleDegrees=45;
+        prepare(g,h);place(g,{775,570});place(g,{805,500},1);
+        g.updateObstacles(0.01f);
+        assert(g.m_players[0].hazardTimer>0 && g.m_players[1].hazardTimer==0);
+        h.lasers.clear();h.surfaces={{{705,500},{300,40},SurfaceKind::Water}};
+        h.surfaces[0].angleDegrees=45;
+        prepare(g,h);place(g,{775,570});place(g,{805,500},1);g.updateObstacles(0.01f);
+        assert(g.m_players[0].waterSplash && g.m_players[1].hazardTimer==0);
+        h.surfaces[0].kind=SurfaceKind::Sand;
+        assert(surfaceResponse(h,{775,570},0).resistance>5);
+        assert(surfaceResponse(h,{805,500},0).resistance==1);
+        h.surfaces.clear();h.walls={{705,500,300,20}};h.walls[0].angleDegrees=45;
+        prepare(g,h);
+        assert(near(b2Rot_GetAngle(b2Body_GetRotation(g.m_wallBodies[4])),0.78539816f));
+        // A collision away from the old axis-aligned box deflects sideways.
+        place(g,{775,510});setBodyVelocityPx(*g.m_world,g.m_players[0].ballBody,0,400);
+        for(int i=0;i<24;++i)g.stepCoursePhysics(1.0f/120);
+        float vx,vy;getBodyVelocityPx(*g.m_world,g.m_players[0].ballBody,vx,vy);
+        assert(vx>100);
+    }
     {
         auto h=base; h.lasers={{{705,500},{250,8},1,2}};
         prepare(g,h); place(g,{705,500}); place(g,{710,500},1);
@@ -43,19 +66,56 @@ void test_obstacles()
         assert(g.m_bumperAnimation[0]==0);
     }
     {
+        auto h=base; h.bumpers={{{705,500},40,550}};
+        for(const Vec2 incoming: {Vec2{-900,0},Vec2{900,0},Vec2{-200,800},Vec2{2200,0},Vec2{3000,0}}) {
+            prepare(g,h); place(g,{762,500});
+            setBodyVelocityPx(*g.m_world,g.m_players[0].ballBody,incoming.x,incoming.y);
+            g.updateObstacles(0.01f);
+            float vx,vy; getBodyVelocityPx(*g.m_world,g.m_players[0].ballBody,vx,vy);
+            assert(vx>0);
+            assert(near(std::hypot(vx,vy),std::min(2250.0f,std::hypot(incoming.x,incoming.y)+550),0.1f));
+            const float kickedSpeed=std::hypot(vx,vy);
+            g.updateObstacles(0.01f); // Same contact cannot add another kick.
+            getBodyVelocityPx(*g.m_world,g.m_players[0].ballBody,vx,vy);
+            assert(near(std::hypot(vx,vy),kickedSpeed,0.1f));
+        }
+        // Exercise real collision response, not just the proximity handler.
+        for(float speed: {900.0f,1600.0f}) {
+            prepare(g,h); place(g,{850,500});
+            setBodyVelocityPx(*g.m_world,g.m_players[0].ballBody,-speed,0);
+            bool kicked=false;
+            for(int tick=0;tick<40 && !kicked;++tick) {
+                g.stepCoursePhysics(1.0f/120);
+                kicked=g.m_bumperAnimation[0]>0;
+            }
+            float vx,vy; getBodyVelocityPx(*g.m_world,g.m_players[0].ballBody,vx,vy);
+            assert(kicked && vx>speed && std::hypot(vx,vy)<=2250.1f);
+        }
+    }
+    {
         auto h=base; h.portals={{{400,500},0,{200,80,200}},{{1000,400},0,{200,80,200}}};
-        prepare(g,h); place(g,{400,500});
+        prepare(g,h); place(g,{412,490});
         setBodyVelocityPx(*g.m_world,g.m_players[0].ballBody,120,-240);
         g.m_players[0].trail.push_back({400,500});
         g.updateObstacles(0.01f);
         const auto p=position(g);
-        assert(p.x>1000 && p.y<400 && g.m_players[0].trail.empty());
+        assert(near(p.x,1012) && near(p.y,390) && g.m_players[0].trail.empty());
         float vx=0,vy=0; getBodyVelocityPx(*g.m_world,g.m_players[0].ballBody,vx,vy);
         assert(near(vx,120) && near(vy,-240));
         // Stay in the destination: cooldown expiry alone cannot ping-pong.
         place(g,{1000,400});
         for(int i=0;i<100;++i) g.updateObstacles(0.01f);
         assert(near(position(g).x,1000));
+    }
+    {
+        auto h=base; h.portals={{{400,500},0,{200,80,200}},{{1000,400},0,{200,80,200}}};
+        prepare(g,h); place(g,{400+h.cupRadius+1,500});
+        g.updateObstacles(0.01f);
+        assert(near(position(g).x,400+h.cupRadius+1)); // Same entry radius.
+        h.walls={{1000,400,80,80}};
+        prepare(g,h); place(g,{412,490});
+        g.updateObstacles(0.01f);
+        assert(near(position(g).x,412) && near(position(g).y,490)); // Blocked offset stays at entrance.
     }
     {
         auto h=base;
@@ -80,10 +140,10 @@ void test_obstacles()
         h.rails={{{{{0,0},0,100},{{100,0},1,100}},RailMode::PingPong}};
         h.portals={{{400,500},0,{200,80,200},0},{{1000,400},0,{200,80,200}}};
         prepare(g,h); g.m_courseTime=0.5;
-        place(g,{450,500}); // Entrance sweeps over a stationary ball.
+        place(g,{460,490}); // Off-center entrance sweeps over a stationary ball.
         g.updateObstacles(0.01f);
         float vx=0,vy=0; getBodyVelocityPx(*g.m_world,g.m_players[0].ballBody,vx,vy);
-        assert(near(vx,-100) && near(vy,0) && position(g).x<960);
+        assert(near(vx,-100) && near(vy,0) && near(position(g).x,1010) && near(position(g).y,390));
         for(int i=0;i<60;++i) {
             g.m_world->step(0.01f); g.m_courseTime+=0.01; g.updateObstacles(0.01f);
         }

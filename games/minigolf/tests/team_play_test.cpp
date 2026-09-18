@@ -57,6 +57,18 @@ void test_team_play()
         assert(g.m_players[0].strokes[0]==4 && g.m_players[0].holedOut[0]);
         assert(!b2Body_IsValid(g.m_players[0].ballBody));
     }
+    for(const auto mode:{TeamMode::AlternateShot,TeamMode::Scramble}) {
+        setupTeams(mode);
+        if(mode==TeamMode::Scramble) {g.onTurnSkipped();g.onTurnSkipped();g.onTurnSkipped();
+            assert(g.m_phase==Phase::ScrambleChoice);
+        }
+        assert(!g.getPauseActions().empty());
+        g.onPauseAction(0);
+        assert(g.m_players[0].strokes[0]==STROKE_CAP && g.m_players[0].finishedHole[0]);
+        assert(!b2Body_IsValid(g.m_players[0].ballBody));
+        assert(g.m_teams[0].attempts.empty() && g.m_currentPlayer==1);
+        assert(g.m_players[1].strokes[0]==0);
+    }
     g.teardownCurrentHole(); g.m_options={}; g.m_teams.clear();
     shutdownPlayersModule();
 }

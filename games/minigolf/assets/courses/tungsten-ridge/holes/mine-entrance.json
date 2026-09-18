@@ -1,0 +1,75 @@
+{
+    "formatVersion": 1,
+    "id": "mine-entrance",
+    "name": "The Abandoned Fork",
+    "par": 4,
+    "bounds": {
+        "topLeft": [ 85, 205 ],
+        "bottomRight": [ 1325, 805 ]
+    },
+    "tee": {
+        "id": "tee",
+        "position": [ 209, 505 ]
+    },
+    "extraTees": [
+    ],
+    "cup": {
+        "id": "cup",
+        "position": [ 1201, 505 ],
+        "radius": 30,
+        "rail": ""
+    },
+    "rails": [
+    ],
+    "walls": [
+        {
+            "id": "ore-chamber",
+            "group": "ore-chamber",
+            "center": [ 705, 505 ],
+            "size": [ 322.399994, 220 ],
+            "rail": "",
+            "showRail": 1
+        }
+    ],
+    "surfaces": [
+        {
+            "id": "tailings",
+            "kind": "sand",
+            "center": [ 643, 305 ],
+            "size": [ 285.200012, 80 ]
+        },
+        {
+            "id": "cave-floor",
+            "kind": "rough",
+            "center": [ 643, 705 ],
+            "size": [ 347.200012, 70 ]
+        }
+    ],
+    "bumpers": [
+        {
+            "id": "ore-crusher",
+            "center": [ 977.799988, 360 ],
+            "radius": 40,
+            "kickSpeed": 480,
+            "rail": ""
+        }
+    ],
+    "lasers": [
+    ],
+    "portals": [
+        {
+            "id": "mine-tunnel-a",
+            "center": [ 357.799988, 350 ],
+            "pair": 0,
+            "color": [ 210, 140, 65 ],
+            "rail": ""
+        },
+        {
+            "id": "mine-tunnel-b",
+            "center": [ 900.451599, 454.54837 ],
+            "pair": 0,
+            "color": [ 210, 140, 65 ],
+            "rail": ""
+        }
+    ]
+}

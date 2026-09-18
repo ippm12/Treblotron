@@ -1,3 +1,4 @@
+#include "course_themes.hpp"
 #include "minigolf.hpp"
 #include "game_lib/components/render_shape.hpp"
 #include "game_lib/components/render_text.hpp"
@@ -6,6 +7,51 @@
 #include <cmath>
 
 namespace MiniGolf {
+namespace {
+struct Pinch { int a=-1,b=-1; bool closing=false,opening=false; };
+Pinch wallPinch(PhysicsWorld& world,b2BodyId ball,const std::vector<b2BodyId>& walls)
+{
+    const int capacity=b2Body_GetContactCapacity(ball);
+    if(capacity<2) return {};
+    std::vector<b2ContactData> contacts(capacity);
+    const int count=b2Body_GetContactData(ball,contacts.data(),capacity);
+    struct Face { int wall; b2Vec2 normal,velocity; float separation; };
+    std::vector<Face> faces;
+    for(int i=0;i<count;++i) {
+        const auto& contact=contacts[i];
+        if(contact.manifold.pointCount==0) continue;
+        const auto a=b2Shape_GetBody(contact.shapeIdA),b=b2Shape_GetBody(contact.shapeIdB);
+        const bool ballIsA=B2_ID_EQUALS(a,ball);
+        const auto other=ballIsA ? b:a;
+        const auto it=std::find_if(walls.begin(),walls.end(),[&](auto wall){return B2_ID_EQUALS(wall,other);});
+        if(it==walls.end()) continue; // Balls, bumpers and portals cannot crush.
+        float separation=contact.manifold.points[0].separation;
+        for(int j=1;j<contact.manifold.pointCount;++j)
+            separation=std::min(separation,contact.manifold.points[j].separation);
+        // Ignore distant speculative contacts. Work in metres, as Box2D does.
+        if(separation>world.pixelsToMeters(1.0f)) continue;
+        const auto n=contact.manifold.normal;
+        faces.push_back({static_cast<int>(it-walls.begin()),
+            ballIsA ? b2Vec2{-n.x,-n.y}:n,b2Body_GetLinearVelocity(other),separation});
+    }
+    Pinch fallback;
+    for(size_t i=0;i<faces.size();++i) for(size_t j=i+1;j<faces.size();++j) {
+        const auto& a=faces[i]; const auto& b=faces[j];
+        if(a.wall==b.wall || a.normal.x*b.normal.x+a.normal.y*b.normal.y> -0.95f) continue;
+        // Opposing contacts' signed separations measure the spare gap beyond
+        // the ball diameter. Require a real squeeze, not a snug resting fit.
+        if(a.separation+b.separation>=-world.pixelsToMeters(0.75f)) continue;
+        const float closing=(a.velocity.x-b.velocity.x)*a.normal.x+
+                            (a.velocity.y-b.velocity.y)*a.normal.y;
+        Pinch result{std::min(a.wall,b.wall),std::max(a.wall,b.wall),closing>world.pixelsToMeters(1.0f),closing< -world.pixelsToMeters(1.0f)};
+        if(result.closing) return result;
+        // A rail may pause while still pinching; keep that contact available.
+        fallback=result;
+    }
+    return fallback;
+}
+}
+
 Vec2 MiniGolfGame::obstaclePosition(Vec2 base, int rail) const
 {
     return attachedPosition(m_course.holes[m_currentHole],base,rail,m_courseTime);
@@ -22,7 +68,7 @@ void MiniGolfGame::buildObstacles()
         const auto& w=h.walls[i];
         auto body=m_wallBodies[i+4];
         const auto p=obstaclePosition({w.centerX,w.centerY},w.rail);
-        b2Body_SetTransform(body,m_world->pixelsToMeters(p.x,p.y),b2Rot_identity);
+        b2Body_SetTransform(body,m_world->pixelsToMeters(p.x,p.y),b2MakeRot(w.angleDegrees*0.01745329252f));
         if(w.rail>=0) b2Body_SetType(body,b2_kinematicBody);
     }
     m_bumperAnimation.assign(h.bumpers.size(),0);
@@ -33,7 +79,7 @@ void MiniGolfGame::buildObstacles()
         def.position=m_world->pixelsToMeters(p.x,p.y);
         auto body=b2CreateBody(m_world->id(),&def);
         b2ShapeDef shape=b2DefaultShapeDef();
-        shape.material.restitution=0.9f;
+        shape.material.restitution=1.0f;
         b2Circle circle{{0,0},m_world->pixelsToMeters(b.radius)};
         b2CreateCircleShape(body,&shape,&circle);
         m_bumperBodies.push_back(body);
@@ -61,6 +107,7 @@ void MiniGolfGame::penalizeHazard(size_t player,Vec2 position,bool water)
     p.hazardPosition=position;
     p.waterSplash=water;
     p.hazardTimer=0.8f;
+    p.crushTimer=0; p.crushWallA=p.crushWallB=-1;
     p.trail.clear();
     p.cupBounced=false;
     p.cupRejectTimer=0;
@@ -94,25 +141,31 @@ void MiniGolfGame::updateObstacles(float dt)
         }
         Vec2 pos;
         getBodyPositionPx(*m_world,p.ballBody,pos.x,pos.y);
+        const auto pinch=wallPinch(*m_world,p.ballBody,m_wallBodies);
+        const bool samePair=pinch.a>=0 && pinch.a==p.crushWallA && pinch.b==p.crushWallB;
+        if(pinch.a>=0 && (pinch.closing || (samePair && !pinch.opening && p.crushTimer>0))) {
+            p.crushTimer=(samePair ? p.crushTimer:0)+dt;
+            p.crushWallA=pinch.a; p.crushWallB=pinch.b;
+        } else {p.crushTimer=0; p.crushWallA=p.crushWallB=-1;}
         if(p.respawnProtected) {
             // If a rail carried a hazard onto the shot origin, do not charge
             // repeated penalties while the returned ball is still inside it.
-            bool inside=false;
+            bool inside=pinch.a>=0;
             for(const auto& s:h.surfaces)
-                if(s.kind==SurfaceKind::Water && insidePatch(pos,s.center,s.size)) inside=true;
+                if(s.kind==SurfaceKind::Water && insidePatch(pos,s.center,s.size,0,s.angleDegrees)) inside=true;
             for(const auto& l:h.lasers)
-                if(insidePatch(pos,obstaclePosition(l.center,l.rail),
-                    {l.size.x+2*BALL_RADIUS_PX,l.size.y+2*BALL_RADIUS_PX})) inside=true;
+                if(touchesLaser(pos,l,obstaclePosition(l.center,l.rail),BALL_RADIUS_PX)) inside=true;
             if(!inside) p.respawnProtected=false;
         }
+        if(p.crushTimer>=0.15f) penalizeHazard(i,pos,false);
+        if(p.hazardTimer>0) continue;
         for(const auto& s:h.surfaces)
-            if(s.kind==SurfaceKind::Water && insidePatch(pos,s.center,s.size,4)) {
+            if(s.kind==SurfaceKind::Water && insidePatch(pos,s.center,s.size,4,s.angleDegrees)) {
                 penalizeHazard(i,pos,true); break;
             }
         if(p.hazardTimer>0) continue;
         for(const auto& l:h.lasers)
-            if(laserActive(l,m_courseTime) && insidePatch(pos,obstaclePosition(l.center,l.rail),
-                {l.size.x+2*BALL_RADIUS_PX,l.size.y+2*BALL_RADIUS_PX})) {
+            if(laserActive(l,m_courseTime) && touchesLaser(pos,l,obstaclePosition(l.center,l.rail),BALL_RADIUS_PX)) {
                 penalizeHazard(i,pos,false); break;
             }
         if(p.hazardTimer>0) continue;
@@ -123,8 +176,17 @@ void MiniGolfGame::updateObstacles(float dt)
             if(d>0 && d<=b.radius+BALL_RADIUS_PX+2 && p.bumperCooldown<=0) {
                 float vx=0,vy=0; getBodyVelocityPx(*m_world,p.ballBody,vx,vy);
                 const float nx=dx/d,ny=dy/d,out=vx*nx+vy*ny;
-                const float kick=std::max(0.0f,b.kickSpeed-out);
-                setBodyVelocityPx(*m_world,p.ballBody,vx+nx*kick,vy+ny*kick);
+                // Reflect any still-inward velocity, then bias the rebound away
+                // from the cap. Normalize to an additive TOTAL speed boost so
+                // fast and grazing hits benefit as much as slow head-on hits.
+                const float speed=std::hypot(vx,vy);
+                const float impulse=b.kickSpeed-2*std::min(0.0f,out);
+                vx+=nx*impulse; vy+=ny*impulse;
+                const float directedSpeed=std::hypot(vx,vy);
+                constexpr float maxBumperSpeed=2250.0f; // Three maximum-power shots.
+                const float target=std::min(maxBumperSpeed,speed+b.kickSpeed);
+                if(directedSpeed>0) { vx*=target/directedSpeed; vy*=target/directedSpeed; }
+                setBodyVelocityPx(*m_world,p.ballBody,vx,vy);
                 p.bumperCooldown=0.16f;
                 m_bumperAnimation[bi]=0.35f;
             }
@@ -151,23 +213,16 @@ void MiniGolfGame::updateObstacles(float dt)
             const auto entranceVelocity=railVelocity(h,entry.rail,m_courseTime,dt);
             const auto exitVelocity=railVelocity(h,exit.rail,m_courseTime,dt);
             const auto outgoing=portalExitVelocity(velocity,entranceVelocity,exitVelocity);
-            Vec2 direction{velocity.x-entranceVelocity.x,velocity.y-entranceVelocity.y};
-            float length=std::hypot(direction.x,direction.y);
-            if(length<0.001f) {
-                direction={pos.x-a.x,pos.y-a.y};
-                length=std::hypot(direction.x,direction.y);
-            }
-            if(length<0.001f) direction={1,0};
-            else { direction.x/=length; direction.y/=length; }
-            const float clearance=h.cupRadius+BALL_RADIUS_PX+4;
-            const Vec2 dest{center.x+direction.x*clearance,center.y+direction.y*clearance};
+            // Keep the exact world-axis offset within the entrance. The pair
+            // lock below prevents return teleportation while inside the exit.
+            const Vec2 dest{center.x+pos.x-a.x,center.y+pos.y-a.y};
             // Blocked destinations never place a ball inside a wall.
             if(dest.x<h.areaTopLeft.x+BALL_RADIUS_PX || dest.x>h.areaBottomRight.x-BALL_RADIUS_PX ||
                dest.y<h.areaTopLeft.y+BALL_RADIUS_PX || dest.y>h.areaBottomRight.y-BALL_RADIUS_PX) continue;
             bool blocked=false;
             for(const auto& wall:h.walls)
                 if(insidePatch(dest,obstaclePosition({wall.centerX,wall.centerY},wall.rail),
-                    {wall.width+2*BALL_RADIUS_PX,wall.height+2*BALL_RADIUS_PX})) blocked=true;
+                    {wall.width+2*BALL_RADIUS_PX,wall.height+2*BALL_RADIUS_PX},0,wall.angleDegrees)) blocked=true;
             for(const auto& bumper:h.bumpers) {
                 const auto bp=obstaclePosition(bumper.center,bumper.rail);
                 if(std::hypot(dest.x-bp.x,dest.y-bp.y)<bumper.radius+BALL_RADIUS_PX) blocked=true;
@@ -190,7 +245,7 @@ void MiniGolfGame::updateObstacles(float dt)
     }
 }
 
-void MiniGolfGame::renderObstacles()
+void MiniGolfGame::renderObstacles(bool drawSurfaces,bool drawRails)
 {
     if(m_currentHole>=m_options.holeCount) return;
     const auto& h=m_course.holes[m_currentHole];
@@ -201,11 +256,11 @@ void MiniGolfGame::renderObstacles()
         s->m_width=2*m_camera.worldToScreenLength(radius); s->m_height=0;
         s->m_color=c; s->m_z=z; renderQueueAdd(fid,s);
     };
-    auto box=[&](Vec2 p,Vec2 size,Color c,uint32_t z) {
+    auto box=[&](Vec2 p,Vec2 size,Color c,uint32_t z,float degrees=0) {
         auto s=std::make_shared<RenderShape>(); s->m_type=ShapeType::Box;
         m_camera.worldToScreen(p.x-size.x/2,p.y-size.y/2,s->m_x,s->m_y);
         s->m_width=m_camera.worldToScreenLength(size.x); s->m_height=m_camera.worldToScreenLength(size.y);
-        s->m_color=c; s->m_z=z; renderQueueAdd(fid,s);
+        s->m_color=c; s->m_z=z; s->m_rotation=degrees*0.01745329252f; renderQueueAdd(fid,s);
     };
     auto line=[&](Vec2 a,Vec2 b,Color c,uint32_t z) {
         float ax,ay,bx,by; m_camera.worldToScreen(a.x,a.y,ax,ay); m_camera.worldToScreen(b.x,b.y,bx,by);
@@ -216,7 +271,7 @@ void MiniGolfGame::renderObstacles()
         s->m_color=c; s->m_z=z; renderQueueAdd(fid,s);
     };
     auto rail=[&](Vec2 base,int index) {
-        if(index<0 || static_cast<size_t>(index)>=h.rails.size()) return;
+        if(!drawRails || index<0 || static_cast<size_t>(index)>=h.rails.size()) return;
         const auto& r=h.rails[static_cast<size_t>(index)];
         for(size_t i=0;i<r.stops.size();++i) {
             const Vec2 a{base.x+r.stops[i].offset.x,base.y+r.stops[i].offset.y};
@@ -227,25 +282,42 @@ void MiniGolfGame::renderObstacles()
             }
         }
     };
-    for(const auto& s:h.surfaces) {
+    if(drawSurfaces) for(const auto& s:h.surfaces) {
         const auto p=s.center;
         Color fill{},detail{};
+        const auto& theme=courseTheme(m_course.theme);
         switch(s.kind) {
-            case SurfaceKind::Sand: fill={190,160,85}; detail={225,200,125}; break;
-            case SurfaceKind::Rough: fill={35,78,35}; detail={65,120,55}; break;
+            case SurfaceKind::Sand: fill=theme.sand; detail=theme.sandDetail; break;
+            case SurfaceKind::Rough: fill=theme.rough; detail=theme.roughDetail; break;
             case SurfaceKind::Ice: fill={150,205,220}; detail={220,245,250}; break;
-            case SurfaceKind::Water: fill={30,100,170}; detail={85,180,230}; break;
+            case SurfaceKind::Water: fill=theme.water; detail=theme.waterDetail; break;
         }
         const auto z=surfaceLayer(s.kind);
-        box(p,s.size,fill,z);
+        box(p,s.size,fill,z,s.angleDegrees);
         // Different patterns distinguish surfaces without relying only on colour.
-        for(float y=-s.size.y/2+14;y<s.size.y/2-8;y+=28)
-            for(float x=-s.size.x/2+14;x<s.size.x/2-8;x+=32) {
-                const Vec2 q{p.x+x,p.y+y};
-                if(s.kind==SurfaceKind::Sand) circle(q,1.5f,detail,z+1);
-                else if(s.kind==SurfaceKind::Rough) line({q.x-2,q.y+4},{q.x+2,q.y-4},detail,z+1);
-                else if(s.kind==SurfaceKind::Ice) line({q.x-6,q.y+5},{q.x+6,q.y-5},detail,z+1);
-                else line({q.x-7,q.y},{q.x+7,q.y+2*std::sin(static_cast<float>(m_courseTime)*2+x)},detail,z+1);
+        // Authors can make patches much larger than the viewport. Emit detail
+        // only where it can be seen, and omit subpixel patterns when zoomed out.
+        if(m_camera.zoom()<0.3f) continue;
+        Vec2 visibleMin{},visibleMax{};
+        m_camera.screenToWorld(m_camera.viewportX(),m_camera.viewportY(),visibleMin.x,visibleMin.y);
+        m_camera.screenToWorld(m_camera.viewportX()+m_camera.viewportW(),m_camera.viewportY()+m_camera.viewportH(),visibleMax.x,visibleMax.y);
+        // Cull in patch-local coordinates, including all four rotated viewport corners.
+        Vec2 localMin{1e30f,1e30f},localMax{-1e30f,-1e30f};
+        for(auto v:{visibleMin,Vec2{visibleMax.x,visibleMin.y},visibleMax,Vec2{visibleMin.x,visibleMax.y}}){
+            auto q=rotateVector({v.x-p.x,v.y-p.y},-s.angleDegrees);
+            localMin.x=std::min(localMin.x,q.x);localMin.y=std::min(localMin.y,q.y);
+            localMax.x=std::max(localMax.x,q.x);localMax.y=std::max(localMax.y,q.y);
+        }
+        auto world=[&](Vec2 v){auto q=rotateVector(v,s.angleDegrees);return Vec2{p.x+q.x,p.y+q.y};};
+        const float firstX=-s.size.x/2+14,firstY=-s.size.y/2+14;
+        const float startX=firstX+std::max(0.0f,std::ceil((localMin.x-8-firstX)/32))*32;
+        const float startY=firstY+std::max(0.0f,std::ceil((localMin.y-8-firstY)/28))*28;
+        for(float y=startY;y<std::min(s.size.y/2-8,localMax.y+8);y+=28)
+            for(float x=startX;x<std::min(s.size.x/2-8,localMax.x+8);x+=32) {
+                if(s.kind==SurfaceKind::Sand) circle(world({x,y}),1.5f,detail,z+1);
+                else if(s.kind==SurfaceKind::Rough) line(world({x-2,y+4}),world({x+2,y-4}),detail,z+1);
+                else if(s.kind==SurfaceKind::Ice) line(world({x-6,y+5}),world({x+6,y-5}),detail,z+1);
+                else line(world({x-7,y}),world({x+7,y+2*std::sin(static_cast<float>(m_courseTime)*2+x)}),detail,z+1);
             }
     }
     for(const auto& w:h.walls) if(w.showRail) rail({w.centerX,w.centerY},w.rail);
@@ -271,10 +343,10 @@ void MiniGolfGame::renderObstacles()
     for(const auto& l:h.lasers) {
         rail(l.center,l.rail); const auto p=obstaclePosition(l.center,l.rail);
         const bool active=laserActive(l,m_courseTime);
-        box(p,l.size,active ? Color{245,50,65}:Color{85,65,65},CourseLayer::Laser);
-        if(active) box(p,{l.size.x,std::max(2.0f,l.size.y*0.3f)},{255,205,195},CourseLayer::Laser+1);
-        circle({p.x-l.size.x/2,p.y},10,{90,90,100},CourseLayer::Laser+2);
-        circle({p.x+l.size.x/2,p.y},10,{90,90,100},CourseLayer::Laser+2);
+        box(p,l.size,active ? Color{245,50,65}:Color{85,65,65},CourseLayer::Laser,l.angleDegrees);
+        if(active) box(p,l.size.x>=l.size.y?Vec2{l.size.x,std::max(2.0f,l.size.y*0.3f)}:Vec2{std::max(2.0f,l.size.x*0.3f),l.size.y},{255,205,195},CourseLayer::Laser+1,l.angleDegrees);
+        circle(laserEnd(l,p,0),10,{90,90,100},CourseLayer::Laser+2);
+        circle(laserEnd(l,p,1),10,{90,90,100},CourseLayer::Laser+2);
     }
     for(const auto& portal:h.portals) {
         rail(portal.center,portal.rail); const auto p=obstaclePosition(portal.center,portal.rail);

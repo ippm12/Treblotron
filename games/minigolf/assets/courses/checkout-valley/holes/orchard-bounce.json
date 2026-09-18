@@ -1,0 +1,67 @@
+{
+    "formatVersion": 1,
+    "id": "orchard-bounce",
+    "name": "Orchard Bounce",
+    "par": 4,
+    "bounds": {
+        "topLeft": [ 165, 225 ],
+        "bottomRight": [ 1245, 785 ]
+    },
+    "tee": {
+        "id": "tee",
+        "position": [ 265, 325 ]
+    },
+    "extraTees": [
+    ],
+    "cup": {
+        "id": "cup",
+        "position": [ 1145, 645 ],
+        "radius": 30,
+        "rail": ""
+    },
+    "rails": [
+    ],
+    "walls": [
+    ],
+    "surfaces": [
+        {
+            "id": "rough-1",
+            "kind": "rough",
+            "center": [ 725, 315 ],
+            "size": [ 360, 100 ]
+        },
+        {
+            "id": "sand-2",
+            "kind": "sand",
+            "center": [ 1065, 695 ],
+            "size": [ 120, 80 ]
+        }
+    ],
+    "bumpers": [
+        {
+            "id": "bumper-1",
+            "center": [ 525, 465 ],
+            "radius": 40,
+            "kickSpeed": 360,
+            "rail": ""
+        },
+        {
+            "id": "bumper-2",
+            "center": [ 735, 585 ],
+            "radius": 40,
+            "kickSpeed": 380,
+            "rail": ""
+        },
+        {
+            "id": "bumper-3",
+            "center": [ 965, 405 ],
+            "radius": 40,
+            "kickSpeed": 400,
+            "rail": ""
+        }
+    ],
+    "lasers": [
+    ],
+    "portals": [
+    ]
+}

@@ -9,6 +9,7 @@ tests/
   support/build.py               Shared compile/link adapter and isolated output
   support/process.py             Process execution and captured logs
 games/minigolf/tests/
+  course_io_test.cpp              File migration, validation and save/load
   physics_test.cpp
   obstacles_test.cpp
   spawning_test.cpp
@@ -19,6 +20,9 @@ games/minigolf/tests/
   fixtures/golf_fixture.hpp       Shared Mini Golf setup
   test_main.cpp
   suite.py
+games/minigolf/editor/tests/
+  document_test.cpp              Editing, saving and shared preview physics
+  suite.py                       Also drives editor mouse/render smoke checks
 game_lib/tests/
   turn_skipping_test.cpp
   suite.py
@@ -28,8 +32,9 @@ debug/tests/
 ```
 
 Reserve `tests/integration/<suite>/` for tests spanning modules without a clear
-owner. Game-specific integration tests still belong to their game. The playable
-`games/minigolf/course_test_hole.cpp` remains production course content.
+owner. Game-specific integration tests still belong to their game. Playable
+course content lives in `games/minigolf/assets/courses/`; the old C++ layout is now
+a migration fixture under Mini Golf tests.
 
 ## Running
 
@@ -41,6 +46,7 @@ From the repository root:
 python tests/run.py --list
 python tests/run.py
 python tests/run.py minigolf --render
+python tests/run.py minigolf/editor --render
 python tests/run.py debug
 python tests/run.py game_lib/turn_skipping --build-dir build
 python tests/run.py --render --build-dir build

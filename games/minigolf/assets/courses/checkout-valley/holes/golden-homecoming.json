@@ -1,0 +1,141 @@
+{
+    "formatVersion": 1,
+    "id": "golden-homecoming",
+    "name": "Golden Homecoming",
+    "par": 4,
+    "bounds": {
+        "topLeft": [ 165, 225 ],
+        "bottomRight": [ 1245, 785 ]
+    },
+    "tee": {
+        "id": "tee",
+        "position": [ 245, 685 ]
+    },
+    "extraTees": [
+    ],
+    "cup": {
+        "id": "cup",
+        "position": [ 1165, 325 ],
+        "radius": 30,
+        "rail": ""
+    },
+    "rails": [
+        {
+            "id": "rail-1",
+            "mode": "pingPong",
+            "phaseSeconds": 0,
+            "stops": [
+                {
+                    "id": "stop-1",
+                    "offset": [ 0, 0 ],
+                    "pauseSeconds": 0.8,
+                    "speed": 50
+                },
+                {
+                    "id": "stop-2",
+                    "offset": [ 120, 0 ],
+                    "pauseSeconds": 0.8,
+                    "speed": 65
+                }
+            ]
+        }
+    ],
+    "walls": [
+        {
+            "id": "wall-1",
+            "group": "barrier-1",
+            "center": [ 535, 345 ],
+            "size": [ 40, 40 ],
+            "rail": "",
+            "showRail": 1
+        },
+        {
+            "id": "wall-2",
+            "group": "barrier-1",
+            "center": [ 535, 385 ],
+            "size": [ 40, 40 ],
+            "rail": "",
+            "showRail": 0
+        },
+        {
+            "id": "wall-3",
+            "group": "barrier-1",
+            "center": [ 535, 425 ],
+            "size": [ 40, 40 ],
+            "rail": "",
+            "showRail": 0
+        },
+        {
+            "id": "wall-4",
+            "group": "barrier-1",
+            "center": [ 535, 465 ],
+            "size": [ 40, 40 ],
+            "rail": "",
+            "showRail": 0
+        },
+        {
+            "id": "wall-5",
+            "group": "barrier-1",
+            "center": [ 535, 505 ],
+            "size": [ 40, 40 ],
+            "rail": "",
+            "showRail": 0
+        },
+        {
+            "id": "wall-6",
+            "group": "barrier-1",
+            "center": [ 535, 545 ],
+            "size": [ 40, 40 ],
+            "rail": "",
+            "showRail": 0
+        }
+    ],
+    "surfaces": [
+        {
+            "id": "water-1",
+            "kind": "water",
+            "center": [ 765, 305 ],
+            "size": [ 200, 80 ]
+        },
+        {
+            "id": "water-2",
+            "kind": "water",
+            "center": [ 832.5, 662.5 ],
+            "size": [ 95, 75 ]
+        },
+        {
+            "id": "sand-3",
+            "kind": "sand",
+            "center": [ 1065, 455 ],
+            "size": [ 160, 100 ]
+        },
+        {
+            "id": "rough-4",
+            "kind": "rough",
+            "center": [ 335, 445 ],
+            "size": [ 180, 100 ]
+        }
+    ],
+    "bumpers": [
+        {
+            "id": "bumper-1",
+            "center": [ 975, 595 ],
+            "radius": 36,
+            "kickSpeed": 380,
+            "rail": "rail-1"
+        }
+    ],
+    "lasers": [
+        {
+            "id": "laser-1",
+            "center": [ 785, 495 ],
+            "size": [ 200, 8 ],
+            "onSeconds": 1.4,
+            "offSeconds": 3.2,
+            "phaseSeconds": 1,
+            "rail": ""
+        }
+    ],
+    "portals": [
+    ]
+}

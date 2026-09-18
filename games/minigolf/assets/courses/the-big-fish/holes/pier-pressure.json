@@ -1,0 +1,83 @@
+{
+    "formatVersion": 1,
+    "id": "pier-pressure",
+    "name": "Dock Fingers",
+    "par": 5,
+    "bounds": {
+        "topLeft": [ 105, 185 ],
+        "bottomRight": [ 1305, 825 ]
+    },
+    "tee": {
+        "id": "tee",
+        "position": [ 225, 291.666656 ]
+    },
+    "extraTees": [
+    ],
+    "cup": {
+        "id": "cup",
+        "position": [ 1185, 718.333313 ],
+        "radius": 30,
+        "rail": ""
+    },
+    "rails": [
+    ],
+    "walls": [
+        {
+            "id": "quay-edge-0",
+            "group": "quay-edge-0",
+            "center": [ 513, 398.333344 ],
+            "size": [ 26.4, 256 ],
+            "rail": "",
+            "showRail": 1
+        },
+        {
+            "id": "quay-edge-1",
+            "group": "quay-edge-1",
+            "center": [ 789, 611.666687 ],
+            "size": [ 26.4, 256 ],
+            "rail": "",
+            "showRail": 1
+        },
+        {
+            "id": "quay-edge-2",
+            "group": "quay-edge-2",
+            "center": [ 1065, 398.333344 ],
+            "size": [ 26.4, 256 ],
+            "rail": "",
+            "showRail": 1
+        }
+    ],
+    "surfaces": [
+        {
+            "id": "berth-0",
+            "kind": "water",
+            "center": [ 429, 398.333344 ],
+            "size": [ 114, 320 ]
+        },
+        {
+            "id": "berth-1",
+            "kind": "water",
+            "center": [ 705, 611.666687 ],
+            "size": [ 114, 320 ]
+        },
+        {
+            "id": "berth-2",
+            "kind": "water",
+            "center": [ 981, 398.333344 ],
+            "size": [ 114, 320 ]
+        }
+    ],
+    "bumpers": [
+        {
+            "id": "mooring-bollard",
+            "center": [ 1125, 617 ],
+            "radius": 26,
+            "kickSpeed": 320,
+            "rail": ""
+        }
+    ],
+    "lasers": [
+    ],
+    "portals": [
+    ]
+}
