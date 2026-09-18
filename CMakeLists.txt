@@ -154,7 +154,7 @@ if(TREBLOTRON_INFER_BACKEND STREQUAL "tensorrt")
 endif()
 
 project(${PRJ_NAME}
-        VERSION   0.1.0
+        VERSION   0.2.0
         LANGUAGES ${_TREBLOTRON_LANGUAGES})
 
 # Surfaced in the startup log, on the main menu and via --version, so a bug

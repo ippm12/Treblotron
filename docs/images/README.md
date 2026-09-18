@@ -61,6 +61,7 @@ nothing here is generated, so re-running the figure scripts will not touch them.
 | `game-dartfleet.png` | Dartfleet full screen: two boards, ships, hit markers | The games |
 | `game-x01.png` | X01 full screen: running score, leg history, four-player board | The games |
 | `game-cricket.png` | Cricket full screen: marks grid for three teams | The games |
+| `game-minigolf.png` | Mini Golf on Sandstone Bend: four players, sand traps, aiming guides and a ball trail; supplied as `Darts_Minigolf.png` | The games |
 
 The live shots are 480 x 640. That is enough at the size the README renders
 them, three to a row, but too small to enlarge -- if the originals off the phone
