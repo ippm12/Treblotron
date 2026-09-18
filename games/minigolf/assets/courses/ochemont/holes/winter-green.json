@@ -1,0 +1,106 @@
+{
+    "formatVersion": 1,
+    "id": "winter-green",
+    "name": "Winter Croquet",
+    "par": 4,
+    "bounds": {
+        "topLeft": [ 105, 185 ],
+        "bottomRight": [ 1305, 825 ]
+    },
+    "tee": {
+        "id": "tee",
+        "position": [ 225, 505 ]
+    },
+    "extraTees": [
+    ],
+    "cup": {
+        "id": "cup",
+        "position": [ 1185, 505 ],
+        "radius": 30,
+        "rail": ""
+    },
+    "rails": [
+    ],
+    "walls": [
+        {
+            "id": "hoop-top-0",
+            "group": "hoop-top-0",
+            "center": [ 465, 307.666656 ],
+            "size": [ 28.799999, 69.333336 ],
+            "rail": "",
+            "showRail": 1
+        },
+        {
+            "id": "hoop-bottom-0",
+            "group": "hoop-bottom-0",
+            "center": [ 465, 510.333344 ],
+            "size": [ 28.799999, 69.333336 ],
+            "rail": "",
+            "showRail": 1
+        },
+        {
+            "id": "hoop-top-1",
+            "group": "hoop-top-1",
+            "center": [ 717, 499.666656 ],
+            "size": [ 28.799999, 69.333336 ],
+            "rail": "",
+            "showRail": 1
+        },
+        {
+            "id": "hoop-bottom-1",
+            "group": "hoop-bottom-1",
+            "center": [ 717, 702.333313 ],
+            "size": [ 28.799999, 69.333336 ],
+            "rail": "",
+            "showRail": 1
+        },
+        {
+            "id": "hoop-top-2",
+            "group": "hoop-top-2",
+            "center": [ 969, 307.666656 ],
+            "size": [ 28.799999, 69.333336 ],
+            "rail": "",
+            "showRail": 1
+        },
+        {
+            "id": "hoop-bottom-2",
+            "group": "hoop-bottom-2",
+            "center": [ 969, 510.333344 ],
+            "size": [ 28.799999, 69.333336 ],
+            "rail": "",
+            "showRail": 1
+        }
+    ],
+    "surfaces": [
+        {
+            "id": "winter-lawn",
+            "kind": "ice",
+            "center": [ 705, 505 ],
+            "size": [ 888, 416 ]
+        },
+        {
+            "id": "catcher-0",
+            "kind": "sand",
+            "center": [ 567, 542.333313 ],
+            "size": [ 78, 74.666664 ]
+        },
+        {
+            "id": "catcher-1",
+            "kind": "sand",
+            "center": [ 819, 734.333313 ],
+            "size": [ 78, 74.666664 ]
+        },
+        {
+            "id": "catcher-2",
+            "kind": "sand",
+            "center": [ 1071, 542.333313 ],
+            "size": [ 78, 74.666664 ]
+        }
+    ],
+    "bumpers": [
+    ],
+    "lasers": [
+    ],
+    "portals": [
+    ]
+}

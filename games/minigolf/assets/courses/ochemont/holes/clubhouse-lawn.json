@@ -1,0 +1,70 @@
+{
+    "formatVersion": 1,
+    "id": "clubhouse-lawn",
+    "name": "The Clubhouse Courtyard",
+    "par": 4,
+    "bounds": {
+        "topLeft": [ 180, 165 ],
+        "bottomRight": [ 1230, 845 ]
+    },
+    "tee": {
+        "id": "tee",
+        "position": [ 705, 743 ]
+    },
+    "extraTees": [
+    ],
+    "cup": {
+        "id": "cup",
+        "position": [ 705, 278.333344 ],
+        "radius": 30,
+        "rail": ""
+    },
+    "rails": [
+    ],
+    "walls": [
+        {
+            "id": "clubhouse",
+            "group": "clubhouse",
+            "center": [ 705, 522 ],
+            "size": [ 430.5, 215.333328 ],
+            "rail": "",
+            "showRail": 1
+        },
+        {
+            "id": "west-wing",
+            "group": "west-wing",
+            "center": [ 463.5, 482.333344 ],
+            "size": [ 89.25, 294.666656 ],
+            "rail": "",
+            "showRail": 1
+        },
+        {
+            "id": "east-wing",
+            "group": "east-wing",
+            "center": [ 946.5, 482.333344 ],
+            "size": [ 89.25, 294.666656 ],
+            "rail": "",
+            "showRail": 1
+        }
+    ],
+    "surfaces": [
+        {
+            "id": "west-terrace",
+            "kind": "sand",
+            "center": [ 316.5, 493.666656 ],
+            "size": [ 105, 192.666672 ]
+        },
+        {
+            "id": "east-terrace",
+            "kind": "rough",
+            "center": [ 1093.5, 493.666656 ],
+            "size": [ 105, 192.666672 ]
+        }
+    ],
+    "bumpers": [
+    ],
+    "lasers": [
+    ],
+    "portals": [
+    ]
+}

@@ -1,0 +1,84 @@
+{
+    "formatVersion": 1,
+    "id": "frosty-morning",
+    "name": "Frosty Morning",
+    "par": 3,
+    "bounds": {
+        "topLeft": [ 165, 225 ],
+        "bottomRight": [ 1245, 785 ]
+    },
+    "tee": {
+        "id": "tee",
+        "position": [ 285, 505 ]
+    },
+    "extraTees": [
+    ],
+    "cup": {
+        "id": "cup",
+        "position": [ 1105, 505 ],
+        "radius": 30,
+        "rail": ""
+    },
+    "rails": [
+    ],
+    "walls": [
+        {
+            "id": "wall-1",
+            "group": "barrier-1",
+            "center": [ 665, 665 ],
+            "size": [ 40, 40 ],
+            "rail": "",
+            "showRail": 1
+        },
+        {
+            "id": "wall-2",
+            "group": "barrier-1",
+            "center": [ 705, 665 ],
+            "size": [ 40, 40 ],
+            "rail": "",
+            "showRail": 0
+        },
+        {
+            "id": "wall-3",
+            "group": "barrier-1",
+            "center": [ 745, 665 ],
+            "size": [ 40, 40 ],
+            "rail": "",
+            "showRail": 0
+        },
+        {
+            "id": "wall-4",
+            "group": "barrier-1",
+            "center": [ 785, 665 ],
+            "size": [ 40, 40 ],
+            "rail": "",
+            "showRail": 0
+        }
+    ],
+    "surfaces": [
+        {
+            "id": "ice-1",
+            "kind": "ice",
+            "center": [ 725, 585 ],
+            "size": [ 320, 120 ]
+        },
+        {
+            "id": "sand-2",
+            "kind": "sand",
+            "center": [ 725, 475 ],
+            "size": [ 240, 100 ]
+        },
+        {
+            "id": "rough-3",
+            "kind": "rough",
+            "center": [ 915, 315 ],
+            "size": [ 300, 120 ]
+        }
+    ],
+    "bumpers": [
+    ],
+    "lasers": [
+    ],
+    "portals": [
+    ]
+}

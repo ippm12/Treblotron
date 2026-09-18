@@ -1,0 +1,88 @@
+{
+    "formatVersion": 2,
+    "id": "summit-lift",
+    "name": "Cable Car Summit",
+    "par": 4,
+    "bounds": {
+        "topLeft": [ 215, 155 ],
+        "bottomRight": [ 1195, 855 ]
+    },
+    "tee": {
+        "id": "tee",
+        "position": [ 359.89032, 475.061951 ]
+    },
+    "extraTees": [
+    ],
+    "cup": {
+        "id": "cup",
+        "position": [ 959.799988, 341.666656 ],
+        "radius": 30,
+        "rail": "summit-cable"
+    },
+    "rails": [
+        {
+            "id": "summit-cable",
+            "mode": "pingPong",
+            "phaseSeconds": 0,
+            "stops": [
+                {
+                    "id": "summit-cable-1",
+                    "offset": [ 0, 0 ],
+                    "pauseSeconds": 1.8,
+                    "speed": 65
+                },
+                {
+                    "id": "summit-cable-2",
+                    "offset": [ 98, 245 ],
+                    "pauseSeconds": 1.8,
+                    "speed": 65
+                },
+                {
+                    "id": "summit-cable-3",
+                    "offset": [ -78.400002, 361.666656 ],
+                    "pauseSeconds": 1.8,
+                    "speed": 65
+                }
+            ]
+        }
+    ],
+    "walls": [
+        {
+            "id": "ridge-west",
+            "group": "ridge-west",
+            "center": [ 587.400024, 505 ],
+            "size": [ 392, 35 ],
+            "angleDegrees": -58,
+            "rail": "",
+            "showRail": 1
+        }
+    ],
+    "surfaces": [
+        {
+            "id": "scree",
+            "kind": "sand",
+            "center": [ 763.799988, 715 ],
+            "size": [ 156.800003, 116.666664 ]
+        }
+    ],
+    "bumpers": [
+    ],
+    "lasers": [
+    ],
+    "portals": [
+        {
+            "id": "service-tunnel-a",
+            "center": [ 381.600006, 353.333344 ],
+            "pair": 0,
+            "color": [ 210, 140, 65 ],
+            "rail": ""
+        },
+        {
+            "id": "service-tunnel-b",
+            "center": [ 1077.400024, 283.333344 ],
+            "pair": 0,
+            "color": [ 210, 140, 65 ],
+            "rail": ""
+        }
+    ]
+}

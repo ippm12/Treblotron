@@ -1,0 +1,84 @@
+{
+    "formatVersion": 1,
+    "id": "championship-pond",
+    "name": "The Island Green",
+    "par": 5,
+    "bounds": {
+        "topLeft": [ 105, 185 ],
+        "bottomRight": [ 1305, 825 ]
+    },
+    "tee": {
+        "id": "tee",
+        "position": [ 237, 505 ]
+    },
+    "extraTees": [
+    ],
+    "cup": {
+        "id": "cup",
+        "position": [ 987, 505 ],
+        "radius": 30,
+        "rail": ""
+    },
+    "rails": [
+    ],
+    "walls": [
+    ],
+    "surfaces": [
+        {
+            "id": "north-moat",
+            "kind": "water",
+            "center": [ 969, 345 ],
+            "size": [ 480, 58.666668 ]
+        },
+        {
+            "id": "west-moat",
+            "kind": "water",
+            "center": [ 741, 505 ],
+            "size": [ 66, 330.666656 ]
+        },
+        {
+            "id": "east-moat",
+            "kind": "water",
+            "center": [ 1197, 505 ],
+            "size": [ 66, 330.666656 ]
+        },
+        {
+            "id": "southwest-moat",
+            "kind": "water",
+            "center": [ 837, 665 ],
+            "size": [ 192, 58.666668 ]
+        },
+        {
+            "id": "southeast-moat",
+            "kind": "water",
+            "center": [ 1131, 665 ],
+            "size": [ 132, 58.666668 ]
+        },
+        {
+            "id": "island-bunker",
+            "kind": "sand",
+            "center": [ 1095, 547.666687 ],
+            "size": [ 78, 96 ]
+        }
+    ],
+    "bumpers": [
+    ],
+    "lasers": [
+    ],
+    "portals": [
+        {
+            "id": "members-bridge-a",
+            "center": [ 441, 334.333344 ],
+            "pair": 0,
+            "color": [ 115, 170, 80 ],
+            "rail": ""
+        },
+        {
+            "id": "members-bridge-b",
+            "center": [ 1127, 401 ],
+            "pair": 0,
+            "color": [ 115, 170, 80 ],
+            "rail": ""
+        }
+    ]
+}

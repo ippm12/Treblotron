@@ -1,0 +1,17 @@
+{
+    "formatVersion": 2,
+    "id": "whistling-flights",
+    "name": "Whistling Flights",
+    "theme": "whistling-flights",
+    "holes": [
+        "first-flight",
+        "stone-stile",
+        "pot-bunkers",
+        "weathered-banks",
+        "frost-on-the-links",
+        "signal-gate",
+        "bluff-passage",
+        "rolling-gate",
+        "final-flight"
+    ]
+}

@@ -17,6 +17,7 @@
 #include <mutex>
 #include <queue>
 #include <string>
+#include <vector>
 
 /** State of the game for the status bar. */
 enum class GameState
@@ -99,6 +100,10 @@ class Game
 
         /** Whether the GameManager should allow pausing this game. Default: true. */
         virtual bool isPauseable() const { return true; }
+
+        /** Optional game-owned actions, shown after Resume in the pause menu. */
+        virtual std::vector<std::string> getPauseActions() const { return {}; }
+        virtual void onPauseAction(size_t index) { (void)index; }
 
         /**
          * Vision callbacks — called from the vision source (potentially another thread).

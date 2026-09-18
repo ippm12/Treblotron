@@ -1,0 +1,91 @@
+{
+    "formatVersion": 2,
+    "id": "signal-gate",
+    "name": "Storm Signal Station",
+    "par": 5,
+    "bounds": {
+        "topLeft": [ 335, 155 ],
+        "bottomRight": [ 1075, 855 ]
+    },
+    "tee": {
+        "id": "tee",
+        "position": [ 705, 755.833313 ]
+    },
+    "extraTees": [
+    ],
+    "cup": {
+        "id": "cup",
+        "position": [ 705, 248.333328 ],
+        "radius": 30,
+        "rail": ""
+    },
+    "rails": [
+    ],
+    "walls": [
+        {
+            "id": "shelter-0",
+            "group": "shelter-0",
+            "center": [ 941.799988, 365 ],
+            "size": [ 48.099998, 75.833336 ],
+            "angleDegrees": 15,
+            "rail": "",
+            "showRail": 1
+        },
+        {
+            "id": "shelter-1",
+            "group": "shelter-1",
+            "center": [ 468.200012, 505 ],
+            "size": [ 48.099998, 75.833336 ],
+            "angleDegrees": 15,
+            "rail": "",
+            "showRail": 1
+        },
+        {
+            "id": "shelter-2",
+            "group": "shelter-2",
+            "center": [ 941.799988, 645 ],
+            "size": [ 48.099998, 75.833336 ],
+            "angleDegrees": 15,
+            "rail": "",
+            "showRail": 1
+        }
+    ],
+    "surfaces": [
+    ],
+    "bumpers": [
+    ],
+    "lasers": [
+        {
+            "id": "signal-0",
+            "center": [ 705, 365 ],
+            "size": [ 381.881561, 8 ],
+            "angleDegrees": 8.786467,
+            "onSeconds": 1,
+            "offSeconds": 3.8,
+            "phaseSeconds": 0,
+            "rail": ""
+        },
+        {
+            "id": "signal-1",
+            "center": [ 705, 505 ],
+            "size": [ 381.881561, 8 ],
+            "angleDegrees": 8.786467,
+            "onSeconds": 1,
+            "offSeconds": 3.8,
+            "phaseSeconds": 1.1,
+            "rail": ""
+        },
+        {
+            "id": "signal-2",
+            "center": [ 705, 645 ],
+            "size": [ 381.881561, 8 ],
+            "angleDegrees": 8.786467,
+            "onSeconds": 1,
+            "offSeconds": 3.8,
+            "phaseSeconds": 2.2,
+            "rail": ""
+        }
+    ],
+    "portals": [
+    ]
+}

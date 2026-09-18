@@ -1,0 +1,59 @@
+{
+    "formatVersion": 1,
+    "id": "tidal-skim",
+    "name": "Tidal Skim",
+    "par": 4,
+    "bounds": {
+        "topLeft": [ 165, 225 ],
+        "bottomRight": [ 1245, 785 ]
+    },
+    "tee": {
+        "id": "tee",
+        "position": [ 265, 325 ]
+    },
+    "extraTees": [
+    ],
+    "cup": {
+        "id": "cup",
+        "position": [ 1145, 665 ],
+        "radius": 30,
+        "rail": ""
+    },
+    "rails": [
+    ],
+    "walls": [
+    ],
+    "surfaces": [
+        {
+            "id": "ice-1",
+            "kind": "ice",
+            "center": [ 685, 485 ],
+            "size": [ 400, 140 ]
+        },
+        {
+            "id": "sand-2",
+            "kind": "sand",
+            "center": [ 945, 655 ],
+            "size": [ 200, 100 ]
+        },
+        {
+            "id": "water-3",
+            "kind": "water",
+            "center": [ 1025, 315 ],
+            "size": [ 200, 80 ]
+        }
+    ],
+    "bumpers": [
+        {
+            "id": "bumper-1",
+            "center": [ 885, 475 ],
+            "radius": 40,
+            "kickSpeed": 420,
+            "rail": ""
+        }
+    ],
+    "lasers": [
+    ],
+    "portals": [
+    ]
+}

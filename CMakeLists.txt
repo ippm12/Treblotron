@@ -154,7 +154,7 @@ if(TREBLOTRON_INFER_BACKEND STREQUAL "tensorrt")
 endif()
 
 project(${PRJ_NAME}
-        VERSION   0.1.0
+        VERSION   0.2.0
         LANGUAGES ${_TREBLOTRON_LANGUAGES})
 
 # Surfaced in the startup log, on the main menu and via --version, so a bug
@@ -413,7 +413,7 @@ endif()
 # otherwise.
 if(WIN32)
     foreach(_t IN LISTS TREBLOTRON_TARGETS)
-        target_link_libraries(${_t} PRIVATE ws2_32)
+        target_link_libraries(${_t} PRIVATE ws2_32 dbghelp)
     endforeach()
 endif()
 
@@ -1149,6 +1149,33 @@ else()
     # transitively and hand-listing them goes stale the first time a dependency
     # moves.
     set(CPACK_DEBIAN_PACKAGE_SHLIBDEPS ON)
+endif()
+
+# Share the compiled application implementation with optional module tools.
+if(TREBLOTRON_BUILD_APP)
+    get_target_property(_runtime_sources ${PRJ_NAME} SOURCES)
+    list(REMOVE_ITEM _runtime_sources startup.cpp ${TREBLOTRON_WIN_RESOURCES})
+    add_library(TreblotronRuntime OBJECT ${_runtime_sources})
+    foreach(_property INCLUDE_DIRECTORIES COMPILE_DEFINITIONS COMPILE_OPTIONS COMPILE_FEATURES)
+        get_target_property(_value ${PRJ_NAME} ${_property})
+        if(_value)
+            set_property(TARGET TreblotronRuntime PROPERTY ${_property} "${_value}")
+        endif()
+    endforeach()
+    get_target_property(_runtime_includes ${PRJ_NAME} INCLUDE_DIRECTORIES)
+    target_include_directories(TreblotronRuntime PUBLIC ${_runtime_includes})
+    get_target_property(_runtime_links ${PRJ_NAME} LINK_LIBRARIES)
+    target_link_libraries(TreblotronRuntime PUBLIC ${_runtime_links})
+    set_property(TARGET ${PRJ_NAME} PROPERTY SOURCES startup.cpp ${TREBLOTRON_WIN_RESOURCES})
+    target_link_libraries(${PRJ_NAME} PRIVATE TreblotronRuntime)
+
+    # Modules own their additional targets and packaging rules.
+    foreach(game_dir ${GAME_SUBDIRS})
+        if(EXISTS "${game_dir}/CMakeLists.txt")
+            get_filename_component(game_name ${game_dir} NAME)
+            add_subdirectory("${game_dir}" "games/${game_name}")
+        endif()
+    endforeach()
 endif()
 
 include(CPack)

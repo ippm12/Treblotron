@@ -1,0 +1,16 @@
+{
+    "formatVersion": 1,
+    "id": "obstacle-sampler",
+    "name": "Obstacle Sampler",
+    "holes": [
+        "surfaces",
+        "gadgets",
+        "rails",
+        "moving",
+        "sand-banks",
+        "ice-barriers",
+        "water-crossing",
+        "rough-approaches",
+        "finale"
+    ]
+}

@@ -1,0 +1,121 @@
+{
+    "formatVersion": 2,
+    "id": "the-last-cast",
+    "name": "The Last Whirlpool",
+    "par": 5,
+    "bounds": {
+        "topLeft": [ 175, 155 ],
+        "bottomRight": [ 1235, 855 ]
+    },
+    "tee": {
+        "id": "tee",
+        "position": [ 281, 738.333313 ]
+    },
+    "extraTees": [
+    ],
+    "cup": {
+        "id": "cup",
+        "position": [ 705, 505 ],
+        "radius": 30,
+        "rail": "quiet-eye"
+    },
+    "rails": [
+        {
+            "id": "quiet-eye",
+            "mode": "loop",
+            "phaseSeconds": 0,
+            "stops": [
+                {
+                    "id": "quiet-eye-1",
+                    "offset": [ 0, 0 ],
+                    "pauseSeconds": 0.5,
+                    "speed": 45
+                },
+                {
+                    "id": "quiet-eye-2",
+                    "offset": [ 58.299999, 0 ],
+                    "pauseSeconds": 0.5,
+                    "speed": 45
+                },
+                {
+                    "id": "quiet-eye-3",
+                    "offset": [ 58.299999, 70 ],
+                    "pauseSeconds": 0.5,
+                    "speed": 45
+                },
+                {
+                    "id": "quiet-eye-4",
+                    "offset": [ 0, 70 ],
+                    "pauseSeconds": 0.5,
+                    "speed": 45
+                }
+            ]
+        }
+    ],
+    "walls": [
+    ],
+    "surfaces": [
+        {
+            "id": "whirlpool-water-0",
+            "kind": "water",
+            "center": [ 498.299988, 330 ],
+            "size": [ 180.199997, 110.833336 ],
+            "angleDegrees": -25
+        },
+        {
+            "id": "whirlpool-water-1",
+            "kind": "water",
+            "center": [ 911.700012, 330 ],
+            "size": [ 180.199997, 110.833336 ],
+            "angleDegrees": 25
+        },
+        {
+            "id": "whirlpool-water-2",
+            "kind": "water",
+            "center": [ 498.299988, 680 ],
+            "size": [ 180.199997, 110.833336 ],
+            "angleDegrees": -25
+        },
+        {
+            "id": "whirlpool-water-3",
+            "kind": "water",
+            "center": [ 911.700012, 680 ],
+            "size": [ 180.199997, 110.833336 ],
+            "angleDegrees": 25
+        }
+    ],
+    "bumpers": [
+    ],
+    "lasers": [
+    ],
+    "portals": [
+        {
+            "id": "orange-current-a",
+            "center": [ 312.799988, 365 ],
+            "pair": 0,
+            "color": [ 235, 150, 60 ],
+            "rail": ""
+        },
+        {
+            "id": "orange-current-b",
+            "center": [ 970, 516.666687 ],
+            "pair": 0,
+            "color": [ 235, 150, 60 ],
+            "rail": ""
+        },
+        {
+            "id": "blue-current-a",
+            "center": [ 1086.599976, 738.333313 ],
+            "pair": 1,
+            "color": [ 65, 180, 235 ],
+            "rail": ""
+        },
+        {
+            "id": "blue-current-b",
+            "center": [ 705, 388.333344 ],
+            "pair": 1,
+            "color": [ 65, 180, 235 ],
+            "rail": ""
+        }
+    ]
+}

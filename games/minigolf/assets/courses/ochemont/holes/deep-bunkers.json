@@ -1,0 +1,76 @@
+{
+    "formatVersion": 2,
+    "id": "deep-bunkers",
+    "name": "Bunker Archipelago",
+    "par": 5,
+    "bounds": {
+        "topLeft": [ 105, 185 ],
+        "bottomRight": [ 1305, 825 ]
+    },
+    "tee": {
+        "id": "tee",
+        "position": [ 225, 739.666687 ]
+    },
+    "extraTees": [
+    ],
+    "cup": {
+        "id": "cup",
+        "position": [ 1185, 270.333344 ],
+        "radius": 30,
+        "rail": ""
+    },
+    "rails": [
+    ],
+    "walls": [
+    ],
+    "surfaces": [
+        {
+            "id": "bunker-finger-0",
+            "kind": "sand",
+            "center": [ 369, 611.666687 ],
+            "size": [ 288, 101.333336 ],
+            "angleDegrees": 42
+        },
+        {
+            "id": "bunker-finger-1",
+            "kind": "sand",
+            "center": [ 531, 549.799988 ],
+            "size": [ 288, 101.333336 ],
+            "angleDegrees": 42
+        },
+        {
+            "id": "bunker-finger-2",
+            "kind": "sand",
+            "center": [ 693, 487.933319 ],
+            "size": [ 288, 101.333336 ],
+            "angleDegrees": 42
+        },
+        {
+            "id": "bunker-finger-3",
+            "kind": "sand",
+            "center": [ 855, 426.066681 ],
+            "size": [ 288, 101.333336 ],
+            "angleDegrees": 42
+        },
+        {
+            "id": "bunker-finger-4",
+            "kind": "sand",
+            "center": [ 1017, 364.200012 ],
+            "size": [ 288, 101.333336 ],
+            "angleDegrees": 42
+        },
+        {
+            "id": "outer-rough",
+            "kind": "rough",
+            "center": [ 981, 713 ],
+            "size": [ 384, 101.333336 ],
+            "angleDegrees": -15
+        }
+    ],
+    "bumpers": [
+    ],
+    "lasers": [
+    ],
+    "portals": [
+    ]
+}

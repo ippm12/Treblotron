@@ -1,0 +1,109 @@
+{
+    "formatVersion": 2,
+    "id": "cliff-walk",
+    "name": "Cliff Walk",
+    "par": 4,
+    "bounds": {
+        "topLeft": [ 165, 225 ],
+        "bottomRight": [ 1245, 785 ]
+    },
+    "tee": {
+        "id": "tee",
+        "position": [ 265, 325 ]
+    },
+    "extraTees": [
+    ],
+    "cup": {
+        "id": "cup",
+        "position": [ 1145, 685 ],
+        "radius": 30,
+        "rail": ""
+    },
+    "rails": [
+    ],
+    "walls": [
+        {
+            "id": "wall-1",
+            "group": "barrier-1",
+            "center": [ 488.558533, 358.232391 ],
+            "size": [ 40, 40 ],
+            "angleDegrees": 27.891094,
+            "rail": "",
+            "showRail": 1
+        },
+        {
+            "id": "wall-2",
+            "group": "barrier-1",
+            "center": [ 469.846863, 393.585815 ],
+            "size": [ 40, 40 ],
+            "angleDegrees": 27.891094,
+            "rail": "",
+            "showRail": 0
+        },
+        {
+            "id": "wall-3",
+            "group": "barrier-1",
+            "center": [ 451.135132, 428.939362 ],
+            "size": [ 40, 40 ],
+            "angleDegrees": 27.891094,
+            "rail": "",
+            "showRail": 0
+        },
+        {
+            "id": "wall-4",
+            "group": "barrier-1",
+            "center": [ 432.423218, 464.292908 ],
+            "size": [ 40, 40 ],
+            "angleDegrees": 27.891094,
+            "rail": "",
+            "showRail": 0
+        },
+        {
+            "id": "wall-5",
+            "group": "barrier-1",
+            "center": [ 413.711914, 499.646362 ],
+            "size": [ 40, 40 ],
+            "angleDegrees": 27.891094,
+            "rail": "",
+            "showRail": 0
+        },
+        {
+            "id": "wall-6",
+            "group": "barrier-1",
+            "center": [ 395, 535 ],
+            "size": [ 40, 40 ],
+            "angleDegrees": 27.891094,
+            "rail": "",
+            "showRail": 0
+        },
+        {
+            "id": "wall-7",
+            "group": "barrier-1",
+            "center": [ 376.288391, 570.353638 ],
+            "size": [ 40, 40 ],
+            "angleDegrees": 27.891094,
+            "rail": "",
+            "showRail": 0
+        }
+    ],
+    "surfaces": [
+        {
+            "id": "water-1",
+            "kind": "water",
+            "center": [ 815, 705 ],
+            "size": [ 280, 160 ]
+        },
+        {
+            "id": "surface-1",
+            "kind": "water",
+            "center": [ 930, 290 ],
+            "size": [ 340, 140 ]
+        }
+    ],
+    "bumpers": [
+    ],
+    "lasers": [
+    ],
+    "portals": [
+    ]
+}

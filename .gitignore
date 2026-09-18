@@ -30,3 +30,7 @@ external_libs/directml/
 
 # Python bytecode from the figure scripts
 __pycache__/
+
+# Local crash diagnostics
+crashes/
+*.dmp

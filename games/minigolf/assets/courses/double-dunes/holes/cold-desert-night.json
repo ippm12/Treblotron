@@ -1,0 +1,46 @@
+{
+    "formatVersion": 1,
+    "id": "cold-desert-night",
+    "name": "Switchback",
+    "par": 3,
+    "bounds": {
+        "topLeft": [ 165, 225 ],
+        "bottomRight": [ 1245, 785 ]
+    },
+    "tee": {
+        "id": "tee",
+        "position": [ 245, 265 ]
+    },
+    "extraTees": [
+    ],
+    "cup": {
+        "id": "cup",
+        "position": [ 1145, 725 ],
+        "radius": 30,
+        "rail": ""
+    },
+    "rails": [
+    ],
+    "walls": [
+    ],
+    "surfaces": [
+        {
+            "id": "sand-2",
+            "kind": "sand",
+            "center": [ 512.5, 402.5 ],
+            "size": [ 295, 355 ]
+        },
+        {
+            "id": "sand-3",
+            "kind": "sand",
+            "center": [ 932.5, 577.5 ],
+            "size": [ 175, 445 ]
+        }
+    ],
+    "bumpers": [
+    ],
+    "lasers": [
+    ],
+    "portals": [
+    ]
+}

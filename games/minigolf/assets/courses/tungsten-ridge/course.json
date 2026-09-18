@@ -1,0 +1,17 @@
+{
+    "formatVersion": 2,
+    "id": "tungsten-ridge",
+    "name": "Tungsten Ridge",
+    "theme": "tungsten-ridge",
+    "holes": [
+        "trailhead",
+        "pine-switchback",
+        "mine-entrance",
+        "frozen-runoff",
+        "ore-cart-crossing",
+        "copper-circuit",
+        "glacier-shelf",
+        "summit-lift",
+        "tungsten-crown"
+    ]
+}

@@ -1,0 +1,78 @@
+{
+    "formatVersion": 2,
+    "id": "bluff-passage",
+    "name": "The Horseshoe Bluff",
+    "par": 5,
+    "bounds": {
+        "topLeft": [ 105, 185 ],
+        "bottomRight": [ 1305, 825 ]
+    },
+    "tee": {
+        "id": "tee",
+        "position": [ 309, 355.666656 ]
+    },
+    "extraTees": [
+    ],
+    "cup": {
+        "id": "cup",
+        "position": [ 1101, 355.666656 ],
+        "radius": 30,
+        "rail": ""
+    },
+    "rails": [
+    ],
+    "walls": [
+        {
+            "id": "west-headland",
+            "group": "west-headland",
+            "center": [ 417, 537 ],
+            "size": [ 36, 138.666672 ],
+            "angleDegrees": -12,
+            "rail": "",
+            "showRail": 1
+        },
+        {
+            "id": "east-headland",
+            "group": "east-headland",
+            "center": [ 993, 537 ],
+            "size": [ 36, 138.666672 ],
+            "angleDegrees": 12,
+            "rail": "",
+            "showRail": 1
+        }
+    ],
+    "surfaces": [
+        {
+            "id": "sea-inlet",
+            "kind": "water",
+            "center": [ 705, 425 ],
+            "size": [ 420, 480 ]
+        },
+        {
+            "id": "turning-dune",
+            "kind": "sand",
+            "center": [ 711, 739.666687 ],
+            "size": [ 384, 74.666664 ]
+        }
+    ],
+    "bumpers": [
+    ],
+    "lasers": [
+    ],
+    "portals": [
+        {
+            "id": "sea-arch-a",
+            "center": [ 243, 643.666687 ],
+            "pair": 0,
+            "color": [ 145, 160, 205 ],
+            "rail": ""
+        },
+        {
+            "id": "sea-arch-b",
+            "center": [ 1167, 643.666687 ],
+            "pair": 0,
+            "color": [ 145, 160, 205 ],
+            "rail": ""
+        }
+    ]
+}

@@ -1,0 +1,67 @@
+{
+    "formatVersion": 2,
+    "id": "glacier-shelf",
+    "name": "The Blue Crevasse",
+    "par": 4,
+    "bounds": {
+        "topLeft": [ 95, 215 ],
+        "bottomRight": [ 1315, 795 ]
+    },
+    "tee": {
+        "id": "tee",
+        "position": [ 241.399994, 311.666656 ]
+    },
+    "extraTees": [
+    ],
+    "cup": {
+        "id": "cup",
+        "position": [ 1156.400024, 708 ],
+        "radius": 30,
+        "rail": ""
+    },
+    "rails": [
+    ],
+    "walls": [
+    ],
+    "surfaces": [
+        {
+            "id": "glacier",
+            "kind": "ice",
+            "center": [ 705, 505 ],
+            "size": [ 1000.400024, 464 ]
+        },
+        {
+            "id": "crevasse-0",
+            "kind": "water",
+            "center": [ 461, 403.5 ],
+            "size": [ 54.900002, 261 ],
+            "angleDegrees": -10
+        },
+        {
+            "id": "crevasse-1",
+            "kind": "water",
+            "center": [ 717.200012, 611.333313 ],
+            "size": [ 54.900002, 261 ],
+            "angleDegrees": 12
+        },
+        {
+            "id": "crevasse-2",
+            "kind": "water",
+            "center": [ 973.400024, 403.5 ],
+            "size": [ 54.900002, 261 ],
+            "angleDegrees": -10
+        },
+        {
+            "id": "landing-snow",
+            "kind": "rough",
+            "center": [ 1162.5, 708 ],
+            "size": [ 134.199997, 96.666664 ]
+        }
+    ],
+    "bumpers": [
+    ],
+    "lasers": [
+    ],
+    "portals": [
+    ]
+}

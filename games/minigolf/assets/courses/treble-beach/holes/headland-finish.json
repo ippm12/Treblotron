@@ -1,0 +1,181 @@
+{
+    "formatVersion": 2,
+    "id": "headland-finish",
+    "name": "Headland Finish",
+    "par": 5,
+    "bounds": {
+        "topLeft": [ 165, 225 ],
+        "bottomRight": [ 1245, 785 ]
+    },
+    "tee": {
+        "id": "tee",
+        "position": [ 245, 685 ]
+    },
+    "extraTees": [
+    ],
+    "cup": {
+        "id": "cup",
+        "position": [ 1065, 545 ],
+        "radius": 30,
+        "rail": "rail-1"
+    },
+    "rails": [
+        {
+            "id": "rail-1",
+            "mode": "pingPong",
+            "phaseSeconds": 0,
+            "stops": [
+                {
+                    "id": "stop-1",
+                    "offset": [ 0, 0 ],
+                    "pauseSeconds": 1.5,
+                    "speed": 40
+                },
+                {
+                    "id": "stop-2",
+                    "offset": [ 0, -100 ],
+                    "pauseSeconds": 1.5,
+                    "speed": 55
+                }
+            ]
+        }
+    ],
+    "walls": [
+        {
+            "id": "wall-1789617256510948446",
+            "group": "barrier-1789617256510948445",
+            "center": [ 653.538269, 407.253601 ],
+            "size": [ 40, 40 ],
+            "angleDegrees": 48.380974,
+            "rail": "",
+            "showRail": 1
+        },
+        {
+            "id": "wall-1789617256510948447",
+            "group": "barrier-1789617256510948445",
+            "center": [ 680.105347, 437.156799 ],
+            "size": [ 40, 40 ],
+            "angleDegrees": 48.380974,
+            "rail": "",
+            "showRail": 0
+        },
+        {
+            "id": "wall-1789617256510948448",
+            "group": "barrier-1789617256510948445",
+            "center": [ 706.672241, 467.059845 ],
+            "size": [ 40, 40 ],
+            "angleDegrees": 48.380974,
+            "rail": "",
+            "showRail": 0
+        },
+        {
+            "id": "wall-1789617256510948449",
+            "group": "barrier-1789617256510948445",
+            "center": [ 733.239136, 496.962952 ],
+            "size": [ 40, 40 ],
+            "angleDegrees": 48.380974,
+            "rail": "",
+            "showRail": 0
+        },
+        {
+            "id": "wall-1789617256510948450",
+            "group": "barrier-1789617256510948445",
+            "center": [ 759.806274, 526.86615 ],
+            "size": [ 40, 40 ],
+            "angleDegrees": 48.380974,
+            "rail": "",
+            "showRail": 0
+        },
+        {
+            "id": "wall-1789617256510948451",
+            "group": "barrier-1789617256510948445",
+            "center": [ 729.902954, 553.433044 ],
+            "size": [ 40, 40 ],
+            "angleDegrees": 48.380974,
+            "rail": "",
+            "showRail": 0
+        },
+        {
+            "id": "wall-1789617256510948452",
+            "group": "barrier-1789617256510948445",
+            "center": [ 700, 580 ],
+            "size": [ 40, 40 ],
+            "angleDegrees": 48.380974,
+            "rail": "",
+            "showRail": 0
+        },
+        {
+            "id": "wall-1789617256510948453",
+            "group": "barrier-1789617256510948445",
+            "center": [ 670.097046, 606.566956 ],
+            "size": [ 40, 40 ],
+            "angleDegrees": 48.380974,
+            "rail": "",
+            "showRail": 0
+        },
+        {
+            "id": "wall-1789617256510948454",
+            "group": "barrier-1789617256510948445",
+            "center": [ 640.193726, 633.13385 ],
+            "size": [ 40, 40 ],
+            "angleDegrees": 48.380974,
+            "rail": "",
+            "showRail": 0
+        }
+    ],
+    "surfaces": [
+        {
+            "id": "water-1",
+            "kind": "water",
+            "center": [ 1037.5, 272.5 ],
+            "size": [ 445, 135 ]
+        },
+        {
+            "id": "sand-2",
+            "kind": "sand",
+            "center": [ 652.5, 527.5 ],
+            "size": [ 175, 185 ],
+            "angleDegrees": 48.49931
+        },
+        {
+            "id": "surface-1",
+            "kind": "water",
+            "center": [ 1040, 740 ],
+            "size": [ 440, 120 ]
+        },
+        {
+            "id": "surface-2",
+            "kind": "water",
+            "center": [ 1190, 510 ],
+            "size": [ 140, 380 ]
+        },
+        {
+            "id": "surface-3",
+            "kind": "rough",
+            "center": [ 300, 310 ],
+            "size": [ 280, 180 ]
+        },
+        {
+            "id": "surface-4",
+            "kind": "rough",
+            "center": [ 730, 730 ],
+            "size": [ 180, 100 ]
+        }
+    ],
+    "bumpers": [
+    ],
+    "lasers": [
+        {
+            "id": "laser-1",
+            "center": [ 300, 640 ],
+            "size": [ 395.979797, 8 ],
+            "angleDegrees": 45,
+            "onSeconds": 1.4,
+            "offSeconds": 2.5,
+            "phaseSeconds": 1,
+            "rail": ""
+        }
+    ],
+    "portals": [
+    ]
+}

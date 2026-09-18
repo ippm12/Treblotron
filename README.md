@@ -68,12 +68,21 @@ plus points-per-round for each player.
 </tr>
 </table>
 
-Dartfleet and Cricket both have a teams mode, so an evening with six people
+### Mini Golf
+
+<img src="docs/images/game-minigolf.png" alt="Mini Golf: four players on Sandstone Bend, a desert course with sand traps, walls, numbered aiming guides and a ball trail beside the scoreboard" width="100%">
+
+Every dart is a putt: where it lands sets the direction and power. Play 3, 6 or
+9 holes across themed courses with sand, ice, water, bumpers, timed lasers,
+portals and moving obstacles. Play individually or in teams with alternate shot
+or scramble, and create or edit courses with the
+[course editor](games/minigolf/docs/COURSE_EDITOR.md).
+
+Dartfleet, Cricket and Mini Golf have team modes, so an evening with six people
 does not turn into six separate scores. X01 is per player.
 
 ## Planned
 
-- **Mini Golf.** Another original game, in the same vein as Dartfleet.
 - **A data collection mode.** Gathering training data is more tedious than it
   needs to be, and the app is the natural place to do it from.
 - **Correcting a throw in game.** When the detector gets one wrong there is

@@ -1,0 +1,67 @@
+{
+    "formatVersion": 2,
+    "id": "pot-bunkers",
+    "name": "The Marram Labyrinth",
+    "par": 4,
+    "bounds": {
+        "topLeft": [ 105, 185 ],
+        "bottomRight": [ 1305, 825 ]
+    },
+    "tee": {
+        "id": "tee",
+        "position": [ 225, 291.666656 ]
+    },
+    "extraTees": [
+    ],
+    "cup": {
+        "id": "cup",
+        "position": [ 1185, 729 ],
+        "radius": 30,
+        "rail": ""
+    },
+    "rails": [
+    ],
+    "walls": [
+    ],
+    "surfaces": [
+        {
+            "id": "marram-bank-0",
+            "kind": "rough",
+            "center": [ 441, 409 ],
+            "size": [ 120, 330.666656 ],
+            "angleDegrees": 8
+        },
+        {
+            "id": "marram-bank-1",
+            "kind": "rough",
+            "center": [ 705, 617 ],
+            "size": [ 120, 330.666656 ],
+            "angleDegrees": -8
+        },
+        {
+            "id": "marram-bank-2",
+            "kind": "rough",
+            "center": [ 969, 409 ],
+            "size": [ 120, 330.666656 ],
+            "angleDegrees": 8
+        },
+        {
+            "id": "pot-bunker-0",
+            "kind": "sand",
+            "center": [ 273, 665 ],
+            "size": [ 120, 96 ]
+        },
+        {
+            "id": "pot-bunker-1",
+            "kind": "sand",
+            "center": [ 1161, 398.333344 ],
+            "size": [ 120, 96 ]
+        }
+    ],
+    "bumpers": [
+    ],
+    "lasers": [
+    ],
+    "portals": [
+    ]
+}

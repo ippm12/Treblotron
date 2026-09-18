@@ -1,0 +1,109 @@
+{
+    "formatVersion": 1,
+    "id": "stone-arcade",
+    "name": "The Long Colonnade",
+    "par": 4,
+    "bounds": {
+        "topLeft": [ 355, 155 ],
+        "bottomRight": [ 1055, 855 ]
+    },
+    "tee": {
+        "id": "tee",
+        "position": [ 705, 773.333313 ]
+    },
+    "extraTees": [
+    ],
+    "cup": {
+        "id": "cup",
+        "position": [ 705, 236.666672 ],
+        "radius": 30,
+        "rail": ""
+    },
+    "rails": [
+    ],
+    "walls": [
+        {
+            "id": "column-west-0",
+            "group": "column-west-0",
+            "center": [ 530, 353.333344 ],
+            "size": [ 45.5, 75.833336 ],
+            "rail": "",
+            "showRail": 1
+        },
+        {
+            "id": "column-east-0",
+            "group": "column-east-0",
+            "center": [ 880, 353.333344 ],
+            "size": [ 45.5, 75.833336 ],
+            "rail": "",
+            "showRail": 1
+        },
+        {
+            "id": "column-west-1",
+            "group": "column-west-1",
+            "center": [ 530, 505 ],
+            "size": [ 45.5, 75.833336 ],
+            "rail": "",
+            "showRail": 1
+        },
+        {
+            "id": "column-east-1",
+            "group": "column-east-1",
+            "center": [ 880, 505 ],
+            "size": [ 45.5, 75.833336 ],
+            "rail": "",
+            "showRail": 1
+        },
+        {
+            "id": "column-west-2",
+            "group": "column-west-2",
+            "center": [ 530, 656.666687 ],
+            "size": [ 45.5, 75.833336 ],
+            "rail": "",
+            "showRail": 1
+        },
+        {
+            "id": "column-east-2",
+            "group": "column-east-2",
+            "center": [ 880, 656.666687 ],
+            "size": [ 45.5, 75.833336 ],
+            "rail": "",
+            "showRail": 1
+        }
+    ],
+    "surfaces": [
+    ],
+    "bumpers": [
+    ],
+    "lasers": [
+        {
+            "id": "arcade-door-0",
+            "center": [ 705, 353.333344 ],
+            "size": [ 231, 8 ],
+            "onSeconds": 0.8,
+            "offSeconds": 3.8,
+            "phaseSeconds": 0,
+            "rail": ""
+        },
+        {
+            "id": "arcade-door-1",
+            "center": [ 705, 505 ],
+            "size": [ 231, 8 ],
+            "onSeconds": 0.8,
+            "offSeconds": 3.8,
+            "phaseSeconds": 1.3,
+            "rail": ""
+        },
+        {
+            "id": "arcade-door-2",
+            "center": [ 705, 656.666687 ],
+            "size": [ 231, 8 ],
+            "onSeconds": 0.8,
+            "offSeconds": 3.8,
+            "phaseSeconds": 2.6,
+            "rail": ""
+        }
+    ],
+    "portals": [
+    ]
+}

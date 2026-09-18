@@ -1,0 +1,126 @@
+{
+    "formatVersion": 2,
+    "id": "rolling-gate",
+    "name": "The Kites",
+    "par": 4,
+    "bounds": {
+        "topLeft": [ 105, 185 ],
+        "bottomRight": [ 1305, 825 ]
+    },
+    "tee": {
+        "id": "tee",
+        "position": [ 249, 697 ]
+    },
+    "extraTees": [
+    ],
+    "cup": {
+        "id": "cup",
+        "position": [ 1185, 291.666656 ],
+        "radius": 30,
+        "rail": ""
+    },
+    "rails": [
+        {
+            "id": "west-kite",
+            "mode": "loop",
+            "phaseSeconds": 0,
+            "stops": [
+                {
+                    "id": "west-kite-1",
+                    "offset": [ 0, 0 ],
+                    "pauseSeconds": 0.7,
+                    "speed": 65
+                },
+                {
+                    "id": "west-kite-2",
+                    "offset": [ 96, -85.333336 ],
+                    "pauseSeconds": 0.7,
+                    "speed": 65
+                },
+                {
+                    "id": "west-kite-3",
+                    "offset": [ 192, 0 ],
+                    "pauseSeconds": 0.7,
+                    "speed": 65
+                },
+                {
+                    "id": "west-kite-4",
+                    "offset": [ 96, 85.333336 ],
+                    "pauseSeconds": 0.7,
+                    "speed": 65
+                }
+            ]
+        },
+        {
+            "id": "east-kite",
+            "mode": "loop",
+            "phaseSeconds": 0,
+            "stops": [
+                {
+                    "id": "east-kite-1",
+                    "offset": [ 0, 0 ],
+                    "pauseSeconds": 0.4,
+                    "speed": 90
+                },
+                {
+                    "id": "east-kite-2",
+                    "offset": [ 108, 74.666664 ],
+                    "pauseSeconds": 0.4,
+                    "speed": 90
+                },
+                {
+                    "id": "east-kite-3",
+                    "offset": [ 0, 149.333328 ],
+                    "pauseSeconds": 0.4,
+                    "speed": 90
+                },
+                {
+                    "id": "east-kite-4",
+                    "offset": [ -108, 74.666664 ],
+                    "pauseSeconds": 0.4,
+                    "speed": 90
+                }
+            ]
+        }
+    ],
+    "walls": [
+        {
+            "id": "anchor-stone",
+            "group": "anchor-stone",
+            "center": [ 693, 739.666687 ],
+            "size": [ 72, 42.666668 ],
+            "angleDegrees": -15,
+            "rail": "",
+            "showRail": 1
+        }
+    ],
+    "surfaces": [
+        {
+            "id": "grass-bank",
+            "kind": "rough",
+            "center": [ 735, 521 ],
+            "size": [ 144, 362.666656 ],
+            "angleDegrees": 15
+        }
+    ],
+    "bumpers": [
+    ],
+    "lasers": [
+    ],
+    "portals": [
+        {
+            "id": "kite-string-a",
+            "center": [ 417, 462.333344 ],
+            "pair": 0,
+            "color": [ 165, 155, 225 ],
+            "rail": "west-kite"
+        },
+        {
+            "id": "kite-string-b",
+            "center": [ 987, 446.333344 ],
+            "pair": 0,
+            "color": [ 165, 155, 225 ],
+            "rail": "east-kite"
+        }
+    ]
+}

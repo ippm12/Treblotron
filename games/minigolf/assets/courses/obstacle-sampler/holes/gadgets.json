@@ -1,0 +1,94 @@
+{
+    "formatVersion": 1,
+    "id": "gadgets",
+    "name": "Bumpers, timed lasers and paired portals",
+    "par": 3,
+    "bounds": {
+        "topLeft": [ 65, 145 ],
+        "bottomRight": [ 1345, 865 ]
+    },
+    "tee": {
+        "id": "tee",
+        "position": [ 705, 805 ]
+    },
+    "extraTees": [
+    ],
+    "cup": {
+        "id": "cup",
+        "position": [ 705, 205 ],
+        "radius": 30,
+        "rail": ""
+    },
+    "rails": [
+    ],
+    "walls": [
+    ],
+    "surfaces": [
+    ],
+    "bumpers": [
+        {
+            "id": "bumper-1",
+            "center": [ 530, 565 ],
+            "radius": 40,
+            "kickSpeed": 550,
+            "rail": ""
+        },
+        {
+            "id": "bumper-2",
+            "center": [ 880, 440 ],
+            "radius": 40,
+            "kickSpeed": 600,
+            "rail": ""
+        }
+    ],
+    "lasers": [
+        {
+            "id": "laser-1",
+            "center": [ 705, 620 ],
+            "size": [ 270, 8 ],
+            "onSeconds": 1.5,
+            "offSeconds": 2.5,
+            "phaseSeconds": 0,
+            "rail": ""
+        },
+        {
+            "id": "laser-2",
+            "center": [ 705, 340 ],
+            "size": [ 240, 8 ],
+            "onSeconds": 2,
+            "offSeconds": 2,
+            "phaseSeconds": 2,
+            "rail": ""
+        }
+    ],
+    "portals": [
+        {
+            "id": "portal-1",
+            "center": [ 340, 650 ],
+            "pair": 0,
+            "color": [ 170, 90, 220 ],
+            "rail": ""
+        },
+        {
+            "id": "portal-2",
+            "center": [ 1030, 320 ],
+            "pair": 0,
+            "color": [ 170, 90, 220 ],
+            "rail": ""
+        },
+        {
+            "id": "portal-3",
+            "center": [ 1080, 650 ],
+            "pair": 1,
+            "color": [ 245, 145, 45 ],
+            "rail": ""
+        },
+        {
+            "id": "portal-4",
+            "center": [ 380, 310 ],
+            "pair": 1,
+            "color": [ 245, 145, 45 ],
+            "rail": ""
+        }
+    ]
+}

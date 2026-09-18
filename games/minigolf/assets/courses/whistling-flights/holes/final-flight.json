@@ -1,0 +1,140 @@
+{
+    "formatVersion": 2,
+    "id": "final-flight",
+    "name": "The Compass Rose",
+    "par": 5,
+    "bounds": {
+        "topLeft": [ 165, 155 ],
+        "bottomRight": [ 1245, 855 ]
+    },
+    "tee": {
+        "id": "tee",
+        "position": [ 294.600006, 738.333313 ]
+    },
+    "extraTees": [
+    ],
+    "cup": {
+        "id": "cup",
+        "position": [ 705, 505 ],
+        "radius": 30,
+        "rail": ""
+    },
+    "rails": [
+    ],
+    "walls": [
+        {
+            "id": "compass-spoke-0",
+            "group": "compass-spoke-0",
+            "center": [ 948, 505 ],
+            "size": [ 97.199997, 30.333332 ],
+            "rail": "",
+            "showRail": 1
+        },
+        {
+            "id": "compass-spoke-1",
+            "group": "compass-spoke-1",
+            "center": [ 876.826965, 636.993286 ],
+            "size": [ 97.199997, 30.333332 ],
+            "angleDegrees": 45,
+            "rail": "",
+            "showRail": 1
+        },
+        {
+            "id": "compass-spoke-2",
+            "group": "compass-spoke-2",
+            "center": [ 705, 691.666687 ],
+            "size": [ 97.199997, 30.333332 ],
+            "angleDegrees": 90,
+            "rail": "",
+            "showRail": 1
+        },
+        {
+            "id": "compass-spoke-3",
+            "group": "compass-spoke-3",
+            "center": [ 533.173035, 636.993286 ],
+            "size": [ 97.199997, 30.333332 ],
+            "angleDegrees": 135,
+            "rail": "",
+            "showRail": 1
+        },
+        {
+            "id": "compass-spoke-4",
+            "group": "compass-spoke-4",
+            "center": [ 462, 505 ],
+            "size": [ 97.199997, 30.333332 ],
+            "angleDegrees": 180,
+            "rail": "",
+            "showRail": 1
+        },
+        {
+            "id": "compass-spoke-5",
+            "group": "compass-spoke-5",
+            "center": [ 533.173035, 373.006744 ],
+            "size": [ 97.199997, 30.333332 ],
+            "angleDegrees": 225,
+            "rail": "",
+            "showRail": 1
+        },
+        {
+            "id": "compass-spoke-6",
+            "group": "compass-spoke-6",
+            "center": [ 705, 318.333344 ],
+            "size": [ 97.199997, 30.333332 ],
+            "angleDegrees": 270,
+            "rail": "",
+            "showRail": 1
+        },
+        {
+            "id": "compass-spoke-7",
+            "group": "compass-spoke-7",
+            "center": [ 876.826965, 373.006744 ],
+            "size": [ 97.199997, 30.333332 ],
+            "angleDegrees": 315,
+            "rail": "",
+            "showRail": 1
+        }
+    ],
+    "surfaces": [
+        {
+            "id": "dune-quadrant-0",
+            "kind": "sand",
+            "center": [ 478.200012, 300.833344 ],
+            "size": [ 156.600006, 87.5 ],
+            "angleDegrees": -35
+        },
+        {
+            "id": "dune-quadrant-1",
+            "kind": "sand",
+            "center": [ 931.799988, 300.833344 ],
+            "size": [ 156.600006, 87.5 ],
+            "angleDegrees": 35
+        },
+        {
+            "id": "dune-quadrant-2",
+            "kind": "sand",
+            "center": [ 931.799988, 709.166687 ],
+            "size": [ 156.600006, 87.5 ],
+            "angleDegrees": -35
+        },
+        {
+            "id": "southwest-flight",
+            "kind": "ice",
+            "center": [ 472.799988, 662.5 ],
+            "size": [ 237.600006, 75.833336 ],
+            "angleDegrees": -33
+        }
+    ],
+    "bumpers": [
+        {
+            "id": "north-marker",
+            "center": [ 705, 230.833328 ],
+            "radius": 25,
+            "kickSpeed": 330,
+            "rail": ""
+        }
+    ],
+    "lasers": [
+    ],
+    "portals": [
+    ]
+}

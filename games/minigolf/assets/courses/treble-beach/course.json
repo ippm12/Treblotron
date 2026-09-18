@@ -1,0 +1,17 @@
+{
+    "formatVersion": 2,
+    "id": "treble-beach",
+    "name": "Treble Beach",
+    "theme": "treble-beach",
+    "holes": [
+        "sunny-approach",
+        "cliff-walk",
+        "surf-bridge",
+        "sea-caves",
+        "tidal-skim",
+        "beach-patrol",
+        "cove-route",
+        "driftwood-crossing",
+        "headland-finish"
+    ]
+}

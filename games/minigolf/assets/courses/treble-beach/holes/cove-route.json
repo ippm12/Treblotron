@@ -1,0 +1,90 @@
+{
+    "formatVersion": 1,
+    "id": "cove-route",
+    "name": "Cove Route",
+    "par": 4,
+    "bounds": {
+        "topLeft": [ 165, 225 ],
+        "bottomRight": [ 1245, 785 ]
+    },
+    "tee": {
+        "id": "tee",
+        "position": [ 265, 505 ]
+    },
+    "extraTees": [
+    ],
+    "cup": {
+        "id": "cup",
+        "position": [ 1205, 525 ],
+        "radius": 30,
+        "rail": ""
+    },
+    "rails": [
+    ],
+    "walls": [
+        {
+            "id": "wall-1",
+            "group": "barrier-1",
+            "center": [ 825, 655 ],
+            "size": [ 40, 40 ],
+            "rail": "",
+            "showRail": 1
+        },
+        {
+            "id": "wall-2",
+            "group": "barrier-1",
+            "center": [ 825, 695 ],
+            "size": [ 40, 40 ],
+            "rail": "",
+            "showRail": 0
+        },
+        {
+            "id": "wall-3",
+            "group": "barrier-1",
+            "center": [ 825, 735 ],
+            "size": [ 40, 40 ],
+            "rail": "",
+            "showRail": 0
+        }
+    ],
+    "surfaces": [
+        {
+            "id": "water-1",
+            "kind": "water",
+            "center": [ 635, 505 ],
+            "size": [ 300, 200 ]
+        },
+        {
+            "id": "sand-2",
+            "kind": "sand",
+            "center": [ 625, 325 ],
+            "size": [ 220, 100 ]
+        },
+        {
+            "id": "surface-1",
+            "kind": "water",
+            "center": [ 270, 300 ],
+            "size": [ 60, 160 ]
+        }
+    ],
+    "bumpers": [
+    ],
+    "lasers": [
+    ],
+    "portals": [
+        {
+            "id": "portal-1",
+            "center": [ 195, 255 ],
+            "pair": 0,
+            "color": [ 75, 205, 220 ],
+            "rail": ""
+        },
+        {
+            "id": "portal-2",
+            "center": [ 1135, 725 ],
+            "pair": 0,
+            "color": [ 75, 205, 220 ],
+            "rail": ""
+        }
+    ]
+}

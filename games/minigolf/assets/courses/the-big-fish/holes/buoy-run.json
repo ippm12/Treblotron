@@ -1,0 +1,124 @@
+{
+    "formatVersion": 1,
+    "id": "buoy-run",
+    "name": "Buoy Regatta",
+    "par": 4,
+    "bounds": {
+        "topLeft": [ 335, 155 ],
+        "bottomRight": [ 1075, 855 ]
+    },
+    "tee": {
+        "id": "tee",
+        "position": [ 705, 750 ]
+    },
+    "extraTees": [
+    ],
+    "cup": {
+        "id": "cup",
+        "position": [ 705, 248.333328 ],
+        "radius": 30,
+        "rail": ""
+    },
+    "rails": [
+        {
+            "id": "buoy-drift-0",
+            "mode": "pingPong",
+            "phaseSeconds": 0,
+            "stops": [
+                {
+                    "id": "buoy-drift-0-1",
+                    "offset": [ 0, 0 ],
+                    "pauseSeconds": 0.5,
+                    "speed": 55
+                },
+                {
+                    "id": "buoy-drift-0-2",
+                    "offset": [ 207.199997, 0 ],
+                    "pauseSeconds": 0.5,
+                    "speed": 55
+                }
+            ]
+        },
+        {
+            "id": "buoy-drift-1",
+            "mode": "pingPong",
+            "phaseSeconds": 0,
+            "stops": [
+                {
+                    "id": "buoy-drift-1-1",
+                    "offset": [ 0, 0 ],
+                    "pauseSeconds": 0.5,
+                    "speed": 77
+                },
+                {
+                    "id": "buoy-drift-1-2",
+                    "offset": [ 207.199997, 0 ],
+                    "pauseSeconds": 0.5,
+                    "speed": 77
+                }
+            ]
+        },
+        {
+            "id": "buoy-drift-2",
+            "mode": "pingPong",
+            "phaseSeconds": 0,
+            "stops": [
+                {
+                    "id": "buoy-drift-2-1",
+                    "offset": [ 0, 0 ],
+                    "pauseSeconds": 0.5,
+                    "speed": 99
+                },
+                {
+                    "id": "buoy-drift-2-2",
+                    "offset": [ 207.199997, 0 ],
+                    "pauseSeconds": 0.5,
+                    "speed": 99
+                }
+            ]
+        }
+    ],
+    "walls": [
+    ],
+    "surfaces": [
+        {
+            "id": "port-water",
+            "kind": "water",
+            "center": [ 405.299988, 505 ],
+            "size": [ 59.200001, 350 ]
+        },
+        {
+            "id": "starboard-water",
+            "kind": "water",
+            "center": [ 1004.700012, 505 ],
+            "size": [ 59.200001, 350 ]
+        }
+    ],
+    "bumpers": [
+        {
+            "id": "channel-buoy-0",
+            "center": [ 586.599976, 370.833344 ],
+            "radius": 34,
+            "kickSpeed": 420,
+            "rail": "buoy-drift-0"
+        },
+        {
+            "id": "channel-buoy-1",
+            "center": [ 586.599976, 516.666687 ],
+            "radius": 34,
+            "kickSpeed": 420,
+            "rail": "buoy-drift-1"
+        },
+        {
+            "id": "channel-buoy-2",
+            "center": [ 586.599976, 656.666687 ],
+            "radius": 34,
+            "kickSpeed": 420,
+            "rail": "buoy-drift-2"
+        }
+    ],
+    "lasers": [
+    ],
+    "portals": [
+    ]
+}

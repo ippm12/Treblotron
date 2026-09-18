@@ -1,0 +1,106 @@
+{
+    "formatVersion": 2,
+    "id": "copper-circuit",
+    "name": "Copper Coil",
+    "par": 5,
+    "bounds": {
+        "topLeft": [ 105, 185 ],
+        "bottomRight": [ 1305, 825 ]
+    },
+    "tee": {
+        "id": "tee",
+        "position": [ 237, 281 ]
+    },
+    "extraTees": [
+    ],
+    "cup": {
+        "id": "cup",
+        "position": [ 705, 505 ],
+        "radius": 30,
+        "rail": ""
+    },
+    "rails": [
+    ],
+    "walls": [
+        {
+            "id": "outer-top",
+            "group": "outer-top",
+            "center": [ 759, 334.333344 ],
+            "size": [ 744, 29.866667 ],
+            "rail": "",
+            "showRail": 1
+        },
+        {
+            "id": "outer-right",
+            "group": "outer-right",
+            "center": [ 1125, 531.666687 ],
+            "size": [ 33.599998, 416 ],
+            "rail": "",
+            "showRail": 1
+        },
+        {
+            "id": "outer-bottom",
+            "group": "outer-bottom",
+            "center": [ 741, 729 ],
+            "size": [ 780, 29.866667 ],
+            "rail": "",
+            "showRail": 1
+        },
+        {
+            "id": "inner-left",
+            "group": "inner-left",
+            "center": [ 381, 579.666687 ],
+            "size": [ 33.599998, 309.333344 ],
+            "rail": "",
+            "showRail": 1
+        },
+        {
+            "id": "inner-top",
+            "group": "inner-top",
+            "center": [ 651, 441 ],
+            "size": [ 552, 29.866667 ],
+            "rail": "",
+            "showRail": 1
+        },
+        {
+            "id": "inner-right",
+            "group": "inner-right",
+            "center": [ 921, 542.333313 ],
+            "size": [ 33.599998, 202.666672 ],
+            "rail": "",
+            "showRail": 1
+        }
+    ],
+    "surfaces": [
+    ],
+    "bumpers": [
+    ],
+    "lasers": [
+        {
+            "id": "spark-gap",
+            "center": [ 440.026855, 386.3172 ],
+            "size": [ 107.365616, 8 ],
+            "angleDegrees": 90.028732,
+            "onSeconds": 1,
+            "offSeconds": 3,
+            "phaseSeconds": 0,
+            "rail": ""
+        }
+    ],
+    "portals": [
+        {
+            "id": "coil-bypass-a",
+            "center": [ 1268.182739, 490.63443 ],
+            "pair": 0,
+            "color": [ 210, 140, 65 ],
+            "rail": ""
+        },
+        {
+            "id": "coil-bypass-b",
+            "center": [ 975.774231, 564.569824 ],
+            "pair": 0,
+            "color": [ 210, 140, 65 ],
+            "rail": ""
+        }
+    ]
+}

@@ -1,0 +1,131 @@
+{
+    "formatVersion": 2,
+    "id": "harbor-mouth",
+    "name": "Through the Fish",
+    "par": 4,
+    "bounds": {
+        "topLeft": [ 75, 245 ],
+        "bottomRight": [ 1335, 765 ]
+    },
+    "tee": {
+        "id": "tee",
+        "position": [ 213.600006, 505 ]
+    },
+    "extraTees": [
+    ],
+    "cup": {
+        "id": "cup",
+        "position": [ 1177.5, 505 ],
+        "radius": 30,
+        "rail": ""
+    },
+    "rails": [
+    ],
+    "walls": [
+        {
+            "id": "upper-rib-0",
+            "group": "upper-rib-0",
+            "center": [ 465.600006, 396.666656 ],
+            "size": [ 126, 20.799999 ],
+            "angleDegrees": -38,
+            "rail": "",
+            "showRail": 1
+        },
+        {
+            "id": "lower-rib-0",
+            "group": "lower-rib-0",
+            "center": [ 465.600006, 613.333313 ],
+            "size": [ 126, 20.799999 ],
+            "angleDegrees": 38,
+            "rail": "",
+            "showRail": 1
+        },
+        {
+            "id": "upper-rib-1",
+            "group": "upper-rib-1",
+            "center": [ 648.299988, 396.666656 ],
+            "size": [ 126, 20.799999 ],
+            "angleDegrees": -38,
+            "rail": "",
+            "showRail": 1
+        },
+        {
+            "id": "lower-rib-1",
+            "group": "lower-rib-1",
+            "center": [ 648.299988, 613.333313 ],
+            "size": [ 126, 20.799999 ],
+            "angleDegrees": 38,
+            "rail": "",
+            "showRail": 1
+        },
+        {
+            "id": "upper-rib-2",
+            "group": "upper-rib-2",
+            "center": [ 831, 396.666656 ],
+            "size": [ 126, 20.799999 ],
+            "angleDegrees": -38,
+            "rail": "",
+            "showRail": 1
+        },
+        {
+            "id": "lower-rib-2",
+            "group": "lower-rib-2",
+            "center": [ 831, 613.333313 ],
+            "size": [ 126, 20.799999 ],
+            "angleDegrees": 38,
+            "rail": "",
+            "showRail": 1
+        },
+        {
+            "id": "upper-rib-3",
+            "group": "upper-rib-3",
+            "center": [ 1013.700012, 396.666656 ],
+            "size": [ 126, 20.799999 ],
+            "angleDegrees": -38,
+            "rail": "",
+            "showRail": 1
+        },
+        {
+            "id": "lower-rib-3",
+            "group": "lower-rib-3",
+            "center": [ 1013.700012, 613.333313 ],
+            "size": [ 126, 20.799999 ],
+            "angleDegrees": 38,
+            "rail": "",
+            "showRail": 1
+        },
+        {
+            "id": "tail-top",
+            "group": "tail-top",
+            "center": [ 270.299988, 383.666656 ],
+            "size": [ 176.399994, 21.666668 ],
+            "angleDegrees": 45,
+            "rail": "",
+            "showRail": 1
+        },
+        {
+            "id": "tail-bottom",
+            "group": "tail-bottom",
+            "center": [ 270.299988, 626.333313 ],
+            "size": [ 176.399994, 21.666668 ],
+            "angleDegrees": -45,
+            "rail": "",
+            "showRail": 1
+        }
+    ],
+    "surfaces": [
+    ],
+    "bumpers": [
+        {
+            "id": "fish-eye",
+            "center": [ 1108.199951, 414 ],
+            "radius": 26,
+            "kickSpeed": 300,
+            "rail": ""
+        }
+    ],
+    "lasers": [
+    ],
+    "portals": [
+    ]
+}

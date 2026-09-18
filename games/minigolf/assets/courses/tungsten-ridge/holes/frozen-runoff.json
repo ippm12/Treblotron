@@ -1,0 +1,74 @@
+{
+    "formatVersion": 2,
+    "id": "frozen-runoff",
+    "name": "Glacier Confluence",
+    "par": 4,
+    "bounds": {
+        "topLeft": [ 105, 185 ],
+        "bottomRight": [ 1305, 825 ]
+    },
+    "tee": {
+        "id": "tee",
+        "position": [ 225, 718.333313 ]
+    },
+    "extraTees": [
+    ],
+    "cup": {
+        "id": "cup",
+        "position": [ 1149, 281 ],
+        "radius": 30,
+        "rail": ""
+    },
+    "rails": [
+    ],
+    "walls": [
+    ],
+    "surfaces": [
+        {
+            "id": "glacier-0",
+            "kind": "ice",
+            "center": [ 465, 617 ],
+            "size": [ 456, 106.666664 ],
+            "angleDegrees": -32
+        },
+        {
+            "id": "glacier-1",
+            "kind": "ice",
+            "center": [ 783, 435.666656 ],
+            "size": [ 444, 101.333336 ],
+            "angleDegrees": -32
+        },
+        {
+            "id": "glacier-2",
+            "kind": "ice",
+            "center": [ 765, 633 ],
+            "size": [ 372, 80 ],
+            "angleDegrees": 24
+        },
+        {
+            "id": "melt-pool",
+            "kind": "water",
+            "center": [ 1089, 670.333313 ],
+            "size": [ 204, 202.666672 ]
+        },
+        {
+            "id": "headwater",
+            "kind": "water",
+            "center": [ 417, 355.666656 ],
+            "size": [ 186, 138.666672 ]
+        }
+    ],
+    "bumpers": [
+        {
+            "id": "confluence-rock",
+            "center": [ 747, 547.666687 ],
+            "radius": 34,
+            "kickSpeed": 480,
+            "rail": ""
+        }
+    ],
+    "lasers": [
+    ],
+    "portals": [
+    ]
+}

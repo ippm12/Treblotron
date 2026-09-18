@@ -1,0 +1,169 @@
+{
+    "formatVersion": 1,
+    "id": "driftwood-crossing",
+    "name": "Driftwood Crossing",
+    "par": 4,
+    "bounds": {
+        "topLeft": [ 165, 225 ],
+        "bottomRight": [ 1245, 785 ]
+    },
+    "tee": {
+        "id": "tee",
+        "position": [ 265, 325 ]
+    },
+    "extraTees": [
+    ],
+    "cup": {
+        "id": "cup",
+        "position": [ 1145, 685 ],
+        "radius": 30,
+        "rail": ""
+    },
+    "rails": [
+        {
+            "id": "rail-1",
+            "mode": "pingPong",
+            "phaseSeconds": 0,
+            "stops": [
+                {
+                    "id": "stop-1",
+                    "offset": [ 0, 0 ],
+                    "pauseSeconds": 0.8,
+                    "speed": 65
+                },
+                {
+                    "id": "stop-2",
+                    "offset": [ 0, 140 ],
+                    "pauseSeconds": 0.8,
+                    "speed": 80
+                }
+            ]
+        }
+    ],
+    "walls": [
+        {
+            "id": "wall-1789617256510948402",
+            "group": "barrier-1789617256510948401",
+            "center": [ 460, 380 ],
+            "size": [ 40, 40 ],
+            "rail": "",
+            "showRail": 1
+        },
+        {
+            "id": "wall-1789617256510948408",
+            "group": "barrier-1789617256510948407",
+            "center": [ 460, 500 ],
+            "size": [ 40, 40 ],
+            "rail": "",
+            "showRail": 1
+        },
+        {
+            "id": "wall-1789617256510948410",
+            "group": "barrier-1789617256510948409",
+            "center": [ 460, 620 ],
+            "size": [ 40, 40 ],
+            "rail": "",
+            "showRail": 1
+        },
+        {
+            "id": "wall-1789617256510948412",
+            "group": "barrier-1789617256510948411",
+            "center": [ 580, 420 ],
+            "size": [ 40, 40 ],
+            "rail": "",
+            "showRail": 1
+        },
+        {
+            "id": "wall-1789617256510948414",
+            "group": "barrier-1789617256510948413",
+            "center": [ 580, 540 ],
+            "size": [ 40, 40 ],
+            "rail": "",
+            "showRail": 1
+        },
+        {
+            "id": "wall-1789617256510948416",
+            "group": "barrier-1789617256510948415",
+            "center": [ 580, 660 ],
+            "size": [ 40, 40 ],
+            "rail": "",
+            "showRail": 1
+        },
+        {
+            "id": "wall-1789617256510948432",
+            "group": "barrier-1789617256510948431",
+            "center": [ 580, 300 ],
+            "size": [ 40, 40 ],
+            "rail": "",
+            "showRail": 1
+        },
+        {
+            "id": "wall-1789617256510948436",
+            "group": "barrier-1789617256510948435",
+            "center": [ 980, 700 ],
+            "size": [ 40, 40 ],
+            "rail": "",
+            "showRail": 1
+        },
+        {
+            "id": "wall-1789617256510948437",
+            "group": "barrier-1789617256510948435",
+            "center": [ 940, 700 ],
+            "size": [ 40, 40 ],
+            "rail": "",
+            "showRail": 0
+        },
+        {
+            "id": "wall-1789617256510948438",
+            "group": "barrier-1789617256510948435",
+            "center": [ 940, 660 ],
+            "size": [ 40, 40 ],
+            "rail": "",
+            "showRail": 0
+        },
+        {
+            "id": "wall-1789617256510948439",
+            "group": "barrier-1789617256510948435",
+            "center": [ 940, 620 ],
+            "size": [ 40, 40 ],
+            "rail": "",
+            "showRail": 0
+        },
+        {
+            "id": "wall-1789617256510948440",
+            "group": "barrier-1789617256510948435",
+            "center": [ 940, 580 ],
+            "size": [ 40, 40 ],
+            "rail": "",
+            "showRail": 0
+        },
+        {
+            "id": "wall-1789617256510948441",
+            "group": "barrier-1789617256510948435",
+            "center": [ 940, 540 ],
+            "size": [ 40, 40 ],
+            "rail": "",
+            "showRail": 0
+        }
+    ],
+    "surfaces": [
+        {
+            "id": "water-1",
+            "kind": "water",
+            "center": [ 707.5, 267.5 ],
+            "size": [ 585, 105 ]
+        },
+        {
+            "id": "surface-1",
+            "kind": "water",
+            "center": [ 720, 750 ],
+            "size": [ 560, 100 ]
+        }
+    ],
+    "bumpers": [
+    ],
+    "lasers": [
+    ],
+    "portals": [
+    ]
+}

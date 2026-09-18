@@ -1,0 +1,203 @@
+{
+    "formatVersion": 2,
+    "id": "lighthouse-sweep",
+    "name": "Lighthouse Courtyard",
+    "par": 5,
+    "bounds": {
+        "topLeft": [ 215, 155 ],
+        "bottomRight": [ 1195, 855 ]
+    },
+    "tee": {
+        "id": "tee",
+        "position": [ 332.600006, 738.333313 ]
+    },
+    "extraTees": [
+    ],
+    "cup": {
+        "id": "cup",
+        "position": [ 705, 505 ],
+        "radius": 30,
+        "rail": ""
+    },
+    "rails": [
+    ],
+    "walls": [
+        {
+            "id": "outer-breakwater-1",
+            "group": "outer-breakwater-1",
+            "center": [ 1023.5, 505 ],
+            "size": [ 41.16, 49 ],
+            "rail": "",
+            "showRail": 1
+        },
+        {
+            "id": "outer-breakwater-2",
+            "group": "outer-breakwater-2",
+            "center": [ 991.958557, 616.363464 ],
+            "size": [ 41.16, 49 ],
+            "angleDegrees": 25.714285,
+            "rail": "",
+            "showRail": 1
+        },
+        {
+            "id": "outer-breakwater-3",
+            "group": "outer-breakwater-3",
+            "center": [ 903.581482, 705.670105 ],
+            "size": [ 41.16, 49 ],
+            "angleDegrees": 51.42857,
+            "rail": "",
+            "showRail": 1
+        },
+        {
+            "id": "outer-breakwater-7",
+            "group": "outer-breakwater-7",
+            "center": [ 418.041412, 616.363464 ],
+            "size": [ 41.16, 49 ],
+            "angleDegrees": 154.285721,
+            "rail": "",
+            "showRail": 1
+        },
+        {
+            "id": "outer-breakwater-8",
+            "group": "outer-breakwater-8",
+            "center": [ 386.5, 505 ],
+            "size": [ 41.16, 49 ],
+            "angleDegrees": 180,
+            "rail": "",
+            "showRail": 1
+        },
+        {
+            "id": "outer-breakwater-9",
+            "group": "outer-breakwater-9",
+            "center": [ 418.041412, 393.636505 ],
+            "size": [ 41.16, 49 ],
+            "angleDegrees": 205.714279,
+            "rail": "",
+            "showRail": 1
+        },
+        {
+            "id": "outer-breakwater-10",
+            "group": "outer-breakwater-10",
+            "center": [ 506.418488, 304.329926 ],
+            "size": [ 41.16, 49 ],
+            "angleDegrees": 231.428574,
+            "rail": "",
+            "showRail": 1
+        },
+        {
+            "id": "outer-breakwater-11",
+            "group": "outer-breakwater-11",
+            "center": [ 634.127075, 254.768509 ],
+            "size": [ 41.16, 49 ],
+            "angleDegrees": 257.142853,
+            "rail": "",
+            "showRail": 1
+        },
+        {
+            "id": "outer-breakwater-12",
+            "group": "outer-breakwater-12",
+            "center": [ 775.872925, 254.768509 ],
+            "size": [ 41.16, 49 ],
+            "angleDegrees": 282.857147,
+            "rail": "",
+            "showRail": 1
+        },
+        {
+            "id": "outer-breakwater-13",
+            "group": "outer-breakwater-13",
+            "center": [ 903.581482, 304.329926 ],
+            "size": [ 41.16, 49 ],
+            "angleDegrees": 308.571442,
+            "rail": "",
+            "showRail": 1
+        },
+        {
+            "id": "outer-breakwater-14",
+            "group": "outer-breakwater-14",
+            "center": [ 991.958557, 393.636505 ],
+            "size": [ 41.16, 49 ],
+            "angleDegrees": 334.285706,
+            "rail": "",
+            "showRail": 1
+        },
+        {
+            "id": "inner-breakwater-3",
+            "group": "inner-breakwater-3",
+            "center": [ 705, 645 ],
+            "size": [ 41.16, 49 ],
+            "angleDegrees": 90,
+            "rail": "",
+            "showRail": 1
+        },
+        {
+            "id": "inner-breakwater-4",
+            "group": "inner-breakwater-4",
+            "center": [ 590.660828, 603.994934 ],
+            "size": [ 41.16, 49 ],
+            "angleDegrees": 135,
+            "rail": "",
+            "showRail": 1
+        },
+        {
+            "id": "inner-breakwater-5",
+            "group": "inner-breakwater-5",
+            "center": [ 543.299988, 505 ],
+            "size": [ 41.16, 49 ],
+            "angleDegrees": 180,
+            "rail": "",
+            "showRail": 1
+        },
+        {
+            "id": "inner-breakwater-6",
+            "group": "inner-breakwater-6",
+            "center": [ 590.660828, 406.005066 ],
+            "size": [ 41.16, 49 ],
+            "angleDegrees": 225,
+            "rail": "",
+            "showRail": 1
+        },
+        {
+            "id": "inner-breakwater-7",
+            "group": "inner-breakwater-7",
+            "center": [ 705, 365 ],
+            "size": [ 41.16, 49 ],
+            "angleDegrees": 270,
+            "rail": "",
+            "showRail": 1
+        }
+    ],
+    "surfaces": [
+        {
+            "id": "storm-sand",
+            "kind": "sand",
+            "center": [ 401.200012, 446.666656 ],
+            "size": [ 93.099998, 140 ]
+        }
+    ],
+    "bumpers": [
+    ],
+    "lasers": [
+        {
+            "id": "beacon-north",
+            "center": [ 719.700012, 297.916656 ],
+            "size": [ 146.474808, 8 ],
+            "angleDegrees": 42.61137,
+            "onSeconds": 1,
+            "offSeconds": 3.6,
+            "phaseSeconds": 0,
+            "rail": ""
+        },
+        {
+            "id": "beacon-south",
+            "center": [ 901, 618.75 ],
+            "size": [ 128.786682, 8 ],
+            "angleDegrees": 155.942657,
+            "onSeconds": 1,
+            "offSeconds": 3.6,
+            "phaseSeconds": 2,
+            "rail": ""
+        }
+    ],
+    "portals": [
+    ]
+}

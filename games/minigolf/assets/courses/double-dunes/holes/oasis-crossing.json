@@ -1,0 +1,67 @@
+{
+    "formatVersion": 1,
+    "id": "oasis-crossing",
+    "name": "Oasis Crossing",
+    "par": 3,
+    "bounds": {
+        "topLeft": [ 165, 225 ],
+        "bottomRight": [ 1245, 785 ]
+    },
+    "tee": {
+        "id": "tee",
+        "position": [ 265, 505 ]
+    },
+    "extraTees": [
+    ],
+    "cup": {
+        "id": "cup",
+        "position": [ 1145, 505 ],
+        "radius": 30,
+        "rail": ""
+    },
+    "rails": [
+    ],
+    "walls": [
+    ],
+    "surfaces": [
+        {
+            "id": "water-1",
+            "kind": "water",
+            "center": [ 712.5, 492.5 ],
+            "size": [ 175, 375 ]
+        },
+        {
+            "id": "sand-3",
+            "kind": "sand",
+            "center": [ 945, 655 ],
+            "size": [ 180, 100 ]
+        }
+    ],
+    "bumpers": [
+        {
+            "id": "bumper-1",
+            "center": [ 1005, 455 ],
+            "radius": 38,
+            "kickSpeed": 390,
+            "rail": ""
+        }
+    ],
+    "lasers": [
+    ],
+    "portals": [
+        {
+            "id": "portal-1",
+            "center": [ 560, 500 ],
+            "pair": 0,
+            "color": [ 170, 90, 220 ],
+            "rail": ""
+        },
+        {
+            "id": "portal-2",
+            "center": [ 860, 500 ],
+            "pair": 0,
+            "color": [ 170, 90, 220 ],
+            "rail": ""
+        }
+    ]
+}

@@ -1,0 +1,159 @@
+{
+    "formatVersion": 2,
+    "id": "the-grandstand",
+    "name": "The Championship Amphitheatre",
+    "par": 5,
+    "bounds": {
+        "topLeft": [ 155, 155 ],
+        "bottomRight": [ 1255, 855 ]
+    },
+    "tee": {
+        "id": "tee",
+        "position": [ 705, 773.333313 ]
+    },
+    "extraTees": [
+    ],
+    "cup": {
+        "id": "cup",
+        "position": [ 705, 376.666656 ],
+        "radius": 30,
+        "rail": "trophy-stage"
+    },
+    "rails": [
+        {
+            "id": "trophy-stage",
+            "mode": "pingPong",
+            "phaseSeconds": 0,
+            "stops": [
+                {
+                    "id": "trophy-stage-1",
+                    "offset": [ 0, 0 ],
+                    "pauseSeconds": 1.5,
+                    "speed": 45
+                },
+                {
+                    "id": "trophy-stage-2",
+                    "offset": [ -71.5, 0 ],
+                    "pauseSeconds": 1.5,
+                    "speed": 45
+                },
+                {
+                    "id": "trophy-stage-3",
+                    "offset": [ 71.5, 0 ],
+                    "pauseSeconds": 1.5,
+                    "speed": 45
+                }
+            ]
+        }
+    ],
+    "walls": [
+        {
+            "id": "west-stand-0",
+            "group": "west-stand-0",
+            "center": [ 320, 470 ],
+            "size": [ 44, 268.333344 ],
+            "angleDegrees": -12,
+            "rail": "",
+            "showRail": 1
+        },
+        {
+            "id": "east-stand-0",
+            "group": "east-stand-0",
+            "center": [ 1090, 470 ],
+            "size": [ 44, 268.333344 ],
+            "angleDegrees": 12,
+            "rail": "",
+            "showRail": 1
+        },
+        {
+            "id": "west-stand-1",
+            "group": "west-stand-1",
+            "center": [ 430, 470 ],
+            "size": [ 44, 215.833328 ],
+            "angleDegrees": -12,
+            "rail": "",
+            "showRail": 1
+        },
+        {
+            "id": "east-stand-1",
+            "group": "east-stand-1",
+            "center": [ 980, 470 ],
+            "size": [ 44, 215.833328 ],
+            "angleDegrees": 12,
+            "rail": "",
+            "showRail": 1
+        },
+        {
+            "id": "west-stand-2",
+            "group": "west-stand-2",
+            "center": [ 540, 470 ],
+            "size": [ 44, 163.333328 ],
+            "angleDegrees": -12,
+            "rail": "",
+            "showRail": 1
+        },
+        {
+            "id": "east-stand-2",
+            "group": "east-stand-2",
+            "center": [ 870, 470 ],
+            "size": [ 44, 163.333328 ],
+            "angleDegrees": 12,
+            "rail": "",
+            "showRail": 1
+        }
+    ],
+    "surfaces": [
+        {
+            "id": "stage-bunker-0",
+            "kind": "sand",
+            "center": [ 540, 650.833313 ],
+            "size": [ 93.5, 58.333332 ]
+        },
+        {
+            "id": "stage-bunker-1",
+            "kind": "sand",
+            "center": [ 705, 650.833313 ],
+            "size": [ 93.5, 58.333332 ]
+        },
+        {
+            "id": "stage-bunker-2",
+            "kind": "sand",
+            "center": [ 870, 650.833313 ],
+            "size": [ 93.5, 58.333332 ]
+        }
+    ],
+    "bumpers": [
+    ],
+    "lasers": [
+        {
+            "id": "ceremony-left",
+            "center": [ 617, 522.5 ],
+            "size": [ 77, 8 ],
+            "onSeconds": 0.7,
+            "offSeconds": 4,
+            "phaseSeconds": 0,
+            "rail": ""
+        },
+        {
+            "id": "ceremony-right",
+            "center": [ 793, 522.5 ],
+            "size": [ 77, 8 ],
+            "onSeconds": 0.7,
+            "offSeconds": 4,
+            "phaseSeconds": 2,
+            "rail": ""
+        },
+        {
+            "id": "laser-1",
+            "center": [ 704.63446, 522.803955 ],
+            "size": [ 98.429848, 8 ],
+            "angleDegrees": -0.289771,
+            "onSeconds": 2,
+            "offSeconds": 0,
+            "phaseSeconds": 0,
+            "rail": ""
+        }
+    ],
+    "portals": [
+    ]
+}

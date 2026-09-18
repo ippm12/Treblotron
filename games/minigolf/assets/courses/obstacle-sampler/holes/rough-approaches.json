@@ -1,0 +1,194 @@
+{
+    "formatVersion": 1,
+    "id": "rough-approaches",
+    "name": "Moving hazards and rough approaches",
+    "par": 3,
+    "bounds": {
+        "topLeft": [ 65, 145 ],
+        "bottomRight": [ 1345, 865 ]
+    },
+    "tee": {
+        "id": "tee",
+        "position": [ 705, 805 ]
+    },
+    "extraTees": [
+    ],
+    "cup": {
+        "id": "cup",
+        "position": [ 705, 205 ],
+        "radius": 30,
+        "rail": ""
+    },
+    "rails": [
+        {
+            "id": "rail-1",
+            "mode": "pingPong",
+            "phaseSeconds": 0,
+            "stops": [
+                {
+                    "id": "stop-1",
+                    "offset": [ 0, 0 ],
+                    "pauseSeconds": 0.8,
+                    "speed": 75
+                },
+                {
+                    "id": "stop-2",
+                    "offset": [ 170, 0 ],
+                    "pauseSeconds": 1,
+                    "speed": 110
+                }
+            ]
+        },
+        {
+            "id": "rail-2",
+            "mode": "loop",
+            "phaseSeconds": 0,
+            "stops": [
+                {
+                    "id": "stop-1",
+                    "offset": [ 0, 0 ],
+                    "pauseSeconds": 0.3,
+                    "speed": 80
+                },
+                {
+                    "id": "stop-2",
+                    "offset": [ 0, -100 ],
+                    "pauseSeconds": 0.5,
+                    "speed": 120
+                },
+                {
+                    "id": "stop-3",
+                    "offset": [ 120, -100 ],
+                    "pauseSeconds": 0,
+                    "speed": 80
+                },
+                {
+                    "id": "stop-4",
+                    "offset": [ 120, 0 ],
+                    "pauseSeconds": 0.6,
+                    "speed": 100
+                }
+            ]
+        }
+    ],
+    "walls": [
+        {
+            "id": "wall-1",
+            "group": "barrier-1",
+            "center": [ 467.5, 307.5 ],
+            "size": [ 35, 35 ],
+            "rail": "",
+            "showRail": 1
+        },
+        {
+            "id": "wall-2",
+            "group": "barrier-1",
+            "center": [ 502.5, 307.5 ],
+            "size": [ 35, 35 ],
+            "rail": "",
+            "showRail": 0
+        },
+        {
+            "id": "wall-3",
+            "group": "barrier-1",
+            "center": [ 537.5, 307.5 ],
+            "size": [ 35, 35 ],
+            "rail": "",
+            "showRail": 0
+        },
+        {
+            "id": "wall-4",
+            "group": "barrier-1",
+            "center": [ 467.5, 342.5 ],
+            "size": [ 35, 35 ],
+            "rail": "",
+            "showRail": 0
+        },
+        {
+            "id": "wall-5",
+            "group": "barrier-1",
+            "center": [ 537.5, 342.5 ],
+            "size": [ 35, 35 ],
+            "rail": "",
+            "showRail": 0
+        },
+        {
+            "id": "wall-6",
+            "group": "barrier-1",
+            "center": [ 467.5, 377.5 ],
+            "size": [ 35, 35 ],
+            "rail": "",
+            "showRail": 0
+        },
+        {
+            "id": "wall-7",
+            "group": "barrier-1",
+            "center": [ 537.5, 377.5 ],
+            "size": [ 35, 35 ],
+            "rail": "",
+            "showRail": 0
+        }
+    ],
+    "surfaces": [
+        {
+            "id": "surface-1",
+            "kind": "sand",
+            "center": [ 260, 520 ],
+            "size": [ 130, 130 ]
+        },
+        {
+            "id": "surface-2",
+            "kind": "rough",
+            "center": [ 525, 520 ],
+            "size": [ 130, 130 ]
+        },
+        {
+            "id": "surface-3",
+            "kind": "ice",
+            "center": [ 790, 520 ],
+            "size": [ 130, 130 ]
+        },
+        {
+            "id": "surface-4",
+            "kind": "water",
+            "center": [ 1100, 470 ],
+            "size": [ 130, 130 ]
+        }
+    ],
+    "bumpers": [
+        {
+            "id": "bumper-1",
+            "center": [ 705, 660 ],
+            "radius": 40,
+            "kickSpeed": 550,
+            "rail": ""
+        }
+    ],
+    "lasers": [
+        {
+            "id": "laser-1",
+            "center": [ 680, 350 ],
+            "size": [ 230, 8 ],
+            "onSeconds": 1.5,
+            "offSeconds": 2.5,
+            "phaseSeconds": 0,
+            "rail": "rail-1"
+        }
+    ],
+    "portals": [
+        {
+            "id": "portal-1",
+            "center": [ 340, 720 ],
+            "pair": 0,
+            "color": [ 70, 205, 235 ],
+            "rail": "rail-1"
+        },
+        {
+            "id": "portal-2",
+            "center": [ 950, 240 ],
+            "pair": 0,
+            "color": [ 70, 205, 235 ],
+            "rail": "rail-1"
+        }
+    ]
+}

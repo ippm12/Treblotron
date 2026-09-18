@@ -1,0 +1,17 @@
+{
+    "formatVersion": 2,
+    "id": "checkout-valley",
+    "name": "Checkout Valley",
+    "theme": "checkout-valley",
+    "holes": [
+        "first-checkout",
+        "autumn-bend",
+        "creekside",
+        "covered-crossing",
+        "orchard-bounce",
+        "harvest-gate",
+        "frosty-morning",
+        "leaf-tunnel",
+        "golden-homecoming"
+    ]
+}

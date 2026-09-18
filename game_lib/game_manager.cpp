@@ -13,6 +13,7 @@
 #include "common_inc.hpp"
 #include "frame/frame.hpp"
 #include "frame/render_queue.hpp"
+#include "game_lib/game_helpers.hpp"
 #include "game_lib/game_manager.hpp"
 #include "game_lib/components/render_shape.hpp"
 #include "game_lib/components/render_text.hpp"
@@ -84,14 +85,19 @@ bool Game::popDartPosition(DartPosition& out)
 
 void Game::onTurnSkipped()
 {
-    // Fire onMissedThrow() until the bar reports we're no longer in PlayerTurn
-    // with throws remaining. Capped at 16 iterations as a safety against a
-    // misbehaving override (e.g. one whose throwsRemaining doesn't decrement).
-    for(int safety = 0; safety < 16; safety++)
+    // Capture this turn's budget. A miss can synchronously start the next
+    // turn when the board is clear, so never follow replenished throws.
+    const GameBarInfo original=getBarInfo();
+    if(original.state!=GameState::PlayerTurn) return;
+    const int remaining=std::min<int>(original.throwsRemaining,16);
+    for(int skipped=0;skipped<remaining;++skipped)
     {
-        GameBarInfo info = getBarInfo();
-        if(info.state != GameState::PlayerTurn || info.throwsRemaining == 0) break;
+        const GameBarInfo before=getBarInfo();
+        if(before.state!=GameState::PlayerTurn || before.throwsRemaining==0 ||
+           before.playerName!=original.playerName) break;
         onMissedThrow();
+        const GameBarInfo after=getBarInfo();
+        if(after.throwsRemaining>=before.throwsRemaining) break;
     }
 }
 
@@ -444,8 +450,10 @@ Status GameManager::loadGame(GamePtr game, std::function<GamePtr()> restartFacto
 
         // Route mouse clicks on the game window to the game
         registerFrameClickHandler(m_frameId,
-            [game](FrameID, float x, float y, uint8_t button)
+            [this,game](FrameID, float x, float y, uint8_t button)
             {
+                if(m_settingsOpen) return;
+                if(m_paused) { handlePauseClick(x,y,button); return; }
                 game->onMouseClick(x, y, button);
             });
     }
@@ -596,14 +604,18 @@ void GameManager::tick()
 namespace
 {
 
-enum class PauseAction : uint8_t { Resume, Restart, SaveCapture, MainMenu };
+enum class PauseAction : uint8_t { Resume, Restart, SaveCapture, MainMenu, GameAction };
 
-struct PauseOption { const char* label; PauseAction action; };
+struct PauseOption { std::string label; PauseAction action; size_t gameIndex=0; };
 
-std::vector<PauseOption> buildPauseOptions(bool hasRestart)
+std::vector<PauseOption> buildPauseOptions(bool hasRestart,const GamePtr& game)
 {
     std::vector<PauseOption> opts;
     opts.push_back({"Resume", PauseAction::Resume});
+    if(game) {
+        const auto actions=game->getPauseActions();
+        for(size_t i=0;i<actions.size();++i) opts.push_back({actions[i],PauseAction::GameAction,i});
+    }
     if(hasRestart) opts.push_back({"Restart", PauseAction::Restart});
     opts.push_back({"Save Capture", PauseAction::SaveCapture});
     opts.push_back({"Main Menu", PauseAction::MainMenu});
@@ -616,8 +628,9 @@ std::vector<PauseOption> buildPauseOptions(bool hasRestart)
 void GameManager::handlePauseKey(uint32_t keycode)
 {
     bool hasRestart = (m_gameFactory != nullptr);
-    auto options = buildPauseOptions(hasRestart);
+    auto options = buildPauseOptions(hasRestart,m_currentGame);
     uint8_t optionCount = static_cast<uint8_t>(options.size());
+    if(m_pauseCursor>=optionCount) m_pauseCursor=0;
 
     switch(keycode)
     {
@@ -634,6 +647,11 @@ void GameManager::handlePauseKey(uint32_t keycode)
             {
                 case PauseAction::Resume:
                     m_paused = false;
+                    m_pauseStatus.clear();
+                    break;
+                case PauseAction::GameAction:
+                    m_currentGame->onPauseAction(options[m_pauseCursor].gameIndex);
+                    m_paused=false;
                     m_pauseStatus.clear();
                     break;
                 case PauseAction::Restart:
@@ -670,6 +688,19 @@ void GameManager::handlePauseKey(uint32_t keycode)
 }
 
 
+void GameManager::handlePauseClick(float x,float y,uint8_t button)
+{
+    if(!m_paused || button!=1) return;
+    const auto options=buildPauseOptions(m_gameFactory!=nullptr,m_currentGame);
+    const float panelHeight=150.0f+75.0f*options.size()+(m_pauseStatus.empty() ? 0.0f:50.0f);
+    const float firstRow=(1080.0f-panelHeight)*0.5f+120.0f;
+    if(x<680 || x>1240 || y<firstRow) return;
+    const size_t row=static_cast<size_t>((y-firstRow)/75);
+    if(row>=options.size() || y-firstRow-row*75>=66) return;
+    m_pauseCursor=static_cast<uint8_t>(row);
+    handlePauseKey(SDLK_RETURN);
+}
+
 static constexpr uint32_t PAUSE_OVERLAY_Z = 500;
 
 void GameManager::renderPauseMenu()
@@ -692,8 +723,9 @@ void GameManager::renderPauseMenu()
 
     // Center panel
     bool hasRestart = (m_gameFactory != nullptr);
-    auto options = buildPauseOptions(hasRestart);
+    auto options = buildPauseOptions(hasRestart,m_currentGame);
     uint8_t optionCount = static_cast<uint8_t>(options.size());
+    if(m_pauseCursor>=optionCount) m_pauseCursor=0;
     float panelW = 600.0f;
     float rowH   = 75.0f;
     float statusH = m_pauseStatus.empty() ? 0.0f : 50.0f;
@@ -732,7 +764,7 @@ void GameManager::renderPauseMenu()
     titleText->m_z        = PAUSE_OVERLAY_Z + 2;
     renderQueueAdd(m_frameId, titleText);
 
-    float optRowW = 390.0f;
+    float optRowW = 560.0f;
     float optStartY = panelY + 120.0f;
     FontID optFontId = (m_pauseFontId != INVALID_FONT_ID) ? m_pauseFontId : m_barFontId;
     TTF_Font* optFont = getFont(optFontId);
@@ -759,7 +791,7 @@ void GameManager::renderPauseMenu()
         int optW = 0, optH = 0;
         if(optFont)
         {
-            TTF_GetStringSize(optFont, options[i].label, 0, &optW, &optH);
+            TTF_GetStringSize(optFont, options[i].label.c_str(), 0, &optW, &optH);
         }
 
         auto optText = std::make_shared<RenderText>();
@@ -803,8 +835,9 @@ void GameManager::renderPauseMenu()
 // Status bar rendering
 // ============================================================================
 
-static constexpr float    BAR_Y       = 930.0f;
-static constexpr float    BAR_HEIGHT  = 150.0f;
+// Published in GameLayout so games can keep their own content clear of the bar.
+static constexpr float    BAR_Y       = GameLayout::BAR_Y;
+static constexpr float    BAR_HEIGHT  = GameLayout::BAR_HEIGHT;
 static constexpr float    BAR_WIDTH   = 1920.0f;
 static constexpr uint32_t BAR_Z       = UINT32_MAX - 10;
 static constexpr float    BAR_TEXT_Y  = BAR_Y + 45.0f;

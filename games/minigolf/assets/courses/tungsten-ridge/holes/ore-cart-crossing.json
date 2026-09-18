@@ -1,0 +1,133 @@
+{
+    "formatVersion": 1,
+    "id": "ore-cart-crossing",
+    "name": "Ore Sorting Yard",
+    "par": 5,
+    "bounds": {
+        "topLeft": [ 75, 225 ],
+        "bottomRight": [ 1335, 785 ]
+    },
+    "tee": {
+        "id": "tee",
+        "position": [ 188.399994, 505 ]
+    },
+    "extraTees": [
+    ],
+    "cup": {
+        "id": "cup",
+        "position": [ 1221.599976, 505 ],
+        "radius": 30,
+        "rail": ""
+    },
+    "rails": [
+        {
+            "id": "cart-track-0",
+            "mode": "pingPong",
+            "phaseSeconds": 0,
+            "stops": [
+                {
+                    "id": "cart-track-0-1",
+                    "offset": [ 0, 0 ],
+                    "pauseSeconds": 0.9,
+                    "speed": 60
+                },
+                {
+                    "id": "cart-track-0-2",
+                    "offset": [ 0, 280 ],
+                    "pauseSeconds": 0.9,
+                    "speed": 60
+                }
+            ]
+        },
+        {
+            "id": "cart-track-1",
+            "mode": "pingPong",
+            "phaseSeconds": 0,
+            "stops": [
+                {
+                    "id": "cart-track-1-1",
+                    "offset": [ 0, 0 ],
+                    "pauseSeconds": 0.9,
+                    "speed": 105
+                },
+                {
+                    "id": "cart-track-1-2",
+                    "offset": [ 0, 280 ],
+                    "pauseSeconds": 0.9,
+                    "speed": 105
+                }
+            ]
+        },
+        {
+            "id": "cart-track-2",
+            "mode": "pingPong",
+            "phaseSeconds": 0,
+            "stops": [
+                {
+                    "id": "cart-track-2-1",
+                    "offset": [ 0, 0 ],
+                    "pauseSeconds": 0.9,
+                    "speed": 80
+                },
+                {
+                    "id": "cart-track-2-2",
+                    "offset": [ 0, 280 ],
+                    "pauseSeconds": 0.9,
+                    "speed": 80
+                }
+            ]
+        }
+    ],
+    "walls": [
+        {
+            "id": "ore-cart-0",
+            "group": "ore-cart-0",
+            "center": [ 453, 346.333344 ],
+            "size": [ 119.699997, 48.533333 ],
+            "rail": "cart-track-0",
+            "showRail": 1
+        },
+        {
+            "id": "ore-cart-1",
+            "group": "ore-cart-1",
+            "center": [ 705, 346.333344 ],
+            "size": [ 119.699997, 48.533333 ],
+            "rail": "cart-track-1",
+            "showRail": 1
+        },
+        {
+            "id": "ore-cart-2",
+            "group": "ore-cart-2",
+            "center": [ 957, 346.333344 ],
+            "size": [ 119.699997, 48.533333 ],
+            "rail": "cart-track-2",
+            "showRail": 1
+        }
+    ],
+    "surfaces": [
+        {
+            "id": "tailings-bin-0",
+            "kind": "sand",
+            "center": [ 453, 710.333313 ],
+            "size": [ 151.199997, 70 ]
+        },
+        {
+            "id": "tailings-bin-1",
+            "kind": "sand",
+            "center": [ 705, 710.333313 ],
+            "size": [ 151.199997, 70 ]
+        },
+        {
+            "id": "tailings-bin-2",
+            "kind": "sand",
+            "center": [ 957, 710.333313 ],
+            "size": [ 151.199997, 70 ]
+        }
+    ],
+    "bumpers": [
+    ],
+    "lasers": [
+    ],
+    "portals": [
+    ]
+}

@@ -1,0 +1,17 @@
+{
+    "formatVersion": 2,
+    "id": "the-big-fish",
+    "name": "The Big Fish",
+    "theme": "the-big-fish",
+    "holes": [
+        "harbor-mouth",
+        "pier-pressure",
+        "buoy-run",
+        "ferry-crossing",
+        "lighthouse-sweep",
+        "cold-storage",
+        "island-causeway",
+        "moving-moorings",
+        "the-last-cast"
+    ]
+}
