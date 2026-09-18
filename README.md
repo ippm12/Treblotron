@@ -9,7 +9,7 @@ landed — no mat, no sensors, no electronic board. Then it gives you games you
 cannot play anywhere else.
 
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Version](https://img.shields.io/badge/version-0.1.0-orange.svg)](#)
+[![Version](https://img.shields.io/badge/version-0.2.0-orange.svg)](#)
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Raspberry%20Pi-lightgrey.svg)](docs/SETUP.md)
 [![C++23](https://img.shields.io/badge/C%2B%2B-23-00599C.svg)](#)
 

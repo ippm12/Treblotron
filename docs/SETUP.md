@@ -43,7 +43,7 @@ beside the executable.
 Cameras and inference on the same Windows machine. No network, no second
 device.
 
-1. Run `Treblotron-0.1.0-AMD64.exe`.
+1. Run `Treblotron-0.2.0-AMD64.exe`.
 2. Plug in three USB cameras and point them at the board.
 3. Launch Treblotron. It will tell you how many cameras it found.
 4. Calibrate — see below.
@@ -69,7 +69,7 @@ when you want a small, quiet machine at the board.
 
 ### On the Windows PC
 
-1. Run `Treblotron-Server-0.1.0-AMD64.exe`.
+1. Run `Treblotron-Server-0.2.0-AMD64.exe`.
 2. Start **Treblotron Server** from the Start Menu. It listens on port 9876.
 3. Note the PC's LAN address — `ipconfig`, the IPv4 address on your Wi-Fi or
    Ethernet adapter.
@@ -82,11 +82,11 @@ a different firewall, allow inbound TCP 9876.
 
 ### On the Pi
 
-Download `treblotron_0.1.0_arm64.deb` from the
+Download `treblotron_0.2.0_arm64.deb` from the
 [Releases page](https://github.com/ippm12/Treblotron/releases) and install it:
 
 ```bash
-sudo apt install ./treblotron_0.1.0_arm64.deb
+sudo apt install ./treblotron_0.2.0_arm64.deb
 ```
 
 `apt` pulls in what it needs — SDL3, OpenCV and the rest are recorded as
@@ -126,7 +126,7 @@ work out the dependency list, rather than hard-coding one that would go stale.
 The first build takes a while, since OpenCV is a submodule compiled from
 source.
 
-You get both `treblotron_0.1.0_arm64.deb` and a `.tar.gz` of the same tree. To
+You get both `treblotron_0.2.0_arm64.deb` and a `.tar.gz` of the same tree. To
 run straight out of the build directory without installing anything:
 
 ```bash
@@ -157,7 +157,7 @@ without abandoning a game.
 
 ## Demo
 
-`Treblotron-Demo-0.1.0-AMD64.zip` — unzip and run. A clickable dartboard stands
+`Treblotron-Demo-0.2.0-AMD64.zip` — unzip and run. A clickable dartboard stands
 in for the cameras, so every game is playable with no hardware. Nothing to
 install and nothing to calibrate.
 

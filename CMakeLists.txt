@@ -1164,6 +1164,11 @@ if(TREBLOTRON_BUILD_APP)
     endforeach()
     get_target_property(_runtime_includes ${PRJ_NAME} INCLUDE_DIRECTORIES)
     target_include_directories(TreblotronRuntime PUBLIC ${_runtime_includes})
+    # Copying INCLUDE_DIRECTORIES alone loses the SYSTEM classification above.
+    # Keep ONNX Runtime's SAL compatibility macros out of our -Werror checks.
+    if(TREBLOTRON_INFER_BACKEND STREQUAL "directml")
+        target_include_directories(TreblotronRuntime SYSTEM PUBLIC "${_ort_root}/include")
+    endif()
     get_target_property(_runtime_links ${PRJ_NAME} LINK_LIBRARIES)
     target_link_libraries(TreblotronRuntime PUBLIC ${_runtime_links})
     set_property(TARGET ${PRJ_NAME} PROPERTY SOURCES startup.cpp ${TREBLOTRON_WIN_RESOURCES})

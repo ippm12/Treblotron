@@ -5,9 +5,9 @@
 .DESCRIPTION
     Four configurations, each with one audience:
 
-      Treblotron-0.1.0-AMD64.exe          single PC: cameras and GPU inference here
-      Treblotron-Server-0.1.0-AMD64.exe   the box doing inference for a Pi
-      Treblotron-Demo-0.1.0-AMD64.zip     no hardware; portable, no installer
+      Treblotron-0.2.0-AMD64.exe          single PC: cameras and GPU inference here
+      Treblotron-Server-0.2.0-AMD64.exe   the box doing inference for a Pi
+      Treblotron-Demo-0.2.0-AMD64.zip     no hardware; portable, no installer
       (Pi client)                        built on the Pi itself, see docs/SETUP.md
 
     They are separate CMake builds rather than components of one installer,
@@ -168,8 +168,8 @@ foreach ($name in $Only) {
     # installed one that ships. Testing the build tree can pass while the
     # installer is missing a DLL, which is precisely the bug worth catching.
     if (-not $SkipVerify) {
-        $stage = Join-Path ([System.IO.Path]::GetTempPath()) "treblotron-verify-$name"
-        if (Test-Path $stage) { Remove-Item $stage -Recurse -Force }
+        $tempRoot = [System.IO.Path]::GetFullPath([System.IO.Path]::GetTempPath()).TrimEnd([char]92)
+        $stage = Join-Path $tempRoot ("treblotron-verify-$name-" + [guid]::NewGuid().ToString("N"))
 
         cmake --install $cfg.Dir --prefix $stage | Out-Null
         if ($LASTEXITCODE -ne 0) { throw "install to staging failed for $($cfg.Preset)" }
@@ -182,14 +182,20 @@ foreach ($name in $Only) {
         # that dialog has not exited -- so launching reports success and hangs an
         # unattended build. See cmake/check_runtime_deps.cmake.
         try {
-            cmake "-DBIN_DIR=$stage/bin" "-DEXECUTABLES=$($cfg.Exe)" `
+            $executables = (Get-ChildItem -LiteralPath (Join-Path $stage "bin") -Filter *.exe -File | ForEach-Object { $_.Name }) -join ";"
+            cmake "-DBIN_DIR=$stage/bin" "-DEXECUTABLES=$executables" `
                   -P (Join-Path $repo "cmake\check_runtime_deps.cmake")
             if ($LASTEXITCODE -ne 0) {
                 throw "$($cfg.Exe) depends on libraries the installer does not ship"
             }
             Write-Host "  installed tree is self-contained" -ForegroundColor Green
         } finally {
-            Remove-Item $stage -Recurse -Force -ErrorAction SilentlyContinue
+            $resolvedStage = [System.IO.Path]::GetFullPath($stage)
+            if ([System.IO.Path]::GetDirectoryName($resolvedStage) -ne $tempRoot -or
+                [System.IO.Path]::GetFileName($resolvedStage) -notlike "treblotron-verify-$name-*") {
+                throw "Refusing to remove unexpected staging path: $resolvedStage"
+            }
+            Remove-Item -LiteralPath $resolvedStage -Recurse -Force -ErrorAction SilentlyContinue
         }
     }
 
@@ -201,7 +207,13 @@ foreach ($name in $Only) {
         Pop-Location
     }
 
-    Get-ChildItem "$($cfg.Dir)\Treblotron*" -Include *.exe, *.zip, *.sha256 -File |
+    $packageConfig = Get-Content (Join-Path $cfg.Dir "CPackConfig.cmake") -Raw
+    if ($packageConfig -notmatch 'set\(CPACK_PACKAGE_FILE_NAME "([^"]+)"\)') {
+        throw "Cannot determine the current package filename for $($cfg.Preset)"
+    }
+    $packageBase = $Matches[1]
+    Get-ChildItem -LiteralPath $cfg.Dir -File |
+        Where-Object { $_.Name -like "$packageBase.*" -and $_.Extension -in '.exe', '.zip', '.sha256' } |
         ForEach-Object {
             Copy-Item $_.FullName $Output -Force
             $built += [pscustomobject]@{
