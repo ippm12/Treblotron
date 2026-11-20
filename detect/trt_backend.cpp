@@ -16,6 +16,9 @@
  */
 
 #include "detect/inference_backend.hpp"
+#include "verified_engine.hpp"
+
+#include <utility>
 
 #include <NvInfer.h>
 #include <NvOnnxParser.h>
@@ -130,6 +133,13 @@ namespace
         CudaBuffer() = default;
         CudaBuffer(const CudaBuffer&) = delete;
         CudaBuffer& operator=(const CudaBuffer&) = delete;
+        CudaBuffer(CudaBuffer&& other) noexcept
+            : ptr(std::exchange(other.ptr, nullptr)), bytes(std::exchange(other.bytes, 0)) {}
+        CudaBuffer& operator=(CudaBuffer&& other) noexcept
+        {
+            if(this != &other) { free(); ptr = std::exchange(other.ptr, nullptr); bytes = std::exchange(other.bytes, 0); }
+            return *this;
+        }
 
         bool allocate(size_t n)
         {
@@ -157,6 +167,13 @@ namespace
         PinnedBuffer() = default;
         PinnedBuffer(const PinnedBuffer&) = delete;
         PinnedBuffer& operator=(const PinnedBuffer&) = delete;
+        PinnedBuffer(PinnedBuffer&& other) noexcept
+            : ptr(std::exchange(other.ptr, nullptr)), bytes(std::exchange(other.bytes, 0)) {}
+        PinnedBuffer& operator=(PinnedBuffer&& other) noexcept
+        {
+            if(this != &other) { free(); ptr = std::exchange(other.ptr, nullptr); bytes = std::exchange(other.bytes, 0); }
+            return *this;
+        }
 
         bool allocate(size_t n)
         {
@@ -231,8 +248,8 @@ namespace
         std::unique_ptr<nvinfer1::IBuilder> builder(nvinfer1::createInferBuilder(g_trtLogger));
         if(!builder) { LOG_ERROR(DETECT_LOG_ID, "createInferBuilder failed"); return {}; }
 
-        // TRT 10 uses strongly-typed explicit-batch networks by default —
-        // passing 0 flags is correct.
+        // TRT 10 is always explicit-batch. Keep weak typing here because the
+        // legacy palm/landmark builders use precision flags/constraints.
         std::unique_ptr<nvinfer1::INetworkDefinition> network(builder->createNetworkV2(0));
         if(!network) { LOG_ERROR(DETECT_LOG_ID, "createNetworkV2 failed"); return {}; }
 
@@ -340,6 +357,7 @@ namespace
         public:
             ~TrtModel() override
             {
+                if(m_stream) cudaStreamSynchronize(m_stream);
                 m_context.reset();
                 m_engine.reset();
                 if(m_stream) cudaStreamDestroy(m_stream);
@@ -352,22 +370,43 @@ namespace
                 m_engine.reset(runtime.deserializeCudaEngine(plan.data(), plan.size()));
                 if(!m_engine) return false;
 
+                // The pipeline's buffers are contiguous FP32 with static shapes.
+                // An externally built FP16-I/O/vectorized engine is not compatible
+                // merely because its tensor names happen to match.
+                const auto compatible = [&](const TensorSpec& t, nvinfer1::TensorIOMode mode) {
+                    if(!engineHasIOTensor(m_engine.get(), t.name.c_str())) return false;
+                    const auto dims = m_engine->getTensorShape(t.name.c_str());
+                    if(m_engine->getTensorIOMode(t.name.c_str()) != mode
+                    || m_engine->getTensorDataType(t.name.c_str()) != nvinfer1::DataType::kFLOAT
+                    || m_engine->getTensorFormat(t.name.c_str()) != nvinfer1::TensorFormat::kLINEAR
+                    || m_engine->getTensorLocation(t.name.c_str()) != nvinfer1::TensorLocation::kDEVICE
+                    || dims.nbDims != static_cast<int>(t.shape.size())) return false;
+                    for(int i = 0; i < dims.nbDims; ++i)
+                        if(dims.d[i] != t.shape[i]) return false;
+                    return true;
+                };
+                if(m_engine->getNbIOTensors() != static_cast<int>(spec.inputs.size() + spec.outputs.size()))
+                {
+                    LOG_ERROR(DETECT_LOG_ID, "{}: engine I/O count does not match this model", spec.onnxPath);
+                    return false;
+                }
+
                 for(const TensorSpec& t : spec.inputs)
                 {
-                    if(!engineHasIOTensor(m_engine.get(), t.name.c_str()))
+                    if(!compatible(t, nvinfer1::TensorIOMode::kINPUT))
                     {
                         LOG_ERROR(DETECT_LOG_ID,
-                                  "{} has no input tensor '{}' — re-export with canonical names",
+                                  "{}: input '{}' must match the expected shape and linear FP32 device format",
                                   spec.onnxPath, t.name);
                         return false;
                     }
                 }
                 for(const TensorSpec& t : spec.outputs)
                 {
-                    if(!engineHasIOTensor(m_engine.get(), t.name.c_str()))
+                    if(!compatible(t, nvinfer1::TensorIOMode::kOUTPUT))
                     {
                         LOG_ERROR(DETECT_LOG_ID,
-                                  "{} has no output tensor '{}' — re-export with canonical names",
+                                  "{}: output '{}' must match the expected shape and linear FP32 device format",
                                   spec.onnxPath, t.name);
                         return false;
                     }
@@ -521,6 +560,31 @@ namespace
                 if(!m_runtime) return nullptr;
 
                 std::vector<uint8_t> plan;
+                if(!spec.prebuiltPaths.empty())
+                {
+                    for(const auto& path : spec.prebuiltPaths)
+                    {
+                        if(abort.load(std::memory_order_acquire)) return nullptr;
+                        if(!readFileBytes(path, plan)) continue;
+                        if(!verified_engine::matches(path, spec.onnxPath, plan))
+                        {
+                            LOG_WARNING(DETECT_LOG_ID, "Ignoring unverified or stale engine {}", path);
+                            continue;
+                        }
+                        auto model = std::make_unique<TrtModel>();
+                        if(model->create(*m_runtime, plan, spec))
+                        {
+                            LOG_INFO(DETECT_LOG_ID, "trt backend: loaded verified engine {}", path);
+                            return model;
+                        }
+                        LOG_WARNING(DETECT_LOG_ID, "Verified engine {} is incompatible with this device/runtime", path);
+                    }
+                    LOG_ERROR(DETECT_LOG_ID,
+                        "No compatible verified engine for {}. In its bundle directory run "
+                        "python3 engines.py build --precision fp16, then verify --precision fp16. "
+                        "Build and verify int8 to enable it. Startup does not compile these models.", spec.onnxPath);
+                    return nullptr;
+                }
                 bool fromCache = false;
                 if(!spec.cachePath.empty()
                 && cachedEngineIsFresh(spec.cachePath, spec.onnxPath)

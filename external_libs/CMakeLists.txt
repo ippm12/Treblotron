@@ -81,6 +81,22 @@ endif()
 #
 # features2d and flann are dependencies of calib3d, not direct users.
 # ----------------------------------------------------------------------------
+if(TREBLOTRON_USE_SYSTEM_OPENCV)
+    set(_treblotron_system_cv_components core imgproc calib3d imgcodecs)
+    if(TREBLOTRON_BUILD_APP)
+        list(APPEND _treblotron_system_cv_components videoio)
+    endif()
+    if(NOT TREBLOTRON_INFER_BACKEND STREQUAL "none")
+        list(APPEND _treblotron_system_cv_components dnn)
+    endif()
+    find_package(OpenCV 4 REQUIRED COMPONENTS ${_treblotron_system_cv_components})
+    foreach(_t IN LISTS TREBLOTRON_TARGETS)
+        target_include_directories(${_t} SYSTEM PRIVATE ${OpenCV_INCLUDE_DIRS})
+        target_link_libraries(${_t} PRIVATE ${OpenCV_LIBS})
+    endforeach()
+    return()
+endif()
+
 set(_treblotron_cv_modules "core,imgproc,features2d,flann,calib3d,imgcodecs")
 if(TREBLOTRON_BUILD_APP)
     string(APPEND _treblotron_cv_modules ",videoio")

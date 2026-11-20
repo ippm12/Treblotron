@@ -9,6 +9,8 @@
  * forward passes land on TensorRT or on OpenCV DNN.
  */
 
+#include "collection_state.hpp"
+#include "heatmap_peak.hpp"
 #include "detect/dart_detector.hpp"
 #include "detect/wire_calibration.hpp"
 #include "blazepalm_anchors.hpp"
@@ -42,12 +44,9 @@ namespace
     // ----- Autoregressive dart detector (multicam_unet_ar) -----
     //
     // Model file names are joined onto DartDetectorConfig::modelDir at load
-    // time. The cache suffix is part of the name so that a change to the
-    // model contract can never pick up a stale compiled engine: "_v2" marked
-    // the export that dropped the offset head, "_v3" the move from a single
-    // conditioning channel to the 21-channel instance layout below.
-    constexpr const char* ONNX_REL   = "multicam_unet_ar/multicam_unet_ar.onnx";
-    constexpr const char* ENGINE_REL = "multicam_unet_ar/multicam_unet_ar_v3.trt";
+    // time. TensorRT uses offline-built engines verified against this bundle;
+    // DirectML and CPU load the same float ONNX exports directly.
+    constexpr const char* ONNX_REL = "regnetx_fast/multicam_unet_ar_heatmap_only.onnx";
 
     // Written next to the ONNX by DartModelTraining's exporter, naming the
     // conditioning layout that export expects. Checked before anything loads:
@@ -56,13 +55,12 @@ namespace
     // the other's conditioning is worse detection — which is indistinguishable
     // from a bad camera angle until someone measures it. A three-month-stale
     // model already cost one long debugging session that way.
-    constexpr const char* COND_JSON_REL = "multicam_unet_ar/multicam_unet_ar.cond.json";
+    constexpr const char* COND_JSON_REL = "regnetx_fast/multicam_unet_ar_heatmap_only.cond.json";
     constexpr const char* COND_KIND     = "instance_v1";
 
     // Tensor names — must match the ONNX export in DartModelTraining/export.py.
     constexpr const char* INPUT_NAME  = "input";
     constexpr const char* OUT_HEATMAP = "heatmap";
-    constexpr const char* OUT_EXIST   = "exist_logit";
 
     // Model IO shapes (must match the ONNX export).
     constexpr uint32_t INPUT_W  = 720;
@@ -98,11 +96,7 @@ namespace
 
     constexpr uint32_t INPUT_C = COND_TIP_BASE + MAX_COND_DARTS;             // 21
 
-    // Decode thresholds — match DartModelTraining/heatmap_utils.py.
-    constexpr float EXIST_THRESHOLD   = 0.0f;   // logit gate
-    constexpr float HEATMAP_THRESHOLD = 0.55f;  // sigmoid prob floor
-
-    // Gaussian sigma for the tip channels — matches multicam_unet_ar.cond.json
+    // Gaussian sigma for the tip channels — matches the bundle's .cond.json
     // ("mask_sigma": 5.0), which is written next to the ONNX by the exporter.
     constexpr float MASK_SIGMA     = 5.0f;
     constexpr int   MASK_RADIUS_PX = 20;  // ~4 sigma — per heatmap_dataset.py
@@ -133,9 +127,8 @@ namespace
     // 360x640. We threshold (sigmoid > 0.5, equivalent to logit > 0), upsample
     // to native, multiply with the raw RGB to zero out background, and only
     // then warp the masked image into the 720x720 canonical view fed to the AR
-    // detector. See models/multicam_unet_ar/README_seg.md for the contract.
-    constexpr const char* SEG_ONNX_REL   = "multicam_unet_ar/dart_seg_unet.onnx";
-    constexpr const char* SEG_ENGINE_REL = "multicam_unet_ar/dart_seg_unet_fp16.trt";
+    // detector. See models/regnetx_fast/README.md for the contract.
+    constexpr const char* SEG_ONNX_REL = "regnetx_fast/dart_seg_unet.onnx";
 
     constexpr const char* SEG_INPUT_NAME  = "input";
     constexpr const char* SEG_OUTPUT_NAME = "logits";
@@ -462,10 +455,8 @@ struct DartDetector::Impl
     std::unique_ptr<InferenceBackend::Model> palm;
     std::unique_ptr<InferenceBackend::Model> landmark;
 
-    // Detection mode — Detecting is the normal autoregressive flow, Removing
-    // freezes dart emission and waits for the board to clear (no hand AND no
-    // heatmap peak above threshold) for several consecutive cycles.
-    enum class Mode : uint8_t { Detecting, Removing };
+    using Mode = DartCollectionState::Mode;
+    DartCollectionState collection;
 
     struct PolarDart
     {
@@ -484,7 +475,6 @@ struct DartDetector::Impl
         std::chrono::steady_clock::time_point firstSeen{};
     };
 
-    Mode                       mode = Mode::Detecting;
     std::vector<CandidateDart> candidates;
 
     /**
@@ -522,19 +512,10 @@ struct DartDetector::Impl
     /** This cycle's warped binary seg mask, filled lazily on a confirmation. */
     cv::Mat maskWarped[N_CAMS];
 
-    bool boardClear = true;
-
     // Wall-clock, not cycle counts: the cycle rate is a property of the backend
     // (~4 Hz on CPU, 30-55 Hz on a GPU), so counting cycles made the real
     // timing swing by 8x depending on what hardware happened to be serving.
     using Clock = std::chrono::steady_clock;
-
-    /** When the board last had a hand in it, or a dart peak still showing. */
-    Clock::time_point lastBusy = Clock::now();
-
-    /** When the current run of hand-present began; reset when the hand goes. */
-    Clock::time_point handSince{};
-    bool              handWasPresent = false;
 
     // Round-robin palm state. A held dart can occlude the hand from one or two
     // cameras — keeping per-camera memory and OR-ing the slots makes the state
@@ -545,13 +526,13 @@ struct DartDetector::Impl
 
     // Diagnostics surfaced through DartDetectorResult::status. Watching these
     // live with hand/dart in and out of frame is how PALM_PRESENCE_THRESHOLD
-    // and HEATMAP_THRESHOLD get tuned.
+    // and the heatmap decision threshold get checked.
     bool  lastHandPresent     = false;
     bool  lastPeakAboveThresh = false;
     float lastPalmScore       = -1.0f;
     float lastHeatmapPeak     = -1.0f;
     float lastLandmarkPresence = -1.0f;
-    float lastExistLogit      = -1e30f;
+    float lastPeakLogit       = -1e30f;
     int   lastCandidateStreak = 0;
     float palmTop1 = 0.0f, palmTop2 = 0.0f, palmTop3 = 0.0f;
 
@@ -648,23 +629,14 @@ Status DartDetector::build(const DartDetectorConfig& config,
     {
         InferenceBackend::ModelSpec spec;
         spec.onnxPath   = joinPath(config.modelDir, ONNX_REL);
-        spec.cachePath  = joinPath(config.modelDir, ENGINE_REL);
-        spec.preferFp16 = true;
-        // Pin the exist_logit head to FP32. The head is
-        // scale * max(heatmap_logits) + bias; a ReduceMax cannot overflow the
-        // way the old GlobalAveragePool over 129,600 FP16 activations could,
-        // but it is four trivial ops and DartModelTraining/CHANGES.md warns
-        // that FP16 was never simulated for this head. Cheap insurance.
-        spec.fp32Layers = {
-            "/m/exist_head/Flatten",
-            "/m/exist_head/ReduceMax",
-            "/m/exist_head/Mul",
-            "/m/exist_head/Add",
+        spec.prebuiltPaths = {
+            joinPath(config.modelDir, "regnetx_fast/engines/ar.int8.plan"),
+            joinPath(config.modelDir, "regnetx_fast/engines/ar.fp16.plan"),
         };
+        spec.preferFp16 = true;
         spec.inputs  = {{INPUT_NAME, {1, static_cast<int>(INPUT_C),
                                       static_cast<int>(INPUT_H), static_cast<int>(INPUT_W)}}};
-        spec.outputs = {{OUT_HEATMAP, {1, static_cast<int>(OUTPUT_H), static_cast<int>(OUTPUT_W)}},
-                        {OUT_EXIST,   {1}}};
+        spec.outputs = {{OUT_HEATMAP, {1, static_cast<int>(OUTPUT_H), static_cast<int>(OUTPUT_W)}}};
 
         m_impl->dart = m_impl->backend->load(spec, sub(0.02f, 0.42f, "Building dart detector"), abort);
         if(!m_impl->dart) return STATUS_ERROR_GENERIC;
@@ -676,9 +648,10 @@ Status DartDetector::build(const DartDetectorConfig& config,
     {
         InferenceBackend::ModelSpec spec;
         spec.onnxPath   = joinPath(config.modelDir, SEG_ONNX_REL);
-        spec.cachePath  = joinPath(config.modelDir, SEG_ENGINE_REL);
-        // FP16 throughout — the seg output is a per-pixel logit we threshold
-        // immediately, so quantization noise can't poison anything downstream.
+        spec.prebuiltPaths = {
+            joinPath(config.modelDir, "regnetx_fast/engines/seg.int8.plan"),
+            joinPath(config.modelDir, "regnetx_fast/engines/seg.fp16.plan"),
+        };
         spec.preferFp16 = true;
         spec.inputs  = {{SEG_INPUT_NAME, {static_cast<int>(SEG_BATCH), static_cast<int>(SEG_C),
                                           static_cast<int>(SEG_H), static_cast<int>(SEG_W)}}};
@@ -798,10 +771,10 @@ void DartDetector::reset()
 {
     m_impl->candidates.clear();
     m_impl->clearConditioning();
-    m_impl->mode        = Impl::Mode::Detecting;
-    m_impl->handWasPresent = false;
-    m_impl->lastBusy       = Impl::Clock::now();
-    m_impl->boardClear  = true;
+    m_impl->collection.mode        = Impl::Mode::Detecting;
+    m_impl->collection.handWasPresent = false;
+    m_impl->collection.lastBusy       = Impl::Clock::now();
+    m_impl->collection.boardClear  = true;
     for(uint32_t i = 0; i < N_CAMS; i++) m_impl->palmRecent[i] = false;
 }
 
@@ -967,7 +940,7 @@ bool DartDetector::run(const std::array<cv::Mat, EXPECTED_CAMERA_COUNT>& rawFram
     // separate, leaves its channel zero — but still occupies its slot. Skipping
     // the slot instead would renumber every later dart and silently change what
     // the model is being told.
-    if(m_impl->mode == Impl::Mode::Detecting)
+    if(m_impl->collection.mode == Impl::Mode::Detecting)
     {
         const size_t slots = std::min<size_t>(m_impl->confirmedDarts.size(), MAX_COND_DARTS);
         for(size_t slot = 0; slot < slots; slot++)
@@ -1005,7 +978,7 @@ bool DartDetector::run(const std::array<cv::Mat, EXPECTED_CAMERA_COUNT>& rawFram
     }
 
     m_impl->decodeAndTrack(handPresent, out);
-    out.boardClear = m_impl->boardClear;
+    out.boardClear = m_impl->collection.boardClear;
     out.status     = m_impl->formatStatus();
     return true;
 }
@@ -1269,19 +1242,9 @@ void DartDetector::Impl::captureInstanceMasks(ConfirmedDart& dart)
 void DartDetector::Impl::decodeAndTrack(bool handPresent, DartDetectorResult& out)
 {
     const float* heatmapLogits = dart->output(0);
-    const float  existLogit    = dart->output(1)[0];
-
-    // ----- Find argmax of heatmap logits (matches sigmoid argmax) -----
-    size_t bestIdx   = 0;
-    float  bestLogit = heatmapLogits[0];
-    for(size_t i = 1; i < HEATMAP_FLOATS; i++)
-    {
-        if(heatmapLogits[i] > bestLogit)
-        {
-            bestLogit = heatmapLogits[i];
-            bestIdx   = i;
-        }
-    }
+    const auto peak = findDartHeatmapPeak(heatmapLogits, HEATMAP_FLOATS);
+    const size_t bestIdx = peak.index;
+    const float bestLogit = peak.logit;
 
     // ----- Publish a sigmoid snapshot for the debug UI -----
     {
@@ -1296,84 +1259,48 @@ void DartDetector::Impl::decodeAndTrack(bool handPresent, DartDetectorResult& ou
         latestHeatmapH = OUTPUT_H;
     }
 
-    // ----- Gate on exist_logit and sigmoid(peak) -----
+    // The heatmap-only export folds the old existence/probability gates into
+    // one raw-logit threshold. Sigmoid is retained only for UI diagnostics.
     const float bestProb = 1.0f / (1.0f + std::exp(-bestLogit));
     lastHeatmapPeak = bestProb;
-    lastExistLogit  = existLogit;
-    const bool hasDetection = (existLogit >= EXIST_THRESHOLD)
-                           && (bestProb   >= HEATMAP_THRESHOLD);
+    lastPeakLogit = bestLogit;
+    const bool hasDetection = peak.present();
 
     // The board-clear check used by Removing needs only the sigmoid threshold
-    // — exist_logit and the catch-ring radius gate are skipped so a leftover
+    // — the catch-ring radius gate is skipped so a leftover
     // dart anywhere on the heatmap (even just outside the wire) blocks the
     // cleared signal.
-    const bool anyPeakAboveThreshold = (bestProb >= HEATMAP_THRESHOLD);
+    const bool anyPeakAboveThreshold = hasDetection;
     lastPeakAboveThresh = anyPeakAboveThreshold;
 
-    // ----- State machine: Detecting <-> Removing -----
-    // boardClear is driven exclusively from here. While Removing it stays
-    // false; when the board has been quiet for clearHoldMs we flip back to
-    // Detecting and set it true.
+    // Always publish the heatmap above, but suppress dart tracking from the
+    // first hand observation until the removal quiet period has completed.
     const auto now = Clock::now();
-    const bool busy = handPresent || anyPeakAboveThreshold;
-    if(busy) lastBusy = now;
-
-    const auto quietMs = std::chrono::duration_cast<std::chrono::milliseconds>(
-        now - lastBusy).count();
-
-    if(mode == Mode::Removing)
+    const auto action = collection.update(handPresent, anyPeakAboveThreshold, now,
+        handEnterMs.load(std::memory_order_relaxed), clearHoldMs.load(std::memory_order_relaxed));
+    if(action != DartCollectionState::Action::TrackDarts)
     {
-        // One condition, and it is a duration: the board must have been
-        // continuously quiet — no hand, no leftover peak — for clearHoldMs.
-        // Anything that looks busy restarts the clock, so a hand that pauses
-        // mid-withdrawal does not let the turn end underneath it.
-        if(quietMs >= clearHoldMs.load(std::memory_order_relaxed))
+        candidates.clear();
+        lastCandidateStreak = 0;
+        if(action == DartCollectionState::Action::StartedRemoving)
         {
-            mode           = Mode::Detecting;
-            handWasPresent = false;
-            boardClear     = true;
-            // Leaving Removing is what raises the board-clear edge the game
-            // ends a turn on, so both transitions are logged: a spurious pair
-            // is indistinguishable from a real collection at the score line,
-            // but obvious here.
-            LOG_INFO(DETECT_LOG_ID, "Removing -> Detecting (quiet for {} ms)", quietMs);
-        }
-        // No candidate tracking, no dart emission while Removing.
-        return;
-    }
-
-    // ----- Detecting: check for hand entry first -----
-    if(handPresent)
-    {
-        if(!handWasPresent)
-        {
-            handWasPresent = true;
-            handSince      = now;
-        }
-        const auto handMs = std::chrono::duration_cast<std::chrono::milliseconds>(
-            now - handSince).count();
-        if(handMs >= handEnterMs.load(std::memory_order_relaxed))
-        {
+            const auto handMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+                now - collection.handSince).count();
             LOG_INFO(DETECT_LOG_ID,
                      "Detecting -> Removing (hand for {} ms, palm={:.2f}, "
                      "landmark={:.2f}, dropping {} confirmed dart(s))",
-                     handMs, lastPalmScore, lastLandmarkPresence,
-                     confirmedDarts.size());
-            // Enter Removing: drop all dart state so the AR model runs
-            // unconditioned next cycle and we can scan the heatmap for any
-            // remaining dart. boardClear stays false until the clear streak
-            // completes.
-            mode = Mode::Removing;
-            candidates.clear();
+                     handMs, lastPalmScore, lastLandmarkPresence, confirmedDarts.size());
+            // Subsequent heatmaps must show ALL remaining darts, not mask
+            // the already-scored ones. No new darts are emitted while removing.
             clearConditioning();
-            lastBusy   = now;   // the quiet clock starts when the hand leaves
-            boardClear = false;
-            return;
         }
-    }
-    else
-    {
-        handWasPresent = false;
+        else if(action == DartCollectionState::Action::FinishedRemoving)
+        {
+            const auto quietMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+                now - collection.lastBusy).count();
+            LOG_INFO(DETECT_LOG_ID, "Removing -> Detecting (quiet for {} ms)", quietMs);
+        }
+        return;
     }
 
     // ----- Decode the peak -----
@@ -1405,12 +1332,6 @@ void DartDetector::Impl::decodeAndTrack(bool handPresent, DartDetectorResult& ou
             produced = true;
         }
     }
-
-    // Board is clear iff no unmasked dart was detected AND no darts are
-    // already confirmed. (The model masks confirmed darts, so it can't "see"
-    // them — board-clear derives from what we know, not what it just
-    // predicted.)
-    boardClear = !produced && confirmedDarts.empty();
 
     // ----- Streak tracker — one detection per cycle simplifies matching -----
     const float matchR2 = DART_MATCH_RADIUS_PX * DART_MATCH_RADIUS_PX;
@@ -1485,7 +1406,7 @@ void DartDetector::Impl::decodeAndTrack(bool handPresent, DartDetectorResult& ou
         cd.polar = emitted;
         captureInstanceMasks(cd);
         confirmedDarts.push_back(std::move(cd));
-        boardClear = false;
+        collection.confirmDart();
         out.newDarts.push_back({emitted.angle, emitted.normalizedRadius});
     }
 
@@ -1521,7 +1442,7 @@ std::string DartDetector::Impl::formatStatus() const
         std::snprintf(buf, sizeof(buf), "%.1f", v);
         return std::string(buf);
     };
-    auto fmtExist = [](float v) -> std::string {
+    auto fmtPeak = [](float v) -> std::string {
         if(v <= -1e29f) return "?";
         char buf[16];
         std::snprintf(buf, sizeof(buf), "%+.2f", v);
@@ -1530,7 +1451,7 @@ std::string DartDetector::Impl::formatStatus() const
 
     // Always-on tail showing live max-anchor palm sigmoid + best heatmap
     // sigmoid, plus top-3 raw palm logits. Watch these with hand/dart in and
-    // out of frame to pick PALM_PRESENCE_THRESHOLD and HEATMAP_THRESHOLD
+    // out of frame to inspect the palm and heatmap thresholds
     // empirically — there should be a clear gap between the hand-out value and
     // the hand-in value. The top-3 logits help distinguish single-anchor noise
     // spikes (one big, rest tiny/negative) from a model that's confidently
@@ -1538,14 +1459,14 @@ std::string DartDetector::Impl::formatStatus() const
     const std::string scores
         = "  palm="  + fmt2(lastPalmScore)
         + " hm="     + fmt2(lastHeatmapPeak)
-        + " exist="  + fmtExist(lastExistLogit)
+        + " peak="   + fmtPeak(lastPeakLogit)
         + " streak=" + std::to_string(lastCandidateStreak)
         + "/"        + std::to_string(confirmFrames.load(std::memory_order_relaxed))
         + " logits=" + fmtLogit(palmTop1)
         + "/"        + fmtLogit(palmTop2)
         + "/"        + fmtLogit(palmTop3);
 
-    if(mode == Mode::Removing)
+    if(collection.mode == Mode::Removing)
     {
         // Show which gate is blocking the clear streak. If we're stuck at
         // clear=0/N, hand=Y or peak=Y tells you which signal needs to go quiet
@@ -1556,7 +1477,7 @@ std::string DartDetector::Impl::formatStatus() const
         // Countdown in seconds — a cycle count meant nothing once the rate
         // stopped being fixed, and this is the number a player is waiting on.
         const auto quietMs = std::chrono::duration_cast<std::chrono::milliseconds>(
-            Clock::now() - lastBusy).count();
+            Clock::now() - collection.lastBusy).count();
         const long remaining = clearHoldMs.load(std::memory_order_relaxed)
                              - static_cast<long>(quietMs);
         char buf[32];
@@ -1564,10 +1485,10 @@ std::string DartDetector::Impl::formatStatus() const
         return std::string("Removing (clear in ") + buf + ")" + flags + scores;
     }
 
-    if(handWasPresent)
+    if(collection.handWasPresent)
     {
         const auto handMs = std::chrono::duration_cast<std::chrono::milliseconds>(
-            Clock::now() - handSince).count();
+            Clock::now() - collection.handSince).count();
         return "Detecting (hand " + std::to_string(handMs) + "/"
              + std::to_string(handEnterMs.load(std::memory_order_relaxed)) + " ms)" + scores;
     }

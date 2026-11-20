@@ -156,6 +156,13 @@ Detection is two models. A segmenter finds dart pixels, and a detector turns
 three views of those pixels into one board position. There is no third model.
 The rest is about when those two get run, which is the loop section below.
 
+The current production bundle is [RegNetX-fast](detect/models/regnetx_fast/README.md):
+a RegNetX-400MF segmenter and a heatmap-only export of the existing locator.
+Its raw peak threshold is 0.200670695; the separate existence output is gone.
+The bundle includes calibration data, reference cases, and offline TensorRT
+build/verification tools. Historical figures and measurements below predate
+this segmenter change unless explicitly marked otherwise.
+
 ```mermaid
 flowchart LR
     subgraph one["Single PC"]
@@ -323,7 +330,7 @@ touch and merge into one component. No conditioning scheme separates those, only
 a geometric split or a person. Replay is a diagnostic, so treat its score as a
 floor rather than a measure of live accuracy.
 
-> Every figure above is generated from the shipped ONNX models by
+> The figures above were generated from the preceding ONNX bundle by
 > `scripts/make_model_figures.py`, running over one real labelled frame.
 > Regenerate them after a re-export rather than editing the images.
 
@@ -343,7 +350,7 @@ Thin rims around a dart that has not moved, and holes where a later dart passes
 behind an earlier one, are both expected. The model was trained with them and
 they should not be cleaned up.
 
-**The sidecar.** `multicam_unet_ar.cond.json` ships beside the ONNX and names
+**The sidecar.** `multicam_unet_ar_heatmap_only.cond.json` ships beside the ONNX and names
 the layout that export expects. It is checked before anything loads:
 
 ```
@@ -361,7 +368,13 @@ months.
 
 ### Accuracy
 
-The shipped detector on a held-out real test set of **210 throws**. Never
+The new bundle's supplied evaluation covers **211 throws / 358 darts**, with
+ground-truth conditioning: 352 darts found in float and 350 with simulated
+8-bit inference, compared with 354 for the preceding production pipeline.
+These are not free-running video results or measured TensorRT INT8 accuracy.
+See the [bundle manifest](detect/models/regnetx_fast/manifest.json) for provenance.
+
+The **preceding production bundle** on a held-out real test set of **210 throws**. Never
 trained on, and split by throw so no frame of a turn leaks across:
 
 | | |
@@ -414,7 +427,8 @@ live play.
 
 ### Speed
 
-On a Radeon RX 7900 XT, one full cycle — segmentation, autoregressive detector,
+Historical measurement of the preceding bundle on a Radeon RX 7900 XT,
+one full cycle — segmentation, autoregressive detector,
 both hand-detection passes:
 
 | step | time |
@@ -467,8 +481,11 @@ Honest list for a first release:
 - **One board per server.** The detector holds one stateful pipeline, so a
   second client is told the server is busy and retries. Fine for a single
   setup; not a shortcut you can work around.
-- **Jetson / TensorRT is unsupported.** The backend still compiles, but it has
-  never been built against a real TensorRT and is not part of a release.
+- **Jetson camera/UI deployment remains experimental.** The TensorRT backend
+  and headless server pass native checks with TensorRT 10.3 and calibrated
+  INT8 plans. The model pair measures 29.09 ms including transfers in separate
+  engine benchmarks; the complete 50 ms pipeline budget and live-game accuracy
+  remain unvalidated. See the [integration results](detect/models/regnetx_fast/README.md#integration-validation-2026-11-15).
 - **MJPEG pass-through is unverified on real V4L2 hardware.** If a driver
   ignores `CAP_PROP_CONVERT_RGB` the client falls back to re-encoding, which
   costs CPU on the Pi but works.

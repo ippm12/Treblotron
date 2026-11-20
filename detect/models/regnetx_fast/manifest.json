@@ -1,0 +1,166 @@
+{
+  "format_version": 1,
+  "created_utc": "2026-11-15T04:37:45.448278+00:00",
+  "pipeline": [
+    "seg",
+    "ar"
+  ],
+  "calibration": {
+    "inputs_per_model": 24,
+    "storage": "uint8; divide by 255",
+    "source": "real training images only",
+    "method": "min/max"
+  },
+  "models": [
+    {
+      "id": "seg",
+      "role": "primary",
+      "task": "seg",
+      "onnx": "dart_seg_unet.onnx",
+      "onnx_sha256": "d06938969451461d448cc03b193bcfeaff35fc3a430dac4f2d8d860e9a7aa411",
+      "input_name": "input",
+      "input_shape": [
+        3,
+        3,
+        360,
+        640
+      ],
+      "input_dtype": "float32",
+      "input_range": [
+        0.0,
+        1.0
+      ],
+      "output_name": "logits",
+      "output_shape": [
+        3,
+        1,
+        360,
+        640
+      ],
+      "encoder": "regnetx_400mf",
+      "decoder": "dense",
+      "checkpoint": "models/encoder_experiment/dart_seg_unet_regnetx_400mf.pth",
+      "checkpoint_sha256": "4dd946627369b48a2d7a700278c10a3cf570ae2fee5c51a6ef6ad8be8f9b661c",
+      "parameters": 5771905,
+      "onnx_max_abs_error_vs_pytorch": 0.001140594482421875,
+      "calibration": "calibration/seg.npz",
+      "reference": "reference/seg.npz",
+      "decision": {
+        "mask": "logits > 0",
+        "equivalent_to": "sigmoid(logits) > 0.5"
+      }
+    },
+    {
+      "id": "ar",
+      "role": "primary",
+      "task": "ar",
+      "onnx": "multicam_unet_ar_heatmap_only.onnx",
+      "onnx_sha256": "bc416e5fb476fdf3f108956a9acd3f87be322e5954ed753e41a8bf0d55818ebc",
+      "input_name": "input",
+      "input_shape": [
+        1,
+        21,
+        720,
+        720
+      ],
+      "input_dtype": "float32",
+      "input_range": [
+        0.0,
+        1.0
+      ],
+      "output_name": "heatmap",
+      "output_shape": [
+        1,
+        360,
+        360
+      ],
+      "encoder": "mobilenet_v3_large",
+      "decoder": "dense",
+      "checkpoint": "models/multicam_unet_ar_instance.pth",
+      "checkpoint_sha256": "aa6d689cdcb31e328755a1d1572e6bbc5592d06b2dd819cc9dae2e29e92056bb",
+      "parameters": 3914933,
+      "onnx_max_abs_error_vs_pytorch": 0.008816719055175781,
+      "calibration": "calibration/ar.npz",
+      "reference": "reference/ar.npz",
+      "decision": {
+        "exist_logit_formula": "exist_scale * heatmap.max() + exist_bias",
+        "exist_scale": 1.9002968072891235,
+        "exist_bias": 1.693196415901184,
+        "peak_probability_threshold": 0.55,
+        "peak_logit_threshold": 0.2006706954621514,
+        "peak_logit_threshold_is": "max(logit(0.55), -exist_bias / exist_scale): one comparison on the raw heatmap maximum replaces sigmoid and the existence gate",
+        "cell_to_input_pixels": "x_px = (col + 0.5) * 2, y_px = (row + 0.5) * 2"
+      },
+      "conditioning": {
+        "cond_kind": "instance_v1",
+        "mask_sigma": 5.0
+      }
+    },
+    {
+      "id": "seg-fallback",
+      "role": "fallback",
+      "task": "seg",
+      "onnx": "fallback/dart_seg_unet_mobilenet_qat.onnx",
+      "onnx_sha256": "0bd5ca62341ba46e4aa59205f30ecdf9a252587637319b089f518f0fccc99f9e",
+      "input_name": "input",
+      "input_shape": [
+        3,
+        3,
+        360,
+        640
+      ],
+      "input_dtype": "float32",
+      "input_range": [
+        0.0,
+        1.0
+      ],
+      "output_name": "logits",
+      "output_shape": [
+        3,
+        1,
+        360,
+        640
+      ],
+      "encoder": "mobilenet_v3_large",
+      "decoder": "dense",
+      "checkpoint": "models/qat_experiment/dart_seg_unet_qat_w8a8.pth",
+      "checkpoint_sha256": "2942e8d9350684c58c9ea0001b755ae45166904325c06112ff40cf1bf5c01dd7",
+      "parameters": 3621361,
+      "onnx_max_abs_error_vs_pytorch": 0.000995635986328125,
+      "calibration": "calibration/seg.npz",
+      "reference": "reference/seg-fallback.npz",
+      "decision": {
+        "mask": "logits > 0",
+        "equivalent_to": "sigmoid(logits) > 0.5"
+      }
+    }
+  ],
+  "measured_latency_ms": {
+    "device": "Jetson Orin Nano Super, JetPack R36.4.7, TensorRT 10.3.0, 25 W mode",
+    "note": "trtexec, synthetic inputs, ms per inference including host/device transfers. INT8 rows used placeholder ranges (timing only). Rebuilding an engine moves a model by roughly 0.5-0.8 ms.",
+    "int8_plus_fp16": {
+      "seg (RegNetX, fast layout)": 10.12,
+      "seg-fallback (MobileNet QAT, fast layout)": 11.3,
+      "ar with existence output (this bundle drops it; about 0.6 ms less, not measured alone)": 21.2
+    },
+    "fp16_original_layouts": {
+      "seg RegNetX": 15.87,
+      "seg MobileNet": 17.56,
+      "ar": 27.97
+    }
+  },
+  "accuracy": {
+    "test_set": "211 real test throws, 358 darts, GT-conditioned per case",
+    "darts_found_of_358": {
+      "current production, float": 354,
+      "this bundle (RegNetX segmenter + same locator), float": 352,
+      "this bundle, both models simulated 8-bit": 350,
+      "fallback segmenter (MobileNet QAT) + same locator, simulated 8-bit": 351
+    },
+    "caveats": [
+      "8-bit figures are from the training-side simulator, not from a TensorRT engine.",
+      "The locator was trained on the current production segmenter's masks.",
+      "No free-running (video) evaluation has been done."
+    ]
+  }
+}

@@ -5,6 +5,8 @@ build-*/
 dist/
 # Compiled TensorRT engines are host-specific and rebuilt on demand.
 *.trt
+# Device-specific plans, calibration caches and verification receipts.
+detect/models/regnetx_fast/engines/
 logs/
 captures/
 .vscode/

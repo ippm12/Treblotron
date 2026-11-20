@@ -9,8 +9,8 @@
  *      to zero out background, then warp into the 720x720 canonical view via the
  *      per-camera wire-calibration homography.
  *   3. Pack the 3 masked-warped frames + a conditioning mask of already-placed
- *      darts into a 10-channel NCHW tensor.
- *   4. Run multicam_unet_ar and decode (heatmap, exist_logit) into at most one
+ *      darts into a 21-channel NCHW tensor.
+ *   4. Run the heatmap-only locator and decode its raw peak into at most one
  *      new dart per cycle.
  *   5. Drive the Detecting/Removing state machine using BlazePalm + MediaPipe
  *      hand-landmark presence.
@@ -101,7 +101,7 @@ struct DartDetectorResult
 
     /**
      * Human-readable state for the vision_debug overlay, e.g.
-     * "Detecting  palm=0.02 hm=0.91 exist=+1.24 streak=2/3 ...".
+     * "Detecting  palm=0.02 hm=0.91 peak=+2.31 streak=2/3 ...".
      */
     std::string status;
 };

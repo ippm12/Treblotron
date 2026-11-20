@@ -32,6 +32,14 @@ void test_team_play()
     }
     {
         setupTeams(TeamMode::Scramble);
+        // A pending position from the old attempt cannot follow a synchronous
+        // turn skip into the next teammate's attempt.
+        g.onDartPositionCalculated(0,0.2f);
+        g.onTurnSkipped();
+        assert(g.activeMember()==1);
+        g.update(0);
+        assert(g.m_players[0].strokes[0]==0);
+        setupTeams(TeamMode::Scramble);
         for(int attempt=0;attempt<3;++attempt) {
             assert(g.activeMember()==attempt);
             assert(near(position(g).x,course.holes[0].startPos.x));

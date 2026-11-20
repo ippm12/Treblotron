@@ -226,10 +226,8 @@ namespace
      * straight onto OpenCV's existing thread pool with no extra machinery and
      * no per-cycle thread creation.
      *
-     * IMREAD_COLOR_RGB decodes directly to RGB. The obvious IMREAD_COLOR gives
-     * BGR and would need a full-frame cvtColor per camera afterwards, which is
-     * pure waste when libjpeg can emit the channel order we want in the first
-     * place.
+     * OpenCV 4.11+ decodes directly to RGB. Older JetPack installations use
+     * IMREAD_COLOR followed by BGR-to-RGB conversion to preserve model inputs.
      */
     bool decodeFrames(const DartFrames& msg,
                       std::array<cv::Mat, EXPECTED_CAMERA_COUNT>& out)
@@ -245,7 +243,13 @@ namespace
                     out[cam] = cv::Mat();
                     if(cam >= msg.jpegs.size() || msg.jpegs[cam].empty()) continue;
 
+#if CV_VERSION_MAJOR > 4 || (CV_VERSION_MAJOR == 4 && CV_VERSION_MINOR >= 11)
                     out[cam] = cv::imdecode(msg.jpegs[cam], cv::IMREAD_COLOR_RGB);
+#else
+                    // JetPack's system OpenCV predates direct RGB decoding.
+                    out[cam] = cv::imdecode(msg.jpegs[cam], cv::IMREAD_COLOR);
+                    if(!out[cam].empty()) cv::cvtColor(out[cam], out[cam], cv::COLOR_BGR2RGB);
+#endif
                     if(out[cam].empty())
                     {
                         LOG_WARNING(SERVER_LOG_ID,
@@ -298,7 +302,9 @@ namespace
         const auto t   = std::chrono::system_clock::to_time_t(now);
         const auto ms  = std::chrono::duration_cast<std::chrono::milliseconds>(
                              now.time_since_epoch()).count() % 1000;
-        char stem[32];
+        // Accommodate the full int ranges in std::tm as well as normal dates;
+        // GCC's fortified snprintf checks those ranges in release builds.
+        char stem[96];
         std::tm tm{};
 #ifdef _WIN32
         localtime_s(&tm, &t);
@@ -993,7 +999,7 @@ Status runServerSelfTest(const DartServerConfig& config)
 
     // Run the whole pipeline, not just the loads. A synthetic calibration is
     // enough: the frames are noise, so the geometry is meaningless, but every
-    // stage still executes — seg forward, mask, warp, 10-channel pack, AR
+    // stage still executes — seg forward, mask, warp, 21-channel pack, AR
     // forward, decode, state machine. That is what actually catches a changed
     // model contract, which loading alone would not.
     LOG_INFO(SERVER_LOG_ID, "selftest: running on {}", f_detector.backendName());
@@ -1130,7 +1136,12 @@ Status runServerReplay(const DartServerConfig& config,
         {
             frames[cam] = cv::Mat();
             if(paths[cam].empty()) continue;
+#if CV_VERSION_MAJOR > 4 || (CV_VERSION_MAJOR == 4 && CV_VERSION_MINOR >= 11)
             frames[cam] = cv::imread(paths[cam], cv::IMREAD_COLOR_RGB);
+#else
+            frames[cam] = cv::imread(paths[cam], cv::IMREAD_COLOR);
+            if(!frames[cam].empty()) cv::cvtColor(frames[cam], frames[cam], cv::COLOR_BGR2RGB);
+#endif
             if(frames[cam].empty()) continue;
             loaded++;
         }

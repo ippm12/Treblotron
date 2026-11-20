@@ -29,6 +29,7 @@ set(SERVER_NAME Treblotron_Server)
 option(TREBLOTRON_BUILD_APP    "Build the Treblotron game application"    ON)
 option(TREBLOTRON_BUILD_SERVER "Build the headless inference server"     OFF)
 option(TREBLOTRON_SHOW_FPS     "Show framerate counter in the top right" ON)
+option(TREBLOTRON_USE_SYSTEM_OPENCV "Use an installed OpenCV 4.x instead of building the bundled copy" OFF)
 
 set(TREBLOTRON_VISION_SOURCE "sim"  CACHE STRING "Vision source: sim|local|network")
 set(TREBLOTRON_INFER_BACKEND "none" CACHE STRING "Inference backend: none|tensorrt|directml|cpu")
@@ -547,6 +548,13 @@ if(TREBLOTRON_INFER_BACKEND STREQUAL "tensorrt")
             "TensorRT not found. On JetPack: sudo apt install tensorrt "
             "tensorrt-dev libnvonnxparsers-dev libcudnn9-dev")
     endif()
+    file(STRINGS "${TENSORRT_INCLUDE_DIR}/NvInferVersion.h" _treblotron_trt_major
+        REGEX "^#define NV_TENSORRT_MAJOR[ \t]+[0-9]+")
+    if(NOT _treblotron_trt_major MATCHES "NV_TENSORRT_MAJOR[ \t]+10([^0-9]|$)")
+        message(FATAL_ERROR
+            "This model deployment requires TensorRT 10.x (validated with 10.3). "
+            "TensorRT 11 removed the precision/calibration APIs used by this bundle.")
+    endif()
 
     foreach(_t IN LISTS TREBLOTRON_TARGETS)
         target_include_directories(${_t} PRIVATE ${TENSORRT_INCLUDE_DIR})
@@ -571,16 +579,37 @@ endif()
 
 if(_treblotron_needs_backend)
     set(_treblotron_onnx_assets
-        detect/models/multicam_unet_ar/multicam_unet_ar.onnx
+        detect/models/regnetx_fast/multicam_unet_ar_heatmap_only.onnx
         # Declares which conditioning layout the ONNX beside it expects. Staged
         # like a model because the detector refuses to load without it — an
         # export whose channel layout disagrees with this code has to fail
         # loudly, not quietly score the wrong thing.
-        detect/models/multicam_unet_ar/multicam_unet_ar.cond.json
-        detect/models/multicam_unet_ar/dart_seg_unet.onnx
+        detect/models/regnetx_fast/multicam_unet_ar_heatmap_only.cond.json
+        detect/models/regnetx_fast/dart_seg_unet.onnx
+        detect/models/regnetx_fast/manifest.json
         detect/models/palm_detection/blazepalm.onnx
         detect/models/palm_detection/hand_landmark.onnx
     )
+
+    if(TREBLOTRON_INFER_BACKEND STREQUAL "tensorrt")
+        # Ship the complete offline build/verification kit on Jetson. Engines
+        # are device-specific and remain ignored by Git; rebuilding stages any
+        # locally generated plans and their verification receipts together.
+        list(APPEND _treblotron_onnx_assets
+            detect/models/regnetx_fast/engines.py
+            detect/models/regnetx_fast/README.md
+            detect/models/regnetx_fast/calibration/ar.npz
+            detect/models/regnetx_fast/calibration/seg.npz
+            detect/models/regnetx_fast/reference/ar.npz
+            detect/models/regnetx_fast/reference/seg.npz
+            detect/models/regnetx_fast/reference/seg-fallback.npz
+            detect/models/regnetx_fast/fallback/dart_seg_unet_mobilenet_qat.onnx)
+        file(GLOB _treblotron_verified_plans CONFIGURE_DEPENDS
+            RELATIVE "${PROJECT_SOURCE_DIR}"
+            "${PROJECT_SOURCE_DIR}/detect/models/regnetx_fast/engines/*.plan"
+            "${PROJECT_SOURCE_DIR}/detect/models/regnetx_fast/engines/*.verified")
+        list(APPEND _treblotron_onnx_assets ${_treblotron_verified_plans})
+    endif()
 
     # Staged through the build graph rather than POST_BUILD.
     #

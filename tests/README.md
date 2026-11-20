@@ -26,6 +26,10 @@ games/minigolf/editor/tests/
 game_lib/tests/
   turn_skipping_test.cpp
   suite.py
+detect/tests/
+  collection_test.cpp            Hand removal, detection flicker and clear timing
+  suite.py
+  models/                       Heatmap gate, verified engine receipts, native backend smoke
 debug/tests/
   logging/{durability_test.cpp,suite.py}
   crash_reporting/{capture_test.cpp,suite.py}
@@ -49,8 +53,12 @@ python tests/run.py minigolf --render
 python tests/run.py minigolf/editor --render
 python tests/run.py debug
 python tests/run.py game_lib/turn_skipping --build-dir build
+python tests/run.py detect --build-dir build-app-local-windows
 python tests/run.py --render --build-dir build
 ```
+
+The model bundle also has reference checks and Python verification tests; see
+[`detect/models/regnetx_fast/README.md`](../detect/models/regnetx_fast/README.md).
 
 `--render` adds headless SDL software rendering checks and screenshots for suites
 that support them. A failed suite produces a nonzero exit status; other selected

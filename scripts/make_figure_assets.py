@@ -71,7 +71,7 @@ ap.add_argument("--training-repo", type=Path, default=default_training_repo(),
                 help="DartModelTraining checkout (or set $DARTMODELTRAINING); "
                      "defaults to a sibling of this repo")
 ap.add_argument("--models", type=Path,
-                default=ROOT / "detect" / "models" / "multicam_unet_ar",
+                default=ROOT / "detect" / "models" / "regnetx_fast",
                 help="directory holding the shipped .onnx files")
 ap.add_argument("--out", type=Path, default=ROOT / "build" / "figassets",
                 help="where to write the thumbnails")
@@ -97,8 +97,10 @@ print(f"training data : {DATA}\nmodels        : {MODELS}\nout           : {OUT}\
 
 seg = ort.InferenceSession(str(MODELS / "dart_seg_unet.onnx"),
                            providers=["CPUExecutionProvider"])
-ar = ort.InferenceSession(str(MODELS / "multicam_unet_ar.onnx"),
+ar = ort.InferenceSession(str(MODELS / "multicam_unet_ar_heatmap_only.onnx"),
                           providers=["CPUExecutionProvider"])
+decision = next(m["decision"] for m in json.loads((MODELS / "manifest.json").read_text())["models"]
+                if m["id"] == "ar")
 sin, ain = seg.get_inputs()[0].name, ar.get_inputs()[0].name
 
 tips_all = json.loads((DATA / "normalized_tips.json").read_text())
@@ -189,9 +191,12 @@ def infer(rgb9, claims, pts):
         stack[:, j] = cl
     extra = di.conditioning_channels(stack, pts, list(range(len(claims))),
                                      tip_sigma=SIGMA).astype(np.float32) / 255.0
-    hm, ex = ar.run(None, {ain: np.concatenate(
+    hm, = ar.run(None, {ain: np.concatenate(
         [rgb9, extra], axis=0)[None].astype(np.float32)})
-    return 1.0 / (1.0 + np.exp(-hm[0])), float(np.reshape(ex, -1)[0]), extra
+    # Retain the legacy diagnostic figure label, derived on CPU from the
+    # manifest. The runtime itself gates only the raw heatmap peak.
+    ex = decision["exist_scale"] * float(hm.max()) + decision["exist_bias"]
+    return 1.0 / (1.0 + np.exp(-hm[0])), ex, extra
 
 
 def peak_of(hm):

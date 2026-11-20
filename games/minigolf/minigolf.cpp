@@ -668,6 +668,17 @@ void MiniGolfGame::stepCoursePhysics(float deltaTime)
 
 void MiniGolfGame::update(float deltaTime)
 {
+    // Judge inputs against the state when they arrived, before physics or
+    // collection can settle a ball and start another turn in this update.
+    bool readyForDart = m_phase == Phase::Aiming && !m_waitingForCollect
+        && m_throwsRemainingInTurn > 0 && m_currentPlayer < m_players.size();
+    if(readyForDart) {
+        const auto& p = m_players[m_currentPlayer];
+        readyForDart = !p.finishedHole[m_currentHole] && !p.pendingReturn
+            && p.hazardTimer <= 0 && b2Body_IsValid(p.ballBody)
+            && getBodySpeedPx(*m_world,p.ballBody) <= SETTLE_SPEED_PXPS;
+    }
+    if(!readyForDart) discardPendingDarts();
     stepCoursePhysics(deltaTime);
     // 2) Drain landed counter (we don't use it; one DartPosition == one stroke).
     (void)consumeDartLandedCount();
@@ -1142,8 +1153,16 @@ void MiniGolfGame::onPauseAction(size_t index)
     m_committingScramble=false;
 }
 
+void MiniGolfGame::discardPendingDarts()
+{
+    (void)consumeDartLandedCount();
+    DartPosition dart;
+    while(popDartPosition(dart)) {}
+}
+
 void MiniGolfGame::endCurrentTurn()
 {
+    discardPendingDarts();
     if(!m_committingScramble && finishTeamAttempt()) return;
     const bool holeDone = allPlayersFinishedHole();
     if(holeDone)
@@ -1179,6 +1198,8 @@ void MiniGolfGame::endCurrentTurn()
 
 void MiniGolfGame::beginNextTurn()
 {
+    // Also covers scramble attempts and handoffs triggered outside update().
+    discardPendingDarts();
     if(m_currentPlayer >= m_players.size()) return;
     m_throwsRemainingInTurn = throwsAvailableForPlayer(m_currentPlayer);
     if(m_throwsRemainingInTurn == 0)

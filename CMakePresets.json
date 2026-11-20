@@ -70,8 +70,8 @@
     {
       "name": "app-local-jetson",
       "inherits": "base",
-      "displayName": "App — local TensorRT inference (Jetson Orin) [UNSUPPORTED]",
-      "description": "Never built against a real TensorRT. Kept compiling so the backend does not rot, but it is not part of a release and has not been verified on hardware.",
+      "displayName": "App — local TensorRT inference (Jetson Orin) [EXPERIMENTAL]",
+      "description": "TensorRT 10.x. Build and verify detect/models/regnetx_fast engines before launching; see that bundle's README. Native backend is checked on Orin; live camera/UI deployment is experimental.",
       "cacheVariables": {
         "TREBLOTRON_BUILD_APP": "ON",
         "TREBLOTRON_BUILD_SERVER": "OFF",

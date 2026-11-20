@@ -63,6 +63,13 @@ class InferenceBackend
              */
             std::string cachePath;
 
+            /** TensorRT only: ordered, verified offline plans (INT8 then FP16).
+             * When set, startup never builds this model. Each plan requires a
+             * matching .verified receipt written by the bundle's engines.py.
+             * CPU/DirectML continue to load onnxPath.
+             */
+            std::vector<std::string> prebuiltPaths;
+
             /** Backends without mixed precision ignore both of these. */
             bool                     preferFp16 = true;
             std::vector<std::string> fp32Layers;   // exact ONNX node names

@@ -8,6 +8,35 @@ void test_turns()
     [[maybe_unused]] auto& course=fixture.course;
     [[maybe_unused]] auto& base=fixture.base;
     {
+        // An input received during motion must not become the next player's
+        // first shot, including the frame that settles the previous ball.
+        prepare(g,base);
+        g.m_throwsRemainingInTurn=0;
+        g.m_settleTimer=1.0f;
+        g.onDartPositionCalculated(0,0.2f);
+        g.update(0);
+        assert(g.m_currentPlayer==1 && g.m_phase==Phase::Aiming);
+        g.update(0);
+        assert(g.m_players[1].strokes[0]==0);
+        // A fresh input after the handoff still works.
+        g.onDartPositionCalculated(0,0.2f);
+        g.update(0);
+        assert(g.m_players[1].strokes[0]==1);
+    }
+    for(int blocked=0;blocked<3;++blocked) {
+        prepare(g,base);
+        g.m_phase=Phase::Aiming;
+        auto& p=g.m_players[0];
+        if(blocked==0) p.hazardTimer=1;
+        if(blocked==1) p.pendingReturn=true;
+        if(blocked==2) setBodyVelocityPx(*g.m_world,p.ballBody,100,0);
+        g.onDartPositionCalculated(0,0.2f);
+        g.update(0);
+        DartPosition queued;
+        assert(!g.popDartPosition(queued));
+        assert(p.strokes[0]==0);
+    }
+    {
         // Collecting after two small putts must finish only the original turn.
         g.teardownCurrentHole(); g.m_players.clear(); g.m_players.resize(3);
         g.m_course=course; g.m_currentHole=0; g.buildCurrentHole(); g.beginNextTurn();

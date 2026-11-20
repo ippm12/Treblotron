@@ -160,6 +160,7 @@ class MiniGolfGame : public Game
 
         // ── Stroke flow ────────────────────────────────────────────────
         void processDart(const DartPosition& pos);
+        void discardPendingDarts();
         void onBallSettled();
         void endCurrentTurn();
         void beginNextTurn();
