@@ -4,6 +4,7 @@ import importlib.util
 import json
 from pathlib import Path
 import tempfile
+from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
@@ -16,6 +17,27 @@ spec.loader.exec_module(engines)
 
 
 class VerificationTests(unittest.TestCase):
+    def test_tensor_rt_builder_uses_graph_precision(self):
+        # This fake deliberately has no precision flags or calibrator API.
+        # A regression to weak typing must fail even without a GPU in CI.
+        with tempfile.TemporaryDirectory() as folder:
+            source, path = Path(folder) / 'typed.onnx', Path(folder) / 'test.plan'
+            parsed = []
+            config = SimpleNamespace(set_memory_pool_limit=lambda *_: None)
+            builder = SimpleNamespace(create_network=lambda flags: object(),
+                                      create_builder_config=lambda: config,
+                                      build_serialized_network=lambda *_: b'plan')
+            class Logger:
+                WARNING = 1
+                def __init__(self, *_): pass
+            trt = SimpleNamespace(Logger=Logger, Builder=lambda _: builder,
+                                  OnnxParser=lambda *_: SimpleNamespace(
+                                      parse_from_file=lambda name: parsed.append(name) or True),
+                                  MemoryPoolType=SimpleNamespace(WORKSPACE=1))
+            engines.build_engine(source, path, 32, trt)
+            self.assertEqual(parsed, [str(source)])
+            self.assertEqual(path.read_bytes(), b'plan')
+
     def test_missing_nonfinite_or_wrong_shape_outputs_fail(self):
         model = {'task': 'seg'}
         expected = [np.ones((1, 1, 2, 2), dtype=np.float32)]
@@ -59,6 +81,21 @@ class VerificationTests(unittest.TestCase):
                     with self.assertRaises(RuntimeError):
                         engines.command_verify(args)
                     self.assertFalse(engines.receipt_path(plan).exists())
+
+    def test_prepared_onnx_check_does_not_approve_an_engine(self):
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            (root / 'engines').mkdir()
+            model = {'id': 'seg', 'role': 'primary', 'task': 'seg',
+                     'reference': 'reference.npz', 'input_shape': [1, 1, 2, 2]}
+            inputs = np.ones((1, 1, 1, 2, 2), dtype=np.uint8)
+            expected = inputs.astype(np.float32)
+            np.savez(root / 'reference.npz', inputs=inputs, expected=expected)
+            args = argparse.Namespace(bundle=root, models=None, precision='int8', backend='prepared')
+            with patch.object(engines, 'load_manifest', return_value={'models': [model]}), \
+                 patch.object(engines, 'run_onnxruntime', return_value=expected):
+                self.assertEqual(engines.command_verify(args), 0)
+            self.assertFalse(list((root / 'engines').glob('*.verified')))
 
 
 if __name__ == '__main__':

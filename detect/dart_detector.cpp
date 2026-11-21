@@ -633,7 +633,6 @@ Status DartDetector::build(const DartDetectorConfig& config,
             joinPath(config.modelDir, "regnetx_fast/engines/ar.int8.plan"),
             joinPath(config.modelDir, "regnetx_fast/engines/ar.fp16.plan"),
         };
-        spec.preferFp16 = true;
         spec.inputs  = {{INPUT_NAME, {1, static_cast<int>(INPUT_C),
                                       static_cast<int>(INPUT_H), static_cast<int>(INPUT_W)}}};
         spec.outputs = {{OUT_HEATMAP, {1, static_cast<int>(OUTPUT_H), static_cast<int>(OUTPUT_W)}}};
@@ -652,7 +651,6 @@ Status DartDetector::build(const DartDetectorConfig& config,
             joinPath(config.modelDir, "regnetx_fast/engines/seg.int8.plan"),
             joinPath(config.modelDir, "regnetx_fast/engines/seg.fp16.plan"),
         };
-        spec.preferFp16 = true;
         spec.inputs  = {{SEG_INPUT_NAME, {static_cast<int>(SEG_BATCH), static_cast<int>(SEG_C),
                                           static_cast<int>(SEG_H), static_cast<int>(SEG_W)}}};
         spec.outputs = {{SEG_OUTPUT_NAME, {static_cast<int>(SEG_BATCH), 1,
@@ -676,9 +674,8 @@ Status DartDetector::build(const DartDetectorConfig& config,
             InferenceBackend::ModelSpec spec;
             spec.onnxPath  = joinPath(config.modelDir, PALM_ONNX_REL);
             spec.cachePath = joinPath(config.modelDir, PALM_ENGINE_REL);
-            // Force FP32 — the full BlazePalm's deeper activation chain
+            // Keep the FP32 ONNX — the full BlazePalm's deeper activation chain
             // overflows FP16 and produces NaN scores.
-            spec.preferFp16 = false;
             spec.inputs  = {{PALM_INPUT_NAME, {1, static_cast<int>(PALM_INPUT_H),
                                                static_cast<int>(PALM_INPUT_W),
                                                static_cast<int>(PALM_INPUT_C)}}};
@@ -699,7 +696,6 @@ Status DartDetector::build(const DartDetectorConfig& config,
             spec.cachePath = joinPath(config.modelDir, LANDMARK_ENGINE_REL);
             // FP32 to match the palm engine's caution. The net is small so the
             // cost over FP16 is negligible next to the U-Net pipeline.
-            spec.preferFp16 = false;
             spec.inputs  = {{LANDMARK_INPUT_NAME, {1, static_cast<int>(LANDMARK_INPUT_H),
                                                    static_cast<int>(LANDMARK_INPUT_W),
                                                    static_cast<int>(LANDMARK_INPUT_C)}}};

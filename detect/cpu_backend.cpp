@@ -7,7 +7,7 @@
  * ordinary desktop.
  *
  * Compiled only when TREBLOTRON_INFER_BACKEND=cpu. There is no compile/cache
- * step here, so ModelSpec::cachePath, ::preferFp16 and ::fp32Layers are
+ * step here, so ModelSpec::cachePath and ::prebuiltPaths are
  * ignored; loading is just readNetFromONNX plus a shape validation pass.
  *
  * Measured on a Ryzen 7 9800X3D (16 threads): ~145 ms for multicam_unet_ar,

@@ -1,0 +1,7 @@
+# TensorRT is supplied by JetPack; do not install/upgrade it from PyPI here.
+# Keep compatibility with the SciPy/OpenCV packages visible from JetPack.
+numpy>=1.26,<2
+ml_dtypes>=0.5.4,<0.6
+onnx>=1.18,<2
+onnxruntime>=1.23,<2
+packaging>=23

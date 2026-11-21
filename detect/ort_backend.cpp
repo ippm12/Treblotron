@@ -27,7 +27,7 @@
  * a link failure.
  *
  * Compiled only when TREBLOTRON_INFER_BACKEND=directml. ModelSpec::cachePath,
- * ::preferFp16 and ::fp32Layers are ignored — ORT has no ahead-of-time compile
+ * ::prebuiltPaths are ignored — ORT has no ahead-of-time compile
  * step and DirectML picks its own precision.
  */
 

@@ -143,10 +143,10 @@ if(_treblotron_needs_backend AND TREBLOTRON_INFER_BACKEND STREQUAL "none")
         "backend. Add -DTREBLOTRON_INFER_BACKEND=tensorrt (Jetson) or =cpu (OpenCV DNN).")
 endif()
 
-# CUDA has to be declared in project(LANGUAGES ...) — more robust on
-# CMake 3.22 / JetPack than enable_language(CUDA) after project().
+# Only the bundled OpenCV build compiles CUDA sources. The TensorRT backend
+# itself is C++ and needs the CUDA runtime, not an nvcc compiler in PATH.
 set(_TREBLOTRON_LANGUAGES C CXX)
-if(TREBLOTRON_INFER_BACKEND STREQUAL "tensorrt")
+if(TREBLOTRON_INFER_BACKEND STREQUAL "tensorrt" AND NOT TREBLOTRON_USE_SYSTEM_OPENCV)
     if(NOT DEFINED CMAKE_CUDA_ARCHITECTURES)
         # Orin Nano Super: Ampere, compute capability 8.7.
         set(CMAKE_CUDA_ARCHITECTURES 87)
@@ -526,8 +526,7 @@ if(TREBLOTRON_INFER_BACKEND STREQUAL "directml")
 endif()
 
 if(TREBLOTRON_INFER_BACKEND STREQUAL "tensorrt")
-    # CUDA runtime — project(LANGUAGES ... CUDA) above already populates
-    # CUDAToolkit_*.
+    # Find the runtime and headers even when using system OpenCV without nvcc.
     find_package(CUDAToolkit REQUIRED)
 
     # TensorRT headers + libs. JetPack installs them under the standard
@@ -548,12 +547,20 @@ if(TREBLOTRON_INFER_BACKEND STREQUAL "tensorrt")
             "TensorRT not found. On JetPack: sudo apt install tensorrt "
             "tensorrt-dev libnvonnxparsers-dev libcudnn9-dev")
     endif()
-    file(STRINGS "${TENSORRT_INCLUDE_DIR}/NvInferVersion.h" _treblotron_trt_major
-        REGEX "^#define NV_TENSORRT_MAJOR[ \t]+[0-9]+")
-    if(NOT _treblotron_trt_major MATCHES "NV_TENSORRT_MAJOR[ \t]+10([^0-9]|$)")
+    # Current headers define NV_TENSORRT_MAJOR through TRT_MAJOR_ENTERPRISE.
+    # Let the compiler expand it instead of assuming a literal header value.
+    include(CheckCXXSourceCompiles)
+    set(_treblotron_saved_required_includes "${CMAKE_REQUIRED_INCLUDES}")
+    list(APPEND CMAKE_REQUIRED_INCLUDES "${TENSORRT_INCLUDE_DIR}")
+    unset(TREBLOTRON_HAS_TENSORRT11 CACHE)
+    check_cxx_source_compiles("#include <NvInferVersion.h>
+        static_assert(NV_TENSORRT_MAJOR == 11, \"TensorRT 11 required\");
+        int main() { return 0; }" TREBLOTRON_HAS_TENSORRT11)
+    set(CMAKE_REQUIRED_INCLUDES "${_treblotron_saved_required_includes}")
+    if(NOT TREBLOTRON_HAS_TENSORRT11)
         message(FATAL_ERROR
-            "This model deployment requires TensorRT 10.x (validated with 10.3). "
-            "TensorRT 11 removed the precision/calibration APIs used by this bundle.")
+            "This model deployment requires TensorRT 11.x. "
+            "Use engines.py to prepare explicit INT8/FP16 ONNX and rebuild the plans.")
     endif()
 
     foreach(_t IN LISTS TREBLOTRON_TARGETS)
@@ -597,6 +604,8 @@ if(_treblotron_needs_backend)
         # locally generated plans and their verification receipts together.
         list(APPEND _treblotron_onnx_assets
             detect/models/regnetx_fast/engines.py
+            detect/models/regnetx_fast/prepare_onnx.py
+            detect/models/regnetx_fast/requirements-export.txt
             detect/models/regnetx_fast/README.md
             detect/models/regnetx_fast/calibration/ar.npz
             detect/models/regnetx_fast/calibration/seg.npz

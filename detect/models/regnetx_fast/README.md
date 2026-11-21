@@ -7,32 +7,53 @@ Two models, run in this order every frame set:
 | `dart_seg_unet.onnx` | segmenter (RegNetX-400MF encoder) | `input` (3, 3, 360, 640) float32 | `logits` (3, 1, 360, 640) |
 | `multicam_unet_ar_heatmap_only.onnx` | tip locator | `input` (1, 21, 720, 720) float32 | `heatmap` (1, 360, 360) |
 
-`manifest.json` holds every number below in machine-readable form (shapes,
-thresholds, checksums, source checkpoints, measured timings, accuracy).
+`manifest.json` records the imported model contracts, checksums, source
+checkpoints, and original timing/accuracy measurements. Integration checks
+are recorded separately below.
 
 ## Treblotron integration
 
 This is the permanent bundle location. The top-level `regnetx-fast` import
 directory is no longer needed. Windows DirectML and the CPU backend load these
-float ONNX files; the Jetson backend loads offline-built TensorRT 10.x plans.
+float ONNX files; the Jetson backend loads offline-built TensorRT 11.x plans.
 There are no machine names, credentials, or absolute deployment paths in the
 build configuration.
 
-TensorRT 11 requires a different quantization/export workflow because it
+TensorRT 11
 [removed implicit calibration and precision flags](https://docs.nvidia.com/deeplearning/tensorrt/latest/getting-started/release-notes-11/11.0.0.html).
-Configuration rejects it explicitly instead of failing during compilation.
+This deployment now targets 11.x only: INT8 uses explicit QuantizeLinear /
+DequantizeLinear nodes, and FP16 uses explicitly typed operators. Both retain
+the same linear FP32 public I/O. TensorRT 10 plans must be rebuilt.
 
-From the repository root on a Jetson with TensorRT 10.x, NumPy, and its C++/CUDA
-development packages installed:
+From the repository root on a Jetson with TensorRT 11.x and its C++/CUDA
+development packages installed, create an export environment that can see
+JetPack's system TensorRT bindings. Install only the export dependencies with
+pip; TensorRT itself comes from the JetPack packages:
 
 ```sh
-python3 detect/models/regnetx_fast/engines.py build --precision fp16
-python3 detect/models/regnetx_fast/engines.py verify --precision fp16
-python3 detect/models/regnetx_fast/engines.py build --precision int8
-python3 detect/models/regnetx_fast/engines.py verify --precision int8
-cmake --preset app-local-jetson
+python3 -m venv --system-site-packages build/model-export-venv
+. build/model-export-venv/bin/activate
+python -m pip install -r detect/models/regnetx_fast/requirements-export.txt
+python -c "import tensorrt; print(tensorrt.__version__)"
+python detect/models/regnetx_fast/engines.py build --precision int8 --rebuild &&
+python detect/models/regnetx_fast/engines.py verify --precision int8
+cmake --preset app-local-jetson -DTREBLOTRON_USE_SYSTEM_OPENCV=ON
 cmake --build --preset app-local-jetson -j2
 ```
+
+If a model fails verification, build and verify its FP16 fallback before
+launching (for example, `--models ar` for the locator):
+
+```sh
+python detect/models/regnetx_fast/engines.py build --precision fp16 --models ar &&
+python detect/models/regnetx_fast/engines.py verify --precision fp16 --models ar
+```
+
+`build` prepares the ONNX automatically and checks source/calibration hashes.
+It rebuilds plans when the export, TensorRT version or workspace limit changes.
+Use `--rebuild` after changing GPUs; use `--recalibrate` to regenerate exports.
+Repeated builds revoke the verification receipt until `verify` succeeds again.
+The old `.calib.cache` files are no longer used.
 
 For a headless deployment, use the `server-tensorrt` preset instead. Run
 `build-server-tensorrt/Treblotron_Server --selftest` after building.
@@ -62,6 +83,8 @@ Checks that also run on a PC with NumPy and ONNX Runtime:
 
 ```sh
 python detect/models/regnetx_fast/engines.py verify --backend onnxruntime --models seg ar seg-fallback
+python detect/models/regnetx_fast/engines.py prepare --precision int8
+python detect/models/regnetx_fast/engines.py verify --backend prepared --precision int8
 python -m unittest discover -s detect/tests/models -p 'test_*.py'
 python tests/run.py detect --build-dir build-app-local-windows
 ```
@@ -77,7 +100,53 @@ g++ -std=c++20 -O2 -Iinc_common -Idetect/inc_public -Idebug/inc_public \
 build/backend-smoke detect/models/regnetx_fast
 ```
 
-### Integration validation (2026-11-15)
+`prepare` also works on a PC without TensorRT. Its CPU reference check never
+creates an engine verification receipt. The TensorRT check on the deployment
+GPU remains required.
+
+### TensorRT 11 migration checks
+
+Native validation on 2026-11-20 used an 8 GB Jetson Orin Nano, TensorRT
+11.4.1.31, CUDA 13.2, L4T 39.2.1 and system OpenCV 4.6:
+
+| GPU engine | Result against supplied float reference |
+|---|---|
+| RegNetX INT8 | 12/12 batches pass; mean mask IoU 0.989049; minimum 0.983312 |
+| Locator INT8 | 12/12 decisions; no peak-cell movement; maximum peak-logit gap 3.174248 |
+| Locator FP16 fallback | 12/12 decisions; no peak-cell movement; maximum peak-logit gap 0.070313 |
+
+Both primary engines use all 24 calibration inputs. Engine compilation took
+60 seconds for the segmenter and 108 seconds for the locator, excluding CPU
+calibration. These are build times, not inference timings.
+
+The Release headless server compiled against TensorRT 11, loaded both verified
+INT8 plans, built its FP32 palm/landmark caches, and passed `--selftest` with the
+hand filter enabled. Its three synthetic cycles took 171, 88 and 86 ms.
+This short run does not establish steady-state throughput or the 50 ms target;
+live cameras and the Jetson UI remain untested.
+
+The CPU export tests use NumPy 1.26.4, ONNX 1.23.2 and ONNX Runtime 1.32.0.
+All 12 cases per export pass the existing acceptance criteria:
+
+| Export | Result against supplied float reference |
+|---|---|
+| RegNetX INT8 Q/DQ + FP32 | Mean mask IoU 0.9891; minimum 0.9842 |
+| Locator INT8 Q/DQ + FP32 | 12/12 decisions; no peak-cell movement; maximum peak-logit gap 3.4718 |
+| RegNetX FP16 | Mean mask IoU 0.9996; minimum 0.9988 |
+| Locator FP16 | 12/12 decisions; no peak-cell movement; maximum peak-logit gap 0.0273 |
+| Optional MobileNet INT8 Q/DQ + FP32 | Mean mask IoU 0.9799; minimum 0.9693 |
+
+INT8 exports preserve FP32 scales and surrounding operations. Converting the
+locator's Q/DQ graph to FP16 passed an unfused CPU check but failed the native
+TensorRT 11.4.1 decision check; retaining FP32 fixed it. Separate FP16 exports
+remain available as a fallback.
+
+The export tests also check FP32 public I/O, ONNX graph validity, calibration
+cache invalidation, and source-file preservation. The Windows DirectML server
+still builds and passes its full synthetic self-test after the API cleanup.
+CPU checks do not substitute for the on-device TensorRT verification step.
+
+### Historical TensorRT 10 validation (2026-11-15)
 
 On an 8 GB Jetson Orin Nano in 25 W mode, with TensorRT 10.3.0, CUDA 12.6,
 Ubuntu 22.04 and system OpenCV 4.8:
@@ -170,21 +239,26 @@ Raw (unmasked) RGB makes the heatmap go flat without any error.
     python3 engines.py build                    # 8-bit, calibrated on calibration/*.npz
     python3 engines.py verify
 
-Engines and calibration caches go to `engines/`. `verify` runs 12
+Prepared ONNX files, their metadata and engines go to `engines/`. `verify` runs 12
 real inputs per model through the engine and compares with the float outputs
 stored in `reference/`: mask overlap for the segmenter; dart/no-dart decision
 and peak cell for the locator. It exits non-zero and says so if an engine
 disagrees. **Ship an 8-bit engine only if its `verify` passes; otherwise use
 the fp16 engine for that model.** The two can be mixed.
 
-The 8-bit build calibrates with min/max ranges, not TensorRT's default
-entropy method: a dart is a handful of bright cells in an empty map, and
-entropy calibration clips exactly those.
+The 8-bit export uses CPU ONNX Runtime for symmetric min/max calibration over
+all bundled inputs. Convolution weights use per-channel signed INT8 and
+activations use per-tensor signed INT8, with zero points of zero. Convolution
+outputs are left unquantized until needed by a downstream quantized operation;
+residual and activation operations use FP32. This avoids entropy clipping of
+rare bright dart peaks. The public inputs and outputs remain FP32.
 
-Once a calibration cache exists, `trtexec` can use it too:
+After preparation, `trtexec` can build the explicitly typed graph too:
 
-    trtexec --onnx=dart_seg_unet.onnx --int8 --fp16 \
-        --calib=engines/seg.calib.cache --saveEngine=seg.plan
+    trtexec --onnx=engines/seg.int8.onnx --saveEngine=engines/seg.int8.plan
+    python3 engines.py verify --models seg
+
+Do not supply `--int8`, `--fp16`, or `--calib` with TensorRT 11.
 
 The original import's timing engines used placeholder ranges. The application
 does not accept those timing-only engines: build and verify calibrated plans
@@ -232,9 +306,10 @@ Likely gains, not measured here:
 - **Skip the locator when nothing changed.** It only has work to do when the
   segmenter's mask differs from the last counted state.
 
-Tried and rejected, so not worth repeating: explicit Q/DQ 8-bit models (0.9 ms
-slower on the segmenter, 3.3 ms on the locator) and batching the three cameras
-through the locator stem (no gain).
+Earlier TensorRT 10 experiments found explicit Q/DQ 8-bit models slower by
+0.9 ms on the segmenter and 3.3 ms on the locator, and found no gain from
+batching the three cameras through the locator stem. TensorRT 11 requires
+explicit quantization; measure its new plans independently of those results.
 
 ## Accuracy
 
@@ -271,3 +346,4 @@ RegNetX masks cause trouble with the locator in real use:
   divide by 255. The locator set uses this segmenter's masks.
 - `reference/<model>.npz`: real inputs (uint8) and float outputs (`expected`).
 - `engines.py`: build and verify on the Jetson.
+- `prepare_onnx.py`, `requirements-export.txt`: portable INT8/FP16 exports for TensorRT 11.

@@ -59,6 +59,7 @@ python tests/run.py --render --build-dir build
 
 The model bundle also has reference checks and Python verification tests; see
 [`detect/models/regnetx_fast/README.md`](../detect/models/regnetx_fast/README.md).
+Install its `requirements-export.txt` before running the Python export tests.
 
 `--render` adds headless SDL software rendering checks and screenshots for suites
 that support them. A failed suite produces a nonzero exit status; other selected

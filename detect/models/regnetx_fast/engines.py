@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
 """Build and check the TensorRT engines of a dart-model production bundle.
 
-Run from the extracted bundle on the Jetson. Needs only what JetPack ships:
-Python 3, numpy and the `tensorrt` module. Nothing in the bundle is modified;
-everything written goes to ./engines.
+TensorRT 11 deployment. Install requirements-export.txt alongside JetPack's
+`tensorrt` module. Source assets are unchanged; exports and plans go to engines/.
 
   python3 engines.py build                  # 8-bit engines, calibrated on the bundled real inputs
   python3 engines.py build --precision fp16 # float engines (no calibration)
@@ -158,100 +157,65 @@ def write_receipt(path, onnx):
         encoding="ascii")
 
 
-def build_engine(root, out, model, precision, workspace_mb, recalibrate):
-    import tensorrt as trt
+def prepared_path(root, model, precision):
+    return root / "engines" / f"{model['id']}.{precision}.onnx"
+
+
+def command_prepare(args):
+    from prepare_onnx import prepare
+    root = args.bundle.resolve()
+    for model in select(load_manifest(root), args.models):
+        prepare(root, root / "engines", model, args.precision, args.rebuild)
+
+
+def build_engine(source, path, workspace_mb, trt):
     logger = trt.Logger(trt.Logger.WARNING)
     builder = trt.Builder(logger)
-    major = int(trt.__version__.split(".")[0])
-    if major != 10:
-        raise RuntimeError("This calibrated deployment targets TensorRT 10.x (tested on 10.3). "
-                           "TensorRT 11 removed the implicit INT8 calibration API.")
-    network = builder.create_network(0)  # TensorRT 10: explicit batch, weak typing
+    network = builder.create_network(0)  # TensorRT 11: always strongly typed
     parser = trt.OnnxParser(network, logger)
-    if not parser.parse_from_file(str(root / model["onnx"])):
+    if not parser.parse_from_file(str(source)):
         errors = "\n".join(str(parser.get_error(i)) for i in range(parser.num_errors))
-        raise RuntimeError(f"ONNX parse failed for {model['id']}:\n{errors}")
+        raise RuntimeError(f"ONNX parse failed for {source.name}:\n{errors}")
     config = builder.create_builder_config()
     config.set_memory_pool_limit(trt.MemoryPoolType.WORKSPACE, workspace_mb << 20)
-    config.set_flag(trt.BuilderFlag.FP16)
-    cuda = pointer = None
-    if precision == "int8":
-        config.set_flag(trt.BuilderFlag.INT8)
-        cache = out / f"{model['id']}.calib.cache"
-        cache_identity_path = cache.with_suffix(".cache.json")
-        identity = {"onnx_sha256": model["onnx_sha256"],
-                    "calibration_sha256": hashlib.sha256((root / model["calibration"]).read_bytes()).hexdigest(),
-                    "tensorrt": trt.__version__, "method": "minmax"}
-        try:
-            cached_identity = json.loads(cache_identity_path.read_text())
-        except (OSError, ValueError):
-            cached_identity = None
-        if cache.exists() and (recalibrate or cached_identity != identity):
-            cache.unlink()
-        batches = np.load(root / model["calibration"])["inputs"]
-        if batches.dtype != np.uint8 or list(batches.shape[1:]) != model["input_shape"] or not len(batches):
-            raise ValueError(f"Invalid calibration input shape/dtype for {model['id']}")
-        cuda = Cuda()
-        pointer = cuda.alloc(int(np.prod(model["input_shape"])) * 4)
-
-        # Min/max ranges, not entropy: a dart is a few bright cells in a mostly
-        # empty map, and entropy calibration clips exactly those rare peaks.
-        class Calibrator(trt.IInt8MinMaxCalibrator):
-            def __init__(self):
-                trt.IInt8MinMaxCalibrator.__init__(self)
-                self.index = 0
-
-            def get_batch_size(self):
-                return int(model["input_shape"][0])
-
-            def get_batch(self, names):
-                if list(names) != [model["input_name"]]:
-                    raise ValueError(f"Unexpected calibration inputs: {names}")
-                if self.index >= len(batches):
-                    return None
-                cuda.upload(pointer, to_float(batches[self.index]))
-                self.index += 1
-                return [pointer]
-
-            def read_calibration_cache(self):
-                return cache.read_bytes() if cache.exists() else None
-
-            def write_calibration_cache(self, data):
-                cache.write_bytes(bytes(data))
-                cache_identity_path.write_text(json.dumps(identity, indent=2) + "\n")
-
-        calibrator = Calibrator()
-        config.int8_calibrator = calibrator
-        source = "existing cache" if cache.exists() else f"{len(batches)} bundled real inputs"
-        print(f"  calibration: {source}", flush=True)
     started = time.time()
-    try:
-        plan = builder.build_serialized_network(network, config)
-    finally:
-        if cuda is not None:
-            cuda.free(pointer)
+    plan = builder.build_serialized_network(network, config)
     if plan is None:
-        raise RuntimeError(f"TensorRT could not build {model['id']} ({precision})")
-    path = engine_path(out, model, precision)
+        raise RuntimeError(f"TensorRT could not build {path.name}")
     path.write_bytes(bytes(plan))
-    print(f"  wrote {path.relative_to(root)} in {time.time() - started:.0f} s", flush=True)
-    return path
+    print(f"  wrote {path.name} in {time.time() - started:.0f} s", flush=True)
 
 
 def command_build(args):
+    import tensorrt as trt
+    from prepare_onnx import prepare, sha256
+    if int(trt.__version__.split('.')[0]) != 11:
+        raise RuntimeError('This deployment requires TensorRT 11.x with explicitly typed ONNX models.')
     root = args.bundle.resolve()
     manifest = load_manifest(root)
     out = root / "engines"
     out.mkdir(exist_ok=True)
     for model in select(manifest, args.models):
         path = engine_path(out, model, args.precision)
-        if path.exists() and not args.rebuild:
-            print(f"{model['id']}: {path.name} exists, keeping it (--rebuild to replace)")
-            continue
+        # Invalidate approval before regenerating a model or trying a new SDK.
         receipt_path(path).unlink(missing_ok=True)
-        print(f"{model['id']}: building {args.precision} engine", flush=True)
-        build_engine(root, out, model, args.precision, args.workspace_mb, args.recalibrate)
-    print("\nNext: python3 engines.py verify" + ("" if args.precision == "int8" else " --precision fp16"))
+        source = prepare(root, out, model, args.precision, args.recalibrate)
+        recipe = {'version': 1, 'tensorrt': trt.__version__, 'prepared_sha256': sha256(source),
+                  'workspace_mb': args.workspace_mb}
+        identity_path = path.with_suffix('.plan.json')
+        try:
+            previous = json.loads(identity_path.read_text())
+        except (OSError, ValueError):
+            previous = {}
+        if (not args.rebuild and path.is_file() and previous.get('recipe') == recipe
+                and previous.get('plan_sha256') == sha256(path)):
+            print(f"{model['id']}: keeping {path.name}; run verify before use", flush=True)
+            continue
+        identity_path.unlink(missing_ok=True)
+        print(f"{model['id']}: building {args.precision} engine with TensorRT {trt.__version__}", flush=True)
+        build_engine(source, path, args.workspace_mb, trt)
+        identity_path.write_text(json.dumps({'recipe': recipe, 'plan_sha256': sha256(path)}, indent=2) + "\n")
+    print(f"\nNext: python3 engines.py verify --precision {args.precision}")
 
 
 # ---------------------------------------------------------------------------
@@ -300,9 +264,10 @@ def run_tensorrt(path, model, inputs):
     return outputs
 
 
-def run_onnxruntime(root, model, inputs):
+def run_onnxruntime(root, model, inputs, source=None):
     import onnxruntime as ort
-    session = ort.InferenceSession(str(root / model["onnx"]), providers=["CPUExecutionProvider"])
+    session = ort.InferenceSession(str(source or root / model["onnx"]),
+                                   providers=["CPUExecutionProvider"])
     return [session.run([model["output_name"]], {model["input_name"]: to_float(batch)})[0]
             for batch in inputs]
 
@@ -322,6 +287,9 @@ def command_verify(args):
             raise ValueError(f"Invalid reference input shape/dtype for {model['id']}")
         if args.backend == "onnxruntime":
             observed, what = run_onnxruntime(root, model, inputs), "onnx (cpu)"
+        elif args.backend == "prepared":
+            source = prepared_path(root, model, args.precision)
+            observed, what = run_onnxruntime(root, model, inputs, source), source.name
         else:
             path = engine_path(root / "engines", model, args.precision)
             if not path.exists():
@@ -354,15 +322,19 @@ def main(argv=None):
     build.add_argument("--precision", choices=["int8", "fp16"], default="int8")
     build.add_argument("--models", nargs="*", help="Model ids (default: the primary pair).")
     build.add_argument("--rebuild", action="store_true", help="Replace an engine that already exists.")
-    build.add_argument("--recalibrate", action="store_true", help="Ignore an existing calibration cache.")
+    build.add_argument("--recalibrate", action="store_true", help="Regenerate the prepared ONNX and calibration ranges.")
     build.add_argument("--workspace-mb", type=int, default=2048)
     verify = commands.add_parser("verify", help="Compare engines with the bundled float reference.")
     verify.add_argument("--precision", choices=["int8", "fp16"], default="int8")
     verify.add_argument("--models", nargs="*", help="Model ids (default: the primary pair).")
-    verify.add_argument("--backend", choices=["tensorrt", "onnxruntime"], default="tensorrt",
-                        help="onnxruntime checks the ONNX files themselves on any machine.")
+    verify.add_argument("--backend", choices=["tensorrt", "onnxruntime", "prepared"], default="tensorrt",
+                        help="onnxruntime checks original ONNX; prepared checks precision exports on CPU. Only tensorrt writes receipts.")
+    prepare = commands.add_parser("prepare", help="Export explicit INT8/FP16 ONNX on CPU, without TensorRT.")
+    prepare.add_argument("--precision", choices=["int8", "fp16"], default="int8")
+    prepare.add_argument("--models", nargs="*")
+    prepare.add_argument("--rebuild", action="store_true")
     args = parser.parse_args(argv)
-    return command_build(args) if args.command == "build" else command_verify(args)
+    return {"build": command_build, "verify": command_verify, "prepare": command_prepare}[args.command](args)
 
 
 if __name__ == "__main__":

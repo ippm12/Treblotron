@@ -227,29 +227,16 @@ namespace
     }
 
 
-    /**
-     * Build an engine from the ONNX and serialize it. `preferFp16` controls
-     * precision — networks with deep activation chains (e.g. the full
-     * BlazePalm) overflow FP16's +-65504 range and produce NaN, so they need
-     * FP32. `fp32LayerNames` selectively pins individual layers to FP32 while
-     * the rest stays at the requested precision.
-     */
+    /** Build a strongly typed ONNX engine (used by the FP32 hand models). */
     std::vector<uint8_t> buildEngineFromOnnx(const std::string& onnxPath,
-                                             nvinfer1::IProgressMonitor* monitor,
-                                             bool preferFp16,
-                                             const std::vector<std::string>& fp32LayerNames)
+                                            nvinfer1::IProgressMonitor* monitor)
     {
-        const char* precisionLabel = preferFp16 ? "FP16" : "FP32";
-        LOG_INFO(DETECT_LOG_ID,
-                 "trt backend: building {} engine from {} "
-                 "(first run only, typically 2-5 minutes on Orin Nano Super)",
-                 precisionLabel, onnxPath);
+        LOG_INFO(DETECT_LOG_ID, "trt backend: building engine from typed ONNX {}", onnxPath);
 
         std::unique_ptr<nvinfer1::IBuilder> builder(nvinfer1::createInferBuilder(g_trtLogger));
         if(!builder) { LOG_ERROR(DETECT_LOG_ID, "createInferBuilder failed"); return {}; }
 
-        // TRT 10 is always explicit-batch. Keep weak typing here because the
-        // legacy palm/landmark builders use precision flags/constraints.
+        // TensorRT 11 always uses strong typing: precision comes from the ONNX.
         std::unique_ptr<nvinfer1::INetworkDefinition> network(builder->createNetworkV2(0));
         if(!network) { LOG_ERROR(DETECT_LOG_ID, "createNetworkV2 failed"); return {}; }
 
@@ -269,67 +256,6 @@ namespace
 
         std::unique_ptr<nvinfer1::IBuilderConfig> config(builder->createBuilderConfig());
         if(!config) { LOG_ERROR(DETECT_LOG_ID, "createBuilderConfig failed"); return {}; }
-
-        if(preferFp16)
-        {
-            if(builder->platformHasFastFp16())
-            {
-                config->setFlag(nvinfer1::BuilderFlag::kFP16);
-            }
-            else
-            {
-                LOG_WARNING(DETECT_LOG_ID,
-                            "TRT: platform reports no fast FP16 — falling back to FP32");
-            }
-        }
-
-        // Selectively pin per-layer precision. With the OBEY flag set TRT is
-        // required to honor the constraint or fail the build — the alternative
-        // (PREFER) silently falls back to FP16, which would re-introduce the
-        // overflow we're trying to escape. Names match the exact ONNX node
-        // name (e.g. "/m/exist_head/ReduceMax") so we don't accidentally catch
-        // something like "/m/Squeeze_1" — that bit us once already.
-        if(!fp32LayerNames.empty())
-        {
-            config->setFlag(nvinfer1::BuilderFlag::kOBEY_PRECISION_CONSTRAINTS);
-
-            const int32_t nbLayers = network->getNbLayers();
-            std::vector<bool> matched(fp32LayerNames.size(), false);
-            for(int32_t i = 0; i < nbLayers; i++)
-            {
-                nvinfer1::ILayer* layer = network->getLayer(i);
-                if(!layer) continue;
-                const char* lname = layer->getName();
-                if(!lname) continue;
-
-                int matchIdx = -1;
-                for(size_t k = 0; k < fp32LayerNames.size(); k++)
-                {
-                    if(fp32LayerNames[k] == lname) { matchIdx = static_cast<int>(k); break; }
-                }
-                if(matchIdx < 0) continue;
-
-                layer->setPrecision(nvinfer1::DataType::kFLOAT);
-                const int32_t nbOuts = layer->getNbOutputs();
-                for(int32_t o = 0; o < nbOuts; o++)
-                {
-                    layer->setOutputType(o, nvinfer1::DataType::kFLOAT);
-                }
-                LOG_INFO(DETECT_LOG_ID, "TRT: pinned layer {} to FP32", lname);
-                matched[matchIdx] = true;
-            }
-
-            for(size_t k = 0; k < fp32LayerNames.size(); k++)
-            {
-                if(!matched[k])
-                {
-                    LOG_WARNING(DETECT_LOG_ID,
-                                "TRT: requested FP32 pin for layer {} not found in network "
-                                "— check the ONNX node names",
-                                fp32LayerNames[k]);
-                }
-            }
-        }
 
         config->setMemoryPoolLimit(nvinfer1::MemoryPoolType::kWORKSPACE, TRT_WORKSPACE_BYTES);
         if(monitor) config->setProgressMonitor(monitor);
@@ -612,8 +538,7 @@ namespace
                 if(abort.load(std::memory_order_acquire)) return nullptr;
 
                 TrtProgressMonitor monitor(onProgress, abort);
-                plan = buildEngineFromOnnx(spec.onnxPath, &monitor,
-                                           spec.preferFp16, spec.fp32Layers);
+                plan = buildEngineFromOnnx(spec.onnxPath, &monitor);
                 if(plan.empty() || abort.load(std::memory_order_acquire)) return nullptr;
 
                 if(!spec.cachePath.empty())

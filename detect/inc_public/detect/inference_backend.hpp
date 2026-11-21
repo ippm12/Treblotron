@@ -70,10 +70,6 @@ class InferenceBackend
              */
             std::vector<std::string> prebuiltPaths;
 
-            /** Backends without mixed precision ignore both of these. */
-            bool                     preferFp16 = true;
-            std::vector<std::string> fp32Layers;   // exact ONNX node names
-
             std::vector<TensorSpec> inputs;
             std::vector<TensorSpec> outputs;
         };

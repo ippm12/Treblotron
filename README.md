@@ -482,10 +482,11 @@ Honest list for a first release:
   second client is told the server is busy and retries. Fine for a single
   setup; not a shortcut you can work around.
 - **Jetson camera/UI deployment remains experimental.** The TensorRT backend
-  and headless server pass native checks with TensorRT 10.3 and calibrated
-  INT8 plans. The model pair measures 29.09 ms including transfers in separate
-  engine benchmarks; the complete 50 ms pipeline budget and live-game accuracy
-  remain unvalidated. See the [integration results](detect/models/regnetx_fast/README.md#integration-validation-2026-11-15).
+  and headless server pass native checks on TensorRT 11.4.1 with explicit INT8
+  exports, including the full synthetic self-test. Earlier TensorRT 10.3
+  checks measured 29.09 ms for separate engine benchmarks; those results do not
+  establish TensorRT 11 performance. The complete 50 ms pipeline budget and
+  live-game accuracy remain unvalidated. See the [model deployment guide](detect/models/regnetx_fast/README.md).
 - **MJPEG pass-through is unverified on real V4L2 hardware.** If a driver
   ignores `CAP_PROP_CONVERT_RGB` the client falls back to re-encoding, which
   costs CPU on the Pi but works.
