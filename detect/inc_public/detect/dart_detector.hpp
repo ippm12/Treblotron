@@ -28,6 +28,7 @@
 #define DETECT_DART_DETECTOR_HPP
 
 #include "common_inc.hpp"
+#include "detect/dart_preview.hpp"
 #include "detect/dart_tuning.hpp"
 #include "detect/inference_backend.hpp"
 #include "detect/wire_calibration.hpp"
@@ -179,6 +180,10 @@ class DartDetector
          */
         bool latestHeatmap(std::vector<float>& out,
                            uint32_t& width, uint32_t& height) const;
+
+        // Called on the inference thread immediately after a successful run.
+        bool makePreview(const std::array<cv::Mat, EXPECTED_CAMERA_COUNT>& rawFrames,
+                         uint32_t sequence, uint8_t firstCamera, DartPreview& out) const;
 
         /**
          * The masked, warped 720x720 RGB frame for a camera from the last

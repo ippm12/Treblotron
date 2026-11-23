@@ -787,6 +787,52 @@ bool DartDetector::latestHeatmap(std::vector<float>& out,
 }
 
 
+bool DartDetector::makePreview(const std::array<cv::Mat, EXPECTED_CAMERA_COUNT>& rawFrames,
+                               uint32_t sequence, uint8_t firstCamera, DartPreview& out) const
+{
+    using P = DartPreview;
+    for(unsigned offset = 0; offset < rawFrames.size(); ++offset)
+    {
+        const unsigned cam = (firstCamera + offset) % rawFrames.size();
+        if(rawFrames[cam].empty() || m_impl->warped[cam].empty()) continue;
+        cv::Mat aligned;
+        if(!warpCameraFrame(cam, rawFrames[cam], aligned)) continue;
+        out.sequence = sequence;
+        out.camera = static_cast<uint8_t>(cam);
+        const cv::Size cameraSize(P::cameraWidth, P::cameraHeight);
+        const cv::Size boardSize(P::boardSize, P::boardSize);
+        cv::Mat image, mask, smallBoard;
+        cv::resize(rawFrames[cam], image, cameraSize, 0, 0, cv::INTER_AREA);
+        out.rgb.assign(image.data, image.data + P::cameraPixels * 3);
+        // Area reduction preserves narrow dart shafts in the small preview.
+        cv::resize(m_impl->maskNative[cam], mask, cameraSize, 0, 0, cv::INTER_AREA);
+        out.maskBits.assign(P::cameraPixels/8, 0);
+        for(int i=0; i<P::cameraPixels; ++i)
+            if(mask.data[i]) out.maskBits[i/8] |= 1u << (i%8);
+        cv::resize(aligned, smallBoard, boardSize, 0, 0, cv::INTER_AREA);
+        out.boardGray.resize(P::boardPixels);
+        cv::Mat gray(boardSize, CV_8UC1, out.boardGray.data());
+        cv::cvtColor(smallBoard, gray, cv::COLOR_RGB2GRAY);
+        std::vector<float> heat;
+        uint32_t w, h;
+        if(!latestHeatmap(heat, w, h)) return false;
+        cv::Mat resized;
+        cv::resize(cv::Mat(h,w,CV_32F,heat.data()), resized, boardSize);
+        out.heat.resize(P::boardPixels);
+        cv::Mat bytes(boardSize,CV_8UC1,out.heat.data());
+        resized.convertTo(bytes, CV_8U, 255);
+        out.tips.clear();
+        for(const auto& d : m_impl->confirmedDarts)
+        {
+            if(out.tips.size() >= 512) break;
+            out.tips.push_back(std::clamp(cvRound(d.polar.templateX * P::boardSize / INPUT_W),0,P::boardSize-1));
+            out.tips.push_back(std::clamp(cvRound(d.polar.templateY * P::boardSize / INPUT_W),0,P::boardSize-1));
+        }
+        return true;
+    }
+    return false;
+}
+
 const cv::Mat& DartDetector::warpedFrame(uint32_t camIndex) const
 {
     if(camIndex >= N_CAMS) return Impl::s_emptyMat;

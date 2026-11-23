@@ -39,6 +39,7 @@ class NetworkVisionSource : public VisionSource
         NetworkVisionSource();
         ~NetworkVisionSource() override;
 
+        bool markMissed(const DartPreview& preview) override;
         Status init() override;
         void   tick(float deltaTime) override;
         void   shutdown() override;
@@ -69,9 +70,15 @@ class NetworkVisionSource : public VisionSource
         std::thread       m_thread;
         std::atomic<bool> m_running{false};
         std::atomic<bool> m_resetRequested{false};
+        // Keep sequence numbers distinct across reconnects so a stale preview
+        // cannot select a different frame in the next session.
+        uint32_t m_frameSequence = 0;
+        std::atomic<uint32_t> m_missedSequence{0};
         std::atomic<bool> m_captureRequested{false};
         mutable std::mutex m_captureMutex;
         std::string        m_captureResult;
+        bool               m_pauseAwaitingReply = false;
+        uint32_t           m_markAwaitingReply = 0; // guarded by m_captureMutex
         std::atomic<bool> m_boardClear{true};
 
         // Mirrors the server's build state so the loading screen can show it.

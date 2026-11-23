@@ -8,6 +8,7 @@
  */
 
 #include "local_vision_source.hpp"
+#include "detect/inference_capture.hpp"
 #include "detect/wire_calibration.hpp"
 #include "vision/vision_settings.hpp"
 
@@ -19,11 +20,6 @@
 
 namespace
 {
-    // The seg model's per-camera input plane: (3, 360, 640) floats. The camera
-    // capture threads produce these in parallel with each other, so handing
-    // them to the detector is strictly cheaper than letting it resize inline.
-    constexpr size_t SEG_PER_CAM_FLOATS = 3u * 360u * 640u;
-
     /** Idle backoff when no camera has a usable frame yet. */
     constexpr int IDLE_SLEEP_MS = 50;
 }
@@ -148,16 +144,14 @@ void LocalVisionSource::buildThreadMain()
 
 void LocalVisionSource::inferenceLoop()
 {
-    std::array<CameraFrame, EXPECTED_CAMERA_COUNT> cameraFrames;
+    CameraImages segStorage;
     std::array<cv::Mat,     EXPECTED_CAMERA_COUNT> rawMats;
     DartDetectorResult result;
+    uint32_t sequence = 0;
+    std::future<void> lastAutoSave;
+    auto settings = getVisionSettings();
 
-#ifdef TREBLOTRON_HAVE_LOCAL_INFERENCE
-    // Scratch for the capture threads' pre-computed seg planes.
-    std::array<std::vector<float>, EXPECTED_CAMERA_COUNT> segStorage;
-    for(auto& s : segStorage) s.resize(SEG_PER_CAM_FLOATS);
     const float* segPlanes[EXPECTED_CAMERA_COUNT] = {};
-#endif
 
     while(m_running.load(std::memory_order_acquire))
     {
@@ -168,7 +162,8 @@ void LocalVisionSource::inferenceLoop()
         if(generation != m_tuningGeneration.load(std::memory_order_relaxed))
         {
             m_tuningGeneration.store(generation, std::memory_order_relaxed);
-            m_detector.applyTuning(getVisionSettings().tuning);
+            settings = getVisionSettings();
+            m_detector.applyTuning(settings.tuning);
         }
 
         if(m_resetRequested.exchange(false, std::memory_order_acq_rel))
@@ -189,16 +184,9 @@ void LocalVisionSource::inferenceLoop()
         {
             rawMats[i] = cv::Mat();
             if(i >= camCount)              continue;
-            if(!isCameraCalibrated(i))     continue;
-            if(!getCameraFrame(i, cameraFrames[i])) continue;
-
-            const CameraFrame& cf = cameraFrames[i];
-            if(cf.pixels.empty()) continue;
-
-            rawMats[i] = cv::Mat(cf.height, cf.width, CV_8UC3,
-                                 const_cast<uint8_t*>(cf.pixels.data()),
-                                 cf.stride);
-            contributing++;
+            if(!getInferenceCameraFrame(i,rawMats[i],segStorage[i])) continue;
+            segPlanes[i] = segStorage[i].empty() ? nullptr : segStorage[i].ptr<float>();
+            if(isCameraCalibrated(i)) contributing++;
         }
 
         if(contributing == 0)
@@ -208,19 +196,37 @@ void LocalVisionSource::inferenceLoop()
             continue;
         }
 
-#ifdef TREBLOTRON_HAVE_LOCAL_INFERENCE
-        for(uint32_t i = 0; i < EXPECTED_CAMERA_COUNT; i++)
-        {
-            segPlanes[i] = (!rawMats[i].empty()
-                         && getCameraSegPlane(i, segStorage[i].data(), SEG_PER_CAM_FLOATS))
-                         ? segStorage[i].data() : nullptr;
-        }
+        const bool wantPreview = previewEnabled();
         const bool ran = m_detector.run(rawMats, segPlanes, result);
-#else
-        const bool ran = m_detector.run(rawMats, nullptr, result);
-#endif
-
         if(!ran) continue;
+        ++sequence;
+        const bool autoSave = settings.captureOnDetect && !result.newDarts.empty();
+        std::shared_ptr<InferenceCapture> original;
+        if(wantPreview || autoSave)
+        {
+            original = std::make_shared<InferenceCapture>();
+            original->transforms = captureCameraTransforms();
+            original->images = rawMats;
+        }
+        if(autoSave)
+        {
+            // Bound memory to one outstanding write. Never drop a confirmation
+            // if the storage device falls behind.
+            if(lastAutoSave.valid()) lastAutoSave.get();
+            lastAutoSave = std::async(std::launch::async,[original,sequence] {
+                bool ok;
+                auto path = saveInferenceCapture(original->images,original->transforms,
+                    appDataPath("captures"),sequence,false,ok);
+                if(ok) LOG_INFO(VISION_LOG_ID,"Saved detected dart: {}",path);
+                else LOG_ERROR(VISION_LOG_ID,"Automatic dart capture failed: {}",path);
+            });
+        }
+        if(wantPreview)
+        {
+            DartPreview preview;
+            preview.original = original;
+            if(m_detector.makePreview(rawMats, sequence, previewCamera(), preview)) publishPreview(std::move(preview));
+        }
 
         m_boardClear.store(result.boardClear, std::memory_order_release);
 
@@ -240,6 +246,8 @@ void LocalVisionSource::inferenceLoop()
                                      static_cast<int>(w.step[0]));
         }
 
+        recordPreviewUpdate(true, true);
+
         if(!result.newDarts.empty())
         {
             std::lock_guard<std::mutex> lock(m_eventMutex);
@@ -251,6 +259,25 @@ void LocalVisionSource::inferenceLoop()
     }
 }
 
+
+bool LocalVisionSource::markMissed(const DartPreview& preview)
+{
+    if(!preview.original || m_markResult.valid()) return false;
+    m_markResult = std::async(std::launch::async,[original=preview.original,seq=preview.sequence] {
+        bool ok;
+        auto path = saveInferenceCapture(original->images,original->transforms,
+            appDataPath("captures"),seq,true,ok);
+        return ok ? "Marked missed dart on frame " + std::to_string(seq) : "Capture failed: " + path;
+    });
+    return true;
+}
+
+std::string LocalVisionSource::consumeCaptureResult()
+{
+    if(m_markResult.valid() && m_markResult.wait_for(std::chrono::seconds(0))==std::future_status::ready)
+        return m_markResult.get();
+    return {};
+}
 
 void LocalVisionSource::shutdown()
 {

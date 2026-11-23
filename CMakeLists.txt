@@ -805,7 +805,7 @@ if(TREBLOTRON_BUILD_APP)
     set(_kenney_root "assets/images/kenney_input-prompts_1.4.1")
     set(_kenney_keyboard
         keyboard_a.png keyboard_c.png keyboard_d.png keyboard_e.png
-        keyboard_f.png keyboard_q.png keyboard_r.png keyboard_s.png
+        keyboard_f.png keyboard_m.png keyboard_q.png keyboard_r.png keyboard_s.png
         keyboard_w.png
         keyboard_arrow_down.png keyboard_arrow_left.png
         keyboard_arrow_right.png keyboard_arrow_up.png

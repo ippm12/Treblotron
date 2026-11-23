@@ -37,16 +37,6 @@
 #define M_PI 3.14159265358979323846
 #endif
 
-// Template-space geometry — mirror of wire_calibration.cpp / board_detection.py
-static constexpr float TEMPLATE_CENTER = 360.0f;
-static constexpr float BOARD_RADIUS_PX = 290.0f;
-static constexpr float DART_MARKER_PX  = 7.0f;
-
-
-// ============================================================================
-// Layout constants
-// ============================================================================
-
 static constexpr float    WINDOW_W       = 1920.0f;
 static constexpr float    WINDOW_H       = 1080.0f;
 
@@ -57,18 +47,21 @@ static constexpr float    LEFT_MARGIN    = 60.0f;
 static constexpr float    TITLE_Y        = 22.0f;
 static constexpr uint32_t BASE_Z         = 10;
 
-// AI model stub image (left side)
-static constexpr float    AI_IMAGE_X     = LEFT_MARGIN;
-static constexpr float    AI_IMAGE_Y     = 120.0f;
-static constexpr float    AI_IMAGE_SIZE  = 720.0f;
+// Keep both stages in one streaming texture so they update together.
+using Preview = DartPreview;
+static constexpr int PANEL_GAP = 12;
+static constexpr int BOARD_X = Preview::cameraWidth + PANEL_GAP;
+static constexpr int ATLAS_W = BOARD_X + Preview::boardSize;
+static constexpr float PREVIEW_SCALE = 1.8f;
+static constexpr float PREVIEW_Y = 200.0f;
 
 // Dartboard (right side)
-static constexpr float    BOARD_CENTER_X = 1300.0f;
+static constexpr float    BOARD_CENTER_X = 1570.0f;
 static constexpr float    BOARD_CENTER_Y = 380.0f;
-static constexpr float    BOARD_SCALE    = 1.2f;
+static constexpr float    BOARD_SCALE    = 0.95f;
 
 // Dart list (below board on right side)
-static constexpr float    DART_LIST_X    = 1060.0f;
+static constexpr float    DART_LIST_X    = 1360.0f;
 static constexpr float    DART_LIST_Y    = 650.0f;
 static constexpr float    DART_LIST_LINE = 32.0f;
 static constexpr size_t   DART_LIST_MAX  = 12;
@@ -123,149 +116,57 @@ Status VisionDebugScreen::init(FrameID frameId)
     m_board = DartBoard::create(m_world, BOARD_CENTER_X, BOARD_CENTER_Y,
                                 BOARD_SCALE, m_bodyFontId, BASE_Z);
 
-    // Streaming 720x720 RGB texture, updated every frame with the alpha-blended
-    // composite of the warped camera frames
-    SDL_Renderer* rend = getFrameRenderer(frameId);
-    if(rend)
-    {
-        m_compositeTexture = SDL_CreateTexture(rend, SDL_PIXELFORMAT_RGB24,
-                                               SDL_TEXTUREACCESS_STREAMING,
-                                               static_cast<int>(WARPED_OUTPUT_SIZE),
-                                               static_cast<int>(WARPED_OUTPUT_SIZE));
-    }
+    SDL_Renderer* renderer = getFrameRenderer(frameId);
+    if(!renderer) return STATUS_ERROR_GENERIC;
+    m_compositeTexture = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_RGB24,
+        SDL_TEXTUREACCESS_STREAMING, ATLAS_W, Preview::boardSize);
+    if(!m_compositeTexture) return STATUS_ERROR_GENERIC;
+    setVisionPreviewEnabled(true);
     return STATUS_OK;
 }
 
 
 // ============================================================================
-// Composite update — warp each calibrated camera into the 720x720 template
-// space and average them together
-// ============================================================================
-
+// Display the latest complete inference. Both views share its publication time.
 void VisionDebugScreen::updateComposite()
 {
-    VISION_PROFILE_SCOPE(m_timings, "composite");
+    std::chrono::steady_clock::time_point published;
+    auto frame = getVisionPreview(published);
+    if(!frame || frame == m_displayedPreview) return;
+    VISION_PROFILE_SCOPE(m_timings, "preview");
+    cv::Mat atlas(Preview::boardSize, ATLAS_W, CV_8UC3, cv::Scalar(0,0,0));
+    auto camera = atlas(cv::Rect(0,0,Preview::cameraWidth,Preview::cameraHeight));
+    auto board = atlas(cv::Rect(BOARD_X,0,Preview::boardSize,Preview::boardSize));
 
-    const int W = static_cast<int>(WARPED_OUTPUT_SIZE);
-    const int H = static_cast<int>(WARPED_OUTPUT_SIZE);
+    cv::Mat rgb(Preview::cameraHeight, Preview::cameraWidth, CV_8UC3,
+                const_cast<uint8_t*>(frame->rgb.data()));
+    rgb.copyTo(camera);
+    cv::Mat mask(camera.size(), CV_8UC1);
+    for(int i=0; i<Preview::cameraPixels; ++i)
+        mask.data[i] = (frame->maskBits[i/8] & (1u << (i%8))) ? 255 : 0;
+    cv::Mat edge;
+    cv::morphologyEx(mask, edge, cv::MORPH_GRADIENT, cv::Mat());
+    camera.setTo(cv::Scalar(0,255,255), edge);
 
-    // Optimization 3: skip recompute if no new camera data arrived.
-    bool haveNewData = false;
-
-    cv::Mat out(H, W, CV_8UC3, cv::Scalar(0, 0, 0));
-    int contributing = 0;
-
+    for(int y=0; y<board.rows; ++y)
     {
-        VISION_PROFILE_SCOPE(m_timings, "getFrames");
-        uint32_t count = getCameraCount();
-        for(uint32_t i = 0; i < count; i++)
+        auto* row = board.ptr<cv::Vec3b>(y);
+        for(int x=0; x<board.cols; ++x)
         {
-            if(getCameraWarpedFrame(i, m_cameraFrames[i]) &&
-               !m_cameraFrames[i].pixels.empty() &&
-               m_cameraFrames[i].width == W && m_cameraFrames[i].height == H)
-            {
-                contributing++;
-                haveNewData = true;
-            }
-            else
-            {
-                m_cameraFrames[i].pixels.clear();
-            }
+            const int i = y*board.cols + x;
+            const int heat = frame->heat[i], gray = frame->boardGray[i];
+            const auto base = static_cast<uint8_t>(gray * (255-heat) / 255);
+            row[x] = cv::Vec3b(base+heat,base,base);
         }
     }
-
-    if(!haveNewData && m_lastCompositeFrameId > 0)
+    for(size_t i=0; i+1<frame->tips.size(); i+=2)
+        cv::circle(board, {frame->tips[i],frame->tips[i+1]}, 4, cv::Scalar(225,100,255), 1);
+    if(SDL_UpdateTexture(m_compositeTexture,nullptr,atlas.data,static_cast<int>(atlas.step)))
     {
-        return;
-    }
-    m_lastCompositeFrameId = ++m_compositeFrameCounter;
-
-    {
-        VISION_PROFILE_SCOPE(m_timings, "avg");
-        if(contributing > 0)
-        {
-            cv::Mat mats[3];
-            int n = 0;
-            const uint32_t count = getCameraCount();
-            for(uint32_t i = 0; i < count && n < 3; i++)
-            {
-                const CameraFrame& cf = m_cameraFrames[i];
-                if(cf.pixels.empty()) continue;
-                mats[n++] = cv::Mat(cf.height, cf.width, CV_8UC3,
-                                    const_cast<uint8_t*>(cf.pixels.data()),
-                                    cf.stride);
-            }
-
-            if(n == 1)
-            {
-                mats[0].copyTo(out);
-            }
-            else if(n == 2)
-            {
-                cv::addWeighted(mats[0], 0.5, mats[1], 0.5, 0.0, out);
-            }
-            else  // n == 3
-            {
-                cv::Mat tmp;
-                cv::addWeighted(mats[0], 0.5, mats[1], 0.5, 0.0, tmp);
-                cv::addWeighted(tmp, 2.0 / 3.0, mats[2], 1.0 / 3.0, 0.0, out);
-            }
-        }
-    }
-
-    // Optimization 1: overlay the heatmap at its native 180×180 resolution
-    // using OpenCV, then resize to 720×720 — avoids the expensive scalar
-    // per-pixel loop at full resolution.
-    std::vector<float> heatmap;
-    uint32_t hmW = 0, hmH = 0;
-    bool haveHeatmap = false;
-    {
-        VISION_PROFILE_SCOPE(m_timings, "heatmapFetch");
-        haveHeatmap = getLatestVisionHeatmap(heatmap, hmW, hmH) && hmW > 0 && hmH > 0;
-    }
-    if(haveHeatmap)
-    {
-        VISION_PROFILE_SCOPE(m_timings, "heatmapOverlay");
-
-        // Build a 180×180 single-channel 8-bit image from the heatmap floats.
-        cv::Mat hmFloat(static_cast<int>(hmH), static_cast<int>(hmW), CV_32FC1,
-                        heatmap.data());
-        cv::Mat hm8;
-        hmFloat.convertTo(hm8, CV_8UC1, 255.0);
-
-        // Create a red-only overlay at heatmap resolution.
-        cv::Mat overlay(hm8.rows, hm8.cols, CV_8UC3, cv::Scalar(0, 0, 0));
-        cv::Mat channels[3] = {hm8, cv::Mat::zeros(hm8.size(), CV_8UC1),
-                                cv::Mat::zeros(hm8.size(), CV_8UC1)};
-        cv::merge(channels, 3, overlay);
-
-        // Upscale to 720×720 and add to the composite.
-        cv::Mat overlayFull;
-        cv::resize(overlay, overlayFull, cv::Size(W, H), 0, 0, cv::INTER_LINEAR);
-        cv::add(out, overlayFull, out);
-    }
-
-    // Optimization 2: write directly into the SDL streaming texture via
-    // SDL_LockTexture, avoiding the intermediate buffer + SDL_UpdateTexture.
-    {
-        VISION_PROFILE_SCOPE(m_timings, "texUpload");
-        if(m_compositeTexture)
-        {
-            void* pixels = nullptr;
-            int pitch = 0;
-            if(SDL_LockTexture(m_compositeTexture, nullptr, &pixels, &pitch))
-            {
-                for(int y = 0; y < H; y++)
-                {
-                    std::memcpy(static_cast<uint8_t*>(pixels) + y * pitch,
-                                out.ptr(y), static_cast<size_t>(W) * 3);
-                }
-                SDL_UnlockTexture(m_compositeTexture);
-            }
-        }
+        m_displayedPreview = std::move(frame);
+        m_displayedHeatmapTime = published;
     }
 }
-
 
 void VisionDebugScreen::update(float deltaTime)
 {
@@ -276,7 +177,29 @@ void VisionDebugScreen::update(float deltaTime)
     {
         VISION_PROFILE_SCOPE(m_timings, "update");
 
+    const auto captureResult = consumeVisionCaptureResult();
+    if(!captureResult.empty()) m_captureStatus = captureResult;
+    const auto stats = getVisionPreviewStats();
     updateComposite();
+
+    const double now = SDL_GetTicksNS() / 1e9;
+    if(m_rateWindowStart == 0)
+    {
+        m_rateWindowStart = now;
+        m_initialDetectionCount = stats.detectionCount;
+    }
+    else ++m_uiFrames;
+    const double elapsed = now - m_rateWindowStart;
+    if(elapsed >= 1.0)
+    {
+        char rates[96];
+        std::snprintf(rates, sizeof(rates), "UI %.0f FPS    Detector %.1f Hz",
+                      m_uiFrames / elapsed, (stats.detectionCount - m_initialDetectionCount) / elapsed);
+        m_rateLabel = rates;
+        m_uiFrames = 0;
+        m_initialDetectionCount = stats.detectionCount;
+        m_rateWindowStart = now;
+    }
 
     // Mirror the vision source's "board cleared" transition so tracked darts
     // clear when the user hits collect (sim) or the real system resets.
@@ -380,45 +303,35 @@ void VisionDebugScreen::render()
         return;
     }
 
-    // (Status badge is rendered later, after the composite image — see
-    // below. The render queue draws in insertion order, not by m_z, so
-    // the badge has to come AFTER the image to land on top of it.)
-
-    // Warped composite image (alpha-blended from calibrated cameras)
-    if(m_compositeTexture)
+    auto label = [&](const std::string& value,float x,float y) {
+        auto text = std::make_shared<RenderText>();
+        text->m_text = value;
+        text->m_fontId = m_bodyFontId;
+        text->m_x = x; text->m_y = y; text->m_z = BASE_Z;
+        text->m_scaleX = text->m_scaleY = 1;
+        text->m_color = {215,220,225};
+        renderQueueAdd(fid,text);
+    };
+    if(m_displayedPreview)
     {
+        label("Camera " + std::to_string(1+m_displayedPreview->camera) + "   /   Segmentation",
+              LEFT_MARGIN,PREVIEW_Y-40);
+        label("Board   /   Tip heatmap",LEFT_MARGIN+BOARD_X*PREVIEW_SCALE,PREVIEW_Y-40);
         auto tex = std::make_shared<RenderCachedTexture>();
         tex->m_texture = m_compositeTexture;
-        tex->m_width   = AI_IMAGE_SIZE;
-        tex->m_height  = AI_IMAGE_SIZE;
-        tex->m_x       = AI_IMAGE_X;
-        tex->m_y       = AI_IMAGE_Y;
-        tex->m_z       = BASE_Z;
+        tex->m_width = ATLAS_W * PREVIEW_SCALE;
+        tex->m_height = Preview::boardSize * PREVIEW_SCALE;
+        tex->m_x = LEFT_MARGIN;
+        tex->m_y = PREVIEW_Y;
+        tex->m_z = BASE_Z;
         renderQueueAdd(fid, tex);
+        label("Frame " + std::to_string(m_displayedPreview->sequence),
+              LEFT_MARGIN,PREVIEW_Y+Preview::cameraHeight*PREVIEW_SCALE+8);
     }
+    else label("Waiting for a calibrated camera and detector preview",LEFT_MARGIN,PREVIEW_Y);
 
-    // Dart markers over the composite image — map each tracked polar hit into
-    // template space (720x720), then into composite-image screen space.
-    if(m_compositeTexture)
-    {
-        for(const DartPosition& d : m_hitPositions)
-        {
-            float rad = d.angle * static_cast<float>(M_PI) / 180.0f;
-            float tx = TEMPLATE_CENTER + std::cos(rad) * d.normalizedRadius * BOARD_RADIUS_PX;
-            float ty = TEMPLATE_CENTER + std::sin(rad) * d.normalizedRadius * BOARD_RADIUS_PX;
-            float sx = AI_IMAGE_X + tx / WARPED_OUTPUT_SIZE * AI_IMAGE_SIZE;
-            float sy = AI_IMAGE_Y + ty / WARPED_OUTPUT_SIZE * AI_IMAGE_SIZE;
-
-            auto marker = std::make_shared<RenderShape>();
-            marker->m_type  = ShapeType::Circle;
-            marker->m_x     = sx;
-            marker->m_y     = sy;
-            marker->m_width = DART_MARKER_PX * 2.0f;
-            marker->m_color = {200, 80, 230};  // purple — readable on white/cream segments
-            marker->m_z     = BASE_Z + 2;
-            renderQueueAdd(fid, marker);
-        }
-    }
+    if(!m_captureStatus.empty())
+        label(m_captureStatus, LEFT_MARGIN, PREVIEW_Y+Preview::cameraHeight*PREVIEW_SCALE+43);
 
     // Detection-state badge — rendered AFTER the composite image so it
     // lands on top (the render queue draws in insertion order, not by
@@ -431,7 +344,7 @@ void VisionDebugScreen::render()
         if(!status.empty())
         {
             Color color = {180, 180, 190};
-            if(status.rfind("Detecting (entering", 0) == 0) color = {240, 220, 100};
+            if(status.rfind("Detecting (hand", 0) == 0) color = {240, 220, 100};
             else if(status.rfind("Detecting", 0) == 0)     color = {120, 220, 140};
             else if(status.rfind("Removing", 0) == 0)      color = {240, 130, 90};
 
@@ -542,7 +455,7 @@ void VisionDebugScreen::render()
     // Timing overlay — top-right corner, updated live
     {
         VISION_PROFILE_SCOPE(m_timings, "timingOverlay");
-        float ty = 80.0f;
+        float ty = 615.0f;
         for(const auto& e : m_timings.snapshot())
         {
             char buf[80];
@@ -556,7 +469,7 @@ void VisionDebugScreen::render()
             text->m_rotation = 0.0f;
             text->m_scaleX   = 1.0f;
             text->m_scaleY   = 1.0f;
-            text->m_x        = WINDOW_W - 340.0f;
+            text->m_x        = LEFT_MARGIN;
             text->m_y        = ty;
             text->m_z        = BASE_Z + 4;
             renderQueueAdd(fid, text);
@@ -564,16 +477,43 @@ void VisionDebugScreen::render()
         }
     }
 
+    {
+        std::string heatmapAge = "Waiting for heatmap";
+        if(m_displayedHeatmapTime != std::chrono::steady_clock::time_point{})
+        {
+            const auto age = std::chrono::duration_cast<std::chrono::milliseconds>(
+                std::chrono::steady_clock::now() - m_displayedHeatmapTime).count();
+            heatmapAge = "Heatmap age " + std::to_string(age) + " ms";
+        }
+        auto text = std::make_shared<RenderText>();
+        text->m_text = m_rateLabel + "    " + heatmapAge;
+        text->m_color = {200, 200, 210};
+        text->m_fontId = m_bodyFontId;
+        text->m_scaleX = text->m_scaleY = 1.0f;
+        // Keep the readout in the title row, above the shared game bar.
+        text->m_x = 620.0f;
+        text->m_y = TITLE_Y + 20.0f;
+        text->m_z = BASE_Z;
+        renderQueueAdd(fid, text);
+    }
+
     // Input hints
     std::vector<InputHint> hints;
     hints.push_back({SDLK_ESCAPE, SDL_GAMEPAD_BUTTON_EAST, "back"});
     hints.push_back({SDLK_R, SDL_GAMEPAD_BUTTON_WEST, "reset darts"});
+    if(m_displayedPreview)
+    {
+        hints.push_back({SDLK_C, SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER, "next camera"});
+        hints.push_back({SDLK_M, SDL_GAMEPAD_BUTTON_NORTH, "mark missed dart"});
+    }
     m_inputHints.render(fid, m_bodyFontId, LEFT_MARGIN, HINTS_Y, BASE_Z, hints);
 }
 
 
 void VisionDebugScreen::shutdown()
 {
+    setVisionPreviewEnabled(false);
+    m_displayedPreview.reset();
     if(m_compositeTexture)
     {
         SDL_DestroyTexture(m_compositeTexture);
@@ -620,6 +560,19 @@ void VisionDebugScreen::onKeyDown(uint32_t keycode)
         case SDLK_ESCAPE:
             loadGame(std::make_shared<MainMenu>());
             break;
+        case SDLK_C:
+            if(m_displayedPreview)
+                setVisionPreviewEnabled(true, (m_displayedPreview->camera + 1) % EXPECTED_CAMERA_COUNT);
+            break;
+        case SDLK_M:
+            if(m_displayedPreview)
+            {
+                const auto seq = m_displayedPreview->sequence;
+                if(markMissedVisionDart(*m_displayedPreview))
+                    m_captureStatus = "Saving missed dart on frame " + std::to_string(seq);
+                else m_captureStatus = "Capture unavailable or already pending";
+            }
+            break;
         case SDLK_R:
             resetDarts();
             break;
@@ -645,6 +598,12 @@ void VisionDebugScreen::onGamepadButton(uint8_t button, bool pressed)
     {
         case SDL_GAMEPAD_BUTTON_EAST:  // B
             onKeyDown(SDLK_ESCAPE);
+            break;
+        case SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER:
+            onKeyDown(SDLK_C);
+            break;
+        case SDL_GAMEPAD_BUTTON_NORTH:
+            onKeyDown(SDLK_M);
             break;
         case SDL_GAMEPAD_BUTTON_WEST:  // X
             onKeyDown(SDLK_R);

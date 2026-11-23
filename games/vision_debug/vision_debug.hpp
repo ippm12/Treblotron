@@ -1,7 +1,7 @@
 /**
  * vision_debug.hpp
  *
- * Vision debug screen. Displays a stub AI model output image,
+ * Vision debug screen. Displays synchronized segmentation and tip heatmap views,
  * a dartboard with hit markers, and a text list of tracked darts.
  * Allows force-resetting the vision system's dart state.
  */
@@ -60,13 +60,14 @@ class VisionDebugScreen : public Game
         std::vector<DartPosition>  m_hitPositions;
 
         SDL_Texture*          m_compositeTexture = nullptr;
-        CameraFrame           m_cameraFrames[3];
         bool                  m_lastBoardClear = true;
-
-        // Change-tracking: skip recomputing the composite when neither
-        // the camera frames nor the heatmap have new data.
-        uint64_t              m_lastCompositeFrameId = 0;
-        uint64_t              m_compositeFrameCounter = 0;
+        std::shared_ptr<const DartPreview> m_displayedPreview;
+        std::chrono::steady_clock::time_point m_displayedHeatmapTime{};
+        double                m_rateWindowStart = 0;
+        uint64_t              m_initialDetectionCount = 0;
+        unsigned              m_uiFrames = 0;
+        std::string           m_captureStatus;
+        std::string           m_rateLabel = "Measuring update rates...";
 
         FrameTimings          m_timings;
         double                m_lastLogSec = 0.0;

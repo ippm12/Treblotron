@@ -5,6 +5,8 @@
  */
 
 #include "detect/wire_calibration.hpp"
+#include "detect/inference_capture.hpp"
+#include <mutex>
 #include "dart/dart_defs.hpp"
 
 #include <opencv2/core.hpp>
@@ -61,6 +63,7 @@ struct WireCalibrationSlot
     bool                     calibrated = false;
 };
 
+static std::mutex f_calibrationMutex;
 static std::array<WireCalibrationSlot, EXPECTED_CAMERA_COUNT> f_slots;
 static std::array<cv::Point2f, WIRE_POINTS_PER_CAMERA> f_templatePoints;
 static bool f_initialized = false;
@@ -99,6 +102,7 @@ static void computeTemplatePoints()
 
 void initializeWireCalibration()
 {
+    std::lock_guard<std::mutex> lock(f_calibrationMutex);
     if(f_initialized)
     {
         return;
@@ -123,6 +127,7 @@ void initializeWireCalibration()
 
 void shutdownWireCalibration()
 {
+    std::lock_guard<std::mutex> lock(f_calibrationMutex);
     for(auto& slot : f_slots)
     {
         slot.points.clear();
@@ -214,6 +219,7 @@ bool isCameraCalibrated(uint32_t camIndex)
 
 void addWirePoint(uint32_t camIndex, float srcX, float srcY)
 {
+    std::lock_guard<std::mutex> lock(f_calibrationMutex);
     if(camIndex >= EXPECTED_CAMERA_COUNT) return;
 
     WireCalibrationSlot& slot = f_slots[camIndex];
@@ -233,6 +239,7 @@ void addWirePoint(uint32_t camIndex, float srcX, float srcY)
 
 void undoLastWirePoint(uint32_t camIndex)
 {
+    std::lock_guard<std::mutex> lock(f_calibrationMutex);
     if(camIndex >= EXPECTED_CAMERA_COUNT) return;
 
     WireCalibrationSlot& slot = f_slots[camIndex];
@@ -249,6 +256,7 @@ void undoLastWirePoint(uint32_t camIndex)
 
 void clearWirePoints(uint32_t camIndex)
 {
+    std::lock_guard<std::mutex> lock(f_calibrationMutex);
     if(camIndex >= EXPECTED_CAMERA_COUNT) return;
 
     WireCalibrationSlot& slot = f_slots[camIndex];
@@ -419,6 +427,7 @@ Status saveWireCalibration(const std::string& path)
 
 Status loadWireCalibration(const std::string& path)
 {
+    std::lock_guard<std::mutex> lock(f_calibrationMutex);
     std::ifstream in(path);
     if(!in)
     {
@@ -472,4 +481,17 @@ Status loadWireCalibration(const std::string& path)
 
     LOG_INFO(DETECT_LOG_ID, "Wire calibration loaded from {}", path);
     return STATUS_OK;
+}
+
+
+CameraTransforms captureCameraTransforms()
+{
+    std::lock_guard<std::mutex> lock(f_calibrationMutex);
+    CameraTransforms transforms;
+    for(uint32_t i = 0; i < transforms.size(); ++i)
+    {
+        transforms[i].calibrated = getCameraHomography(i, transforms[i].homography.data());
+        transforms[i].points = f_slots[i].points;
+    }
+    return transforms;
 }

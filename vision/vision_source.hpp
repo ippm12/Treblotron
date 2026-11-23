@@ -12,6 +12,9 @@
 #define VISION_SOURCE_HPP
 
 #include "common_inc.hpp"
+#include "vision/vision.hpp"
+#include <mutex>
+#include <atomic>
 #include "vision/vision_link.hpp"
 #include <cstdint>
 #include <functional>
@@ -21,7 +24,59 @@
 
 class VisionSource
 {
+    private:
+        mutable std::mutex m_previewMutex;
+        VisionPreviewStats m_previewStats;
+        std::atomic<bool> m_previewEnabled{false};
+        std::atomic<uint8_t> m_previewCamera{0};
+        std::shared_ptr<const DartPreview> m_preview;
+        std::chrono::steady_clock::time_point m_publishedAt{};
+
+    protected:
+        uint8_t previewCamera() const { return m_previewCamera.load(); }
+        bool previewEnabled() const { return m_previewEnabled.load(); }
+
+        void publishPreview(DartPreview frame)
+        {
+            std::lock_guard<std::mutex> lock(m_previewMutex);
+            if(!m_previewEnabled.load()) return;
+            m_preview = std::make_shared<DartPreview>(std::move(frame));
+            m_publishedAt = std::chrono::steady_clock::now();
+        }
+
+        void recordPreviewUpdate(bool detection, bool heatmap)
+        {
+            std::lock_guard<std::mutex> lock(m_previewMutex);
+            if(detection) ++m_previewStats.detectionCount;
+            if(heatmap)
+            {
+                ++m_previewStats.heatmapCount;
+                m_previewStats.heatmapPublished = std::chrono::steady_clock::now();
+            }
+        }
+
     public:
+        void setPreviewEnabled(bool enabled, uint8_t camera)
+        {
+            std::lock_guard<std::mutex> lock(m_previewMutex);
+            m_previewCamera.store(camera);
+            m_previewEnabled.store(enabled);
+            if(!enabled) m_preview.reset();
+        }
+
+        std::shared_ptr<const DartPreview> preview(std::chrono::steady_clock::time_point& published) const
+        {
+            std::lock_guard<std::mutex> lock(m_previewMutex);
+            published = m_publishedAt;
+            return m_preview;
+        }
+
+        VisionPreviewStats previewStats() const
+        {
+            std::lock_guard<std::mutex> lock(m_previewMutex);
+            return m_previewStats;
+        }
+
         virtual ~VisionSource() = default;
 
         /** Initialize the vision source. Called after the frame module is ready. */
@@ -134,6 +189,7 @@ class VisionSource
          * the server holds the exact frames the model saw — the client has
          * already moved on to a later set by the time a button press lands.
          */
+        virtual bool markMissed(const DartPreview&) { return false; }
         virtual bool requestCapture() { return false; }
 
         /**

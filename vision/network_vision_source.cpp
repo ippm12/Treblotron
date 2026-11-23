@@ -139,6 +139,17 @@ void NetworkVisionSource::clientThreadMain()
         // read as "connected but scoring nothing", i.e. a mild amber, for what
         // was actually a hard stop. State about a link must never outlive it.
         m_connected.store(false, std::memory_order_release);
+        {
+            std::lock_guard<std::mutex> lock(m_captureMutex);
+            m_pauseAwaitingReply = false;
+            m_captureRequested.store(false);
+            if(m_markAwaitingReply)
+            {
+                m_captureResult = "Connection lost before the missed dart save was confirmed";
+                m_markAwaitingReply = 0;
+                m_missedSequence.store(0);
+            }
+        }
         m_ready.store(false, std::memory_order_release);
         m_smoothedRttMs.store(-1.0f, std::memory_order_release);
         m_lastDetectionMs.store(0, std::memory_order_release);
@@ -194,7 +205,7 @@ bool NetworkVisionSource::runSession()
     hello.cameraCount  = getCameraCount();
     hello.nativeWidth  = 1280;
     hello.nativeHeight = 720;
-    hello.wantHeatmap  = true;   // cheap enough, and vision_debug needs it
+    hello.wantHeatmap  = false;  // Debug requests a synchronized preview per frame set.
     hello.wirePointsXY.resize(EXPECTED_CAMERA_COUNT);
     for(uint32_t cam = 0; cam < EXPECTED_CAMERA_COUNT; cam++)
     {
@@ -255,7 +266,7 @@ bool NetworkVisionSource::runSession()
     if(!dartSendSettings(sock, getVisionSettings())) return false;
 
     // ---- Serve loop ------------------------------------------------------
-    uint32_t sequence = 0;
+
     std::array<uint64_t, EXPECTED_CAMERA_COUNT> lastSeq{};
 
     // Holding a credit must never stop us reading. The server credits faster
@@ -281,7 +292,8 @@ bool NetworkVisionSource::runSession()
         if(!fresh) return false;
 
         DartFrames frames;
-        frames.sequence    = ++sequence;
+        frames.sequence    = ++m_frameSequence;
+        if(previewEnabled()) frames.previewCamera = previewCamera();
         frames.captureTime = static_cast<uint64_t>(
             std::chrono::duration_cast<std::chrono::microseconds>(
                 std::chrono::steady_clock::now().time_since_epoch()).count());
@@ -311,6 +323,8 @@ bool NetworkVisionSource::runSession()
             if(!dartSendSimple(sock, DartMsg::Reset)) return false;
         }
 
+        if(const auto seq = m_missedSequence.exchange(0))
+            if(!dartSendMarkMissed(sock,seq)) return false;
         if(m_captureRequested.exchange(false, std::memory_order_acq_rel))
         {
             if(!dartSendSimple(sock, DartMsg::SaveCapture)) return false;
@@ -408,6 +422,7 @@ bool NetworkVisionSource::runSession()
                                           std::memory_order_release);
                 }
 
+                recordPreviewUpdate(true, false);
                 m_boardClear.store(msg.boardClear, std::memory_order_release);
                 {
                     std::lock_guard<std::mutex> lock(m_statusMutex);
@@ -431,8 +446,24 @@ bool NetworkVisionSource::runSession()
                 LOG_INFO(VISION_LOG_ID, "capture {}: {}",
                          msg.ok ? "saved" : "failed", msg.message);
                 std::lock_guard<std::mutex> lock(m_captureMutex);
-                m_captureResult = msg.ok ? ("Saved on server: " + msg.message)
+                m_pauseAwaitingReply = false;
+                if(m_markAwaitingReply)
+                {
+                    m_captureResult = msg.ok ? "Marked missed dart on frame " + std::to_string(m_markAwaitingReply)
+                                             : "Capture failed: " + msg.message;
+                    m_markAwaitingReply = 0;
+                }
+                else m_captureResult = msg.ok ? ("Saved on server: " + msg.message)
                                          : ("Capture failed: " + msg.message);
+                break;
+            }
+
+            case DartMsg::Preview:
+            {
+                if(!previewEnabled()) break;
+                DartPreview preview;
+                if(!dartParsePreview(payload, preview)) return false;
+                publishPreview(std::move(preview));
                 break;
             }
 
@@ -450,6 +481,7 @@ bool NetworkVisionSource::runSession()
                 m_latestHeatmap  = std::move(heat);
                 m_latestHeatmapW = msg.width;
                 m_latestHeatmapH = msg.height;
+                recordPreviewUpdate(false, true);
                 break;
             }
 
@@ -570,11 +602,22 @@ std::string NetworkVisionSource::getDetectionStatus() const
 }
 
 
+bool NetworkVisionSource::markMissed(const DartPreview& preview)
+{
+    std::lock_guard<std::mutex> lock(m_captureMutex);
+    if(!m_connected.load() || !preview.sequence || m_markAwaitingReply || m_pauseAwaitingReply) return false;
+    m_markAwaitingReply = preview.sequence;
+    m_missedSequence.store(preview.sequence);
+    return true;
+}
+
 bool NetworkVisionSource::requestCapture()
 {
     // Only worth asking when there is a live session to ask; otherwise let the
     // caller fall back to a local save rather than silently doing nothing.
-    if(!m_connected.load(std::memory_order_acquire)) return false;
+    std::lock_guard<std::mutex> lock(m_captureMutex);
+    if(!m_connected.load() || m_markAwaitingReply || m_pauseAwaitingReply) return false;
+    m_pauseAwaitingReply = true;
     m_captureRequested.store(true, std::memory_order_release);
     return true;
 }

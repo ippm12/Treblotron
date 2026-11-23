@@ -12,6 +12,9 @@
 
 #include "common_inc.hpp"
 #include "detect/wire_calibration.hpp"  // EXPECTED_CAMERA_COUNT
+#include <chrono>
+#include <memory>
+#include "detect/dart_preview.hpp"
 #include <cstdint>
 #include <functional>
 #include <string>
@@ -50,6 +53,19 @@ void tickVision(float deltaTime);
  * Returns true if no vision source is active.
  */
 bool isBoardClear();
+
+// Counts completed inference results, including cycles with no dart or heatmap.
+struct VisionPreviewStats
+{
+    uint64_t detectionCount = 0;
+    uint64_t heatmapCount = 0;
+    // Local publication time, or time received by the network client.
+    std::chrono::steady_clock::time_point heatmapPublished{};
+};
+VisionPreviewStats getVisionPreviewStats();
+bool markMissedVisionDart(const DartPreview& preview);
+void setVisionPreviewEnabled(bool enabled, uint8_t camera = 0);
+std::shared_ptr<const DartPreview> getVisionPreview(std::chrono::steady_clock::time_point& published);
 
 /** Clear all tracked darts and reset the vision source's board state. */
 void resetVisionDarts();
@@ -210,6 +226,8 @@ bool getCameraFrame(uint32_t index, CameraFrame& outFrame);
  * genuinely new frame from one it has already handled.
  */
 uint64_t getCameraFrameSequence(uint32_t index);
+// Changes when a new warped preview (or passthrough JPEG) is available.
+uint64_t getCameraWarpedSequence(uint32_t index);
 
 /**
  * Copies the latest warped (720x720 template-space) RGB frame for the given
@@ -233,19 +251,9 @@ bool getCameraCompressedFrame(uint32_t index, std::vector<uint8_t>& out);
 #endif
 
 #ifdef TREBLOTRON_HAVE_LOCAL_INFERENCE
-/**
- * Copies the latest dart-segmentation input plane for the given camera into the
- * caller-provided buffer (NCHW float32, shape (3, 360, 640) — i.e. 3*360*640
- * floats). Produced on the capture thread by resizing the raw RGB to 640x360
- * and dividing by 255, in parallel with the other cameras' threads, so the
- * inference thread can just memcpy the planes into the seg engine's pinned
- * input buffer with no per-pixel work. Returns false if the camera has no
- * frame yet, the index is out of range, or `floatCount` is too small.
- *
- * Only available in local-inference builds — the remote and sim paths
- * have no use for it.
- */
-bool getCameraSegPlane(uint32_t index, float* out, size_t floatCount);
+// Read-only, matched raw image and prepared segmenter input. The caller's
+// cv::Mat references keep both buffers alive across subsequent acquisitions.
+bool getInferenceCameraFrame(uint32_t index, cv::Mat& rgb, cv::Mat& segPlane);
 
 /**
  * Publish a warped frame produced *outside* the camera capture thread (the TRT

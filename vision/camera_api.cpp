@@ -104,6 +104,7 @@ struct CameraSlot
      * the cameras produce, so without this it would forward duplicates.
      */
     std::atomic<uint64_t> frameSeq{0};
+    std::atomic<uint64_t> warpedSeq{0};
 
     std::mutex       frameMutex;
 
@@ -422,6 +423,7 @@ static void captureLoop(CameraSlot* slot)
                 if(haveWarp)
                 {
                     slot->latestWarped = warped.clone();
+                    slot->warpedSeq.fetch_add(1, std::memory_order_release);
                 }
 #endif
 #ifdef TREBLOTRON_HAVE_LOCAL_INFERENCE
@@ -789,6 +791,17 @@ uint64_t getCameraFrameSequence(uint32_t index)
 }
 
 
+uint64_t getCameraWarpedSequence(uint32_t index)
+{
+    if(index >= f_cameraCount.load(std::memory_order_acquire)) return 0;
+    const CameraSlot& slot = *f_cameras[index];
+#ifdef TREBLOTRON_PASSTHROUGH_CAPTURE
+    if(slot.passthroughActive.load(std::memory_order_acquire))
+        return slot.frameSeq.load(std::memory_order_acquire);
+#endif
+    return slot.warpedSeq.load(std::memory_order_acquire);
+}
+
 bool getCameraFrame(uint32_t index, CameraFrame& outFrame)
 {
     if(index >= f_cameraCount.load(std::memory_order_acquire))
@@ -847,28 +860,16 @@ bool getCameraWarpedFrame(uint32_t index, CameraFrame& outFrame)
 
 
 #ifdef TREBLOTRON_HAVE_LOCAL_INFERENCE
-bool getCameraSegPlane(uint32_t index, float* out, size_t floatCount)
+bool getInferenceCameraFrame(uint32_t index, cv::Mat& rgb, cv::Mat& segPlane)
 {
-    if(!out) return false;
     if(index >= f_cameraCount.load(std::memory_order_acquire)) return false;
-
     CameraSlot& slot = *f_cameras[index];
-
-    // Shallow-copy out under the lock; the actual byte memcpy is done outside
-    // so we don't hold the capture thread off for the full 2.7 MB transfer.
-    cv::Mat snapshot;
-    {
-        std::lock_guard<std::mutex> lock(slot.frameMutex);
-        snapshot = slot.latestSegPlane;
-    }
-    if(snapshot.empty() || !snapshot.isContinuous()) return false;
-    const size_t n = static_cast<size_t>(snapshot.total());
-    if(n > floatCount) return false;
-
-    std::memcpy(out, snapshot.ptr<float>(), n * sizeof(float));
-    return true;
+    std::lock_guard<std::mutex> lock(slot.frameMutex);
+    // Both buffers are immutable, reference-counted snapshots of one exposure.
+    rgb = slot.latestRaw;
+    segPlane = slot.latestSegPlane;
+    return !rgb.empty();
 }
-
 
 void publishCameraWarpedFrame(uint32_t index,
                               const uint8_t* pixels,
@@ -887,6 +888,7 @@ void publishCameraWarpedFrame(uint32_t index,
 
     std::lock_guard<std::mutex> lock(slot.frameMutex);
     slot.latestWarped = std::move(owned);
+    slot.warpedSeq.fetch_add(1, std::memory_order_release);
 }
 #endif
 

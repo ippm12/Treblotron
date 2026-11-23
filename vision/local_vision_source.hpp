@@ -25,6 +25,7 @@
 #include <atomic>
 #include <cstdint>
 #include <mutex>
+#include <future>
 #include <queue>
 #include <string>
 #include <thread>
@@ -37,6 +38,8 @@ class LocalVisionSource : public VisionSource
         LocalVisionSource();
         ~LocalVisionSource() override;
 
+        bool markMissed(const DartPreview& preview) override;
+        std::string consumeCaptureResult() override;
         Status init() override;
         void   tick(float deltaTime) override;
         void   shutdown() override;
@@ -65,6 +68,7 @@ class LocalVisionSource : public VisionSource
         void inferenceLoop();
 
         DartDetector m_detector;
+        std::future<std::string> m_markResult;  // UI thread polls for completion
 
         std::thread       m_thread;
         std::atomic<bool> m_running{false};

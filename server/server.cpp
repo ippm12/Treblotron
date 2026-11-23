@@ -17,6 +17,8 @@
  */
 
 #include "server/server.hpp"
+#include "detect/inference_capture.hpp"
+#include <deque>
 #include "detect/wire_calibration.hpp"
 #include "net/dart_protocol.hpp"
 #include "net/net_socket.hpp"
@@ -269,139 +271,6 @@ namespace
     }
 
 
-    /**
-     * Write the frame set just scored, plus the homography that turns each one
-     * into the canonical view, under `captureDir`.
-     *
-     * Saved here rather than on the client because these are the exact frames
-     * the model saw. Newest-wins drop means the client is already holding a
-     * later set by the time a button reaches us, so a client-side save would
-     * preserve the aftermath of a miss rather than the miss.
-     *
-     * The transform is written, not the warped image. The warp is derivable
-     * from the homography at any time; the homography is not derivable from
-     * anything else once the rig moves, so it is the part actually worth
-     * keeping. It also saves three PNG encodes per capture, which matters when
-     * --capture-on-detect is firing on every dart.
-     *
-     * Layout mirrors the training repo — {stem}_camN.png alongside a
-     * {stem}.json of transforms — so a capture drops straight into
-     * data/images, merges into board_detections.json, and replays as-is.
-     */
-    std::string saveCapture(const std::array<cv::Mat, EXPECTED_CAMERA_COUNT>& frames,
-                            const std::string& captureDir, bool& ok)
-    {
-        ok = false;
-        std::error_code ec;
-        std::filesystem::create_directories(captureDir, ec);
-        if(ec) return "could not create " + captureDir;
-
-        // Timestamped stem: sortable, and lines up with the server log so a
-        // capture can be matched to the cycle that produced it.
-        const auto now = std::chrono::system_clock::now();
-        const auto t   = std::chrono::system_clock::to_time_t(now);
-        const auto ms  = std::chrono::duration_cast<std::chrono::milliseconds>(
-                             now.time_since_epoch()).count() % 1000;
-        // Accommodate the full int ranges in std::tm as well as normal dates;
-        // GCC's fortified snprintf checks those ranges in release builds.
-        char stem[96];
-        std::tm tm{};
-#ifdef _WIN32
-        localtime_s(&tm, &t);
-#else
-        localtime_r(&t, &tm);
-#endif
-        std::snprintf(stem, sizeof(stem), "%04d%02d%02d-%02d%02d%02d-%03d",
-                      tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday,
-                      tm.tm_hour, tm.tm_min, tm.tm_sec, static_cast<int>(ms));
-
-        // One sidecar per capture rather than appends to a shared index: a
-        // capture directory stays self-describing when copied around, and two
-        // captures can never interleave in the same file.
-        //
-        // Full double precision throughout. A homography is only meaningful to
-        // the last digit - rounding h20/h21 (which are ~1e-4) visibly shears the
-        // warp - so readability loses to exactness here.
-        std::ostringstream json;
-        json << std::setprecision(17);
-        json << "{\n";
-        json << "  \"stem\": \"" << stem << "\",\n";
-        json << "  \"canonical_size\": " << WARPED_OUTPUT_SIZE << ",\n";
-        json << "  \"cameras\": {\n";
-
-        uint32_t written = 0;
-        uint32_t described = 0;
-        cv::Mat bgr;
-        for(uint32_t cam = 0; cam < EXPECTED_CAMERA_COUNT; cam++)
-        {
-            if(frames[cam].empty()) continue;
-
-            // Everything in the pipeline is RGB; imwrite expects BGR.
-            cv::cvtColor(frames[cam], bgr, cv::COLOR_RGB2BGR);
-            const std::string name = std::string(stem) + "_cam"
-                                   + std::to_string(cam) + ".png";
-            if(!cv::imwrite(captureDir + "/" + name, bgr))
-            {
-                LOG_ERROR(SERVER_LOG_ID, "could not write {}/{}", captureDir, name);
-                continue;
-            }
-            written++;
-
-            double h[9];
-            if(!getCameraHomography(cam, h))
-            {
-                // The image is still worth keeping - it can be re-annotated
-                // later - but say so, because a silently transform-less capture
-                // is useless as training data.
-                LOG_WARNING(SERVER_LOG_ID, "cam {} has no homography; {} saved "
-                         "without a transform", cam, name);
-                continue;
-            }
-
-            if(described++ > 0) json << ",\n";
-            json << "    \"" << cam << "\": {\n";
-            json << "      \"image\": \"" << name << "\",\n";
-            json << "      \"width\": "  << frames[cam].cols
-                 << ", \"height\": "     << frames[cam].rows << ",\n";
-            json << "      \"homography\": [";
-            for(int k = 0; k < 9; k++) json << (k > 0 ? ", " : "") << h[k];
-            json << "],\n";
-
-            // The clicked points are the ground truth the homography was fitted
-            // from. Kept so a capture can be re-fitted or hand-corrected in the
-            // training repo without redoing the calibration by eye.
-            json << "      \"wire_points\": [";
-            const uint32_t pointCount = getWirePointCount(cam);
-            for(uint32_t p = 0; p < pointCount; p++)
-            {
-                float x = 0.0f;
-                float y = 0.0f;
-                if(!getWirePoint(cam, p, x, y)) break;
-                json << (p > 0 ? ", " : "") << "[" << x << ", " << y << "]";
-            }
-            json << "]\n";
-            json << "    }";
-        }
-
-        json << "\n  }\n}\n";
-
-        if(written == 0) return "no usable frames to save";
-
-        const std::string sidecar = captureDir + "/" + stem + ".json";
-        {
-            std::ofstream out(sidecar, std::ios::binary);
-            out << json.str();
-            if(!out) LOG_ERROR(SERVER_LOG_ID, "could not write {}", sidecar);
-        }
-
-        ok = true;
-        const std::string where = captureDir + "/" + stem + "_cam*.png";
-        LOG_INFO(SERVER_LOG_ID, "saved capture: {} ({} cameras, {} transforms)",
-                 where, written, described);
-        return where;
-    }
-
-
     bool sendHeatmapIfWanted(NetSocket& sock, bool wanted, std::mutex& sendMutex)
     {
         if(!wanted || !f_config.allowHeatmap) return true;
@@ -440,6 +309,10 @@ namespace
         std::mutex              mutex;
         std::condition_variable frameReady;
         DartFrames              latest;
+        // Keep the original encoded triples for recent previews. Late marks
+        // fail explicitly if their sequence has already expired.
+        std::deque<DartFrames> previews;
+        std::mutex previewsMutex;
         bool                    hasFrame = false;
         uint64_t                dropped  = 0;   // overwritten before being scored
 
@@ -552,6 +425,36 @@ namespace
                     break;
                 }
 
+                case DartMsg::MarkMissed:
+                {
+                    uint32_t sequence;
+                    if(!dartParseMarkMissed(payload, sequence))
+                    {
+                        st.linkDown = true;
+                        st.frameReady.notify_all();
+                        return;
+                    }
+                    DartFrames original;
+                    {
+                        std::lock_guard<std::mutex> lock(st.previewsMutex);
+                        for(const auto& frame : st.previews)
+                            if(frame.sequence==sequence) { original=frame; break; }
+                    }
+                    DartCaptureSaved saved;
+                    saved.message = "Preview expired. Mark a current frame.";
+                    CameraImages decoded;
+                    if(!original.jpegs.empty() && decodeFrames(original,decoded))
+                        saved.message = saveInferenceCapture(decoded,captureCameraTransforms(),
+                            f_config.captureDir,sequence,true,saved.ok);
+                    std::lock_guard<std::mutex> lock(st.sendMutex);
+                    if(!dartSendCaptureSaved(sock,saved))
+                    {
+                        st.linkDown = true;
+                        st.frameReady.notify_all();
+                        return;
+                    }
+                    break;
+                }
                 case DartMsg::Reset:
                     LOG_INFO(SERVER_LOG_ID, "client {} requested a board reset", peer);
                     st.resetPending.store(true, std::memory_order_release);
@@ -749,6 +652,7 @@ namespace
 
         std::array<cv::Mat, EXPECTED_CAMERA_COUNT> frames;
         DartDetectorResult result;
+        std::chrono::steady_clock::time_point nextPreview{};
         uint64_t cycles = 0;
         bool     lastBoardClear = true;   // matches the freshly-reset detector
 
@@ -806,7 +710,8 @@ namespace
             const bool haveFrames = decodeFrames(msg, frames);
             const auto tDecoded   = std::chrono::steady_clock::now();
 
-            if(haveFrames && f_detector.run(frames, nullptr, result))
+            const bool detected = haveFrames && f_detector.run(frames, nullptr, result);
+            if(detected)
             {
                 reply.boardClear = result.boardClear;
                 reply.status     = result.status;
@@ -833,15 +738,32 @@ namespace
                 std::lock_guard<std::mutex> sendLock(st.sendMutex);
                 if(!dartSendDetection(sock, reply)) break;
             }
+            if(detected && msg.previewCamera && f_config.allowHeatmap && t0 >= nextPreview)
+            {
+                // Bound preview bandwidth while detection keeps its full cadence.
+                nextPreview = t0 + std::chrono::milliseconds(100);
+                DartPreview preview;
+                if(f_detector.makePreview(frames, msg.sequence, *msg.previewCamera, preview))
+                {
+                    std::lock_guard<std::mutex> lock(st.sendMutex);
+                    {
+                        std::lock_guard<std::mutex> history(st.previewsMutex);
+                        if(st.previews.size()==8) st.previews.pop_front();
+                        st.previews.push_back(std::move(msg));
+                    }
+                    if(!dartSendPreview(sock, preview)) break;
+                }
+            }
             if(!sendHeatmapIfWanted(sock, hello.wantHeatmap, st.sendMutex)) break;
 
             // Auto-capture on a confirmed dart. Uses the same path as a manual
             // request, so it writes the very frames the detection was made on
             // rather than whatever arrives after someone notices a bad score.
-            if(captureOnDetect && !result.newDarts.empty())
+            if(detected && captureOnDetect && !result.newDarts.empty())
             {
                 bool autoOk = false;
-                const std::string where = saveCapture(frames, f_config.captureDir, autoOk);
+                const std::string where = saveInferenceCapture(frames,captureCameraTransforms(),f_config.captureDir,reply.sequence,false,autoOk);
+                if(!autoOk) LOG_ERROR(SERVER_LOG_ID, "Automatic capture failed: {}", where);
                 if(autoOk)
                 {
                     LOG_INFO(SERVER_LOG_ID, "capture-on-detect: {} (angle={:.1f} r={:.3f})",
@@ -853,7 +775,7 @@ namespace
             if(st.savePending.exchange(false, std::memory_order_acq_rel))
             {
                 DartCaptureSaved saved;
-                saved.message = saveCapture(frames, f_config.captureDir, saved.ok);
+                saved.message = saveInferenceCapture(frames,captureCameraTransforms(),f_config.captureDir,reply.sequence,false,saved.ok);
                 std::lock_guard<std::mutex> sendLock(st.sendMutex);
                 if(!dartSendCaptureSaved(sock, saved)) break;
             }

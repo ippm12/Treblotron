@@ -11,6 +11,7 @@
  */
 
 #include "net/dart_protocol.hpp"
+#include "detect/wire_calibration.hpp"
 
 #include <cstring>
 
@@ -202,11 +203,19 @@ bool dartSendWantFrames(NetSocket& sock, uint32_t credits)
 }
 
 
+bool dartSendMarkMissed(NetSocket& sock, uint32_t sequence)
+{
+    Writer w;
+    w.u32(sequence);
+    return sendFramed(sock,DartMsg::MarkMissed,w);
+}
+
 bool dartSendFrames(NetSocket& sock, const DartFrames& msg)
 {
     Writer w;
     w.u32(msg.sequence);
     w.u64(msg.captureTime);
+    w.u8(msg.previewCamera ? 1 + *msg.previewCamera : 0);
     w.u32(static_cast<uint32_t>(msg.jpegs.size()));
     for(const std::vector<uint8_t>& j : msg.jpegs) w.bytes(j);
     return sendFramed(sock, DartMsg::Frames, w);
@@ -228,6 +237,51 @@ bool dartSendDetection(NetSocket& sock, const DartDetectionMsg& msg)
     return sendFramed(sock, DartMsg::Detection, w);
 }
 
+
+bool dartSendPreview(NetSocket& sock, const DartPreview& p)
+{
+    Writer w;
+    using P = DartPreview;
+    if(p.camera >= 3 || p.rgb.size() != P::cameraPixels * 3 ||
+       p.maskBits.size() != P::cameraPixels/8 || p.boardGray.size() != P::boardPixels ||
+       p.heat.size() != P::boardPixels || p.tips.size() > 512 || p.tips.size()%2)
+        return false;
+    w.u32(p.sequence);
+    w.u8(p.camera);
+    w.raw(p.rgb.data(), p.rgb.size());
+    w.raw(p.maskBits.data(), p.maskBits.size());
+    w.raw(p.boardGray.data(), p.boardGray.size());
+    w.raw(p.heat.data(), p.heat.size());
+    w.u16(static_cast<uint16_t>(p.tips.size()));
+    for(auto coordinate : p.tips) w.u16(coordinate);
+    return sendFramed(sock, DartMsg::Preview, w);
+}
+
+bool dartParsePreview(const std::vector<uint8_t>& payload, DartPreview& p)
+{
+    using P = DartPreview;
+    constexpr size_t fixed = 7 + P::cameraPixels * 3 + P::cameraPixels/8 + 2 * P::boardPixels;
+    if(payload.size() < fixed || payload.size() > fixed + 1024) return false;
+    Reader r(payload);
+    p.sequence = r.u32();
+    p.camera = r.u8();
+    if(p.camera >= 3) return false;
+    p.rgb.resize(P::cameraPixels*3);
+    p.maskBits.resize(P::cameraPixels/8);
+    p.boardGray.resize(P::boardPixels);
+    p.heat.resize(P::boardPixels);
+    for(auto* plane : {&p.rgb, &p.maskBits, &p.boardGray, &p.heat})
+        if(!r.take(plane->data(), plane->size())) return false;
+    const size_t count = r.u16();
+    if(count%2 || payload.size()!=fixed+2*count) return false;
+    p.tips.resize(count);
+    for(auto& coordinate : p.tips)
+    {
+        coordinate = r.u16();
+        if(coordinate >= P::boardSize) return false;
+    }
+    return r.ok;
+}
 
 bool dartSendHeatmap(NetSocket& sock, const DartHeatmapMsg& msg)
 {
@@ -336,6 +390,14 @@ bool dartParseInitProgress(const std::vector<uint8_t>& payload, DartInitProgress
 }
 
 
+bool dartParseMarkMissed(const std::vector<uint8_t>& payload, uint32_t& sequence)
+{
+    Reader reader(payload);
+    sequence = reader.u32();
+    return reader.ok && payload.size() == sizeof(sequence);
+}
+
+
 bool dartParseWantFrames(const std::vector<uint8_t>& payload, uint32_t& credits)
 {
     Reader r(payload);
@@ -349,6 +411,10 @@ bool dartParseFrames(const std::vector<uint8_t>& payload, DartFrames& out)
     Reader r(payload);
     out.sequence    = r.u32();
     out.captureTime = r.u64();
+    const uint8_t request = r.u8();
+    if(request > EXPECTED_CAMERA_COUNT) return false;
+    out.previewCamera.reset();
+    if(request) out.previewCamera = request - 1;
 
     const uint32_t cams = r.u32();
     if(!r.ok || cams > 16) return false;

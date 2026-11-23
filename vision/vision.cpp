@@ -183,6 +183,26 @@ bool consumeBoardResetRequest()
 }
 
 
+bool markMissedVisionDart(const DartPreview& preview)
+{
+    return f_visionSource && f_visionSource->markMissed(preview);
+}
+
+void setVisionPreviewEnabled(bool enabled, uint8_t camera)
+{
+    if(f_visionSource) f_visionSource->setPreviewEnabled(enabled, camera);
+}
+
+std::shared_ptr<const DartPreview> getVisionPreview(std::chrono::steady_clock::time_point& published)
+{
+    return f_visionSource ? f_visionSource->preview(published) : nullptr;
+}
+
+VisionPreviewStats getVisionPreviewStats()
+{
+    return f_visionSource ? f_visionSource->previewStats() : VisionPreviewStats{};
+}
+
 bool getLatestVisionHeatmap(std::vector<float>& out, uint32_t& width, uint32_t& height)
 {
     if(!f_visionSource) return false;

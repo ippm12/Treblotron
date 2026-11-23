@@ -38,10 +38,12 @@
 #define NET_DART_PROTOCOL_HPP
 
 #include "common_inc.hpp"
+#include "detect/dart_preview.hpp"
 #include "detect/dart_tuning.hpp"
 #include "net/net_socket.hpp"
 
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -49,11 +51,14 @@
 /**
  * Bump on any incompatible change; HelloAck rejects a mismatch.
  *
+ * 5: Frames can select which camera appears in the debug preview.
+ * 4: MarkMissed selects an original camera set by its displayed preview sequence.
+ * 3: Frames can request a synchronized segmentation and heatmap preview.
  * 2: added Settings. A v1 server would log the message as unexpected and keep
  *    running on its own thresholds, so the client's settings screen would
  *    silently do nothing — worse than a refused connection that says why.
  */
-constexpr uint32_t DART_PROTOCOL_VERSION = 2;
+constexpr uint32_t DART_PROTOCOL_VERSION = 5;
 
 /** 'DLNS' — sanity check that we're framed correctly on the stream. */
 constexpr uint32_t DART_PROTOCOL_MAGIC = 0x534E4C44u;
@@ -71,6 +76,7 @@ enum class DartMsg : uint16_t
     Bye          = 4,
     SaveCapture  = 5,
     Settings     = 6,
+    MarkMissed   = 7,
 
     // server → client
     HelloAck     = 128,
@@ -79,6 +85,7 @@ enum class DartMsg : uint16_t
     Detection    = 131,
     Heatmap      = 132,
     CaptureSaved = 133,
+    Preview      = 134,
 };
 
 
@@ -165,6 +172,7 @@ struct DartInitProgress
 struct DartFrames
 {
     uint32_t sequence    = 0;
+    std::optional<uint8_t> previewCamera; // Zero-based, absent during games.
     uint64_t captureTime = 0;  // microseconds, client clock; for latency logging
 
     /** Per camera, a JPEG. Empty means that camera had no frame this cycle. */
@@ -212,8 +220,11 @@ bool dartSendHello       (NetSocket& sock, const DartHello& msg);
 bool dartSendHelloAck    (NetSocket& sock, const DartHelloAck& msg);
 bool dartSendInitProgress(NetSocket& sock, const DartInitProgress& msg);
 bool dartSendWantFrames  (NetSocket& sock, uint32_t credits);
+bool dartSendMarkMissed(NetSocket& sock, uint32_t sequence);
 bool dartSendFrames      (NetSocket& sock, const DartFrames& msg);
 bool dartSendDetection   (NetSocket& sock, const DartDetectionMsg& msg);
+bool dartSendPreview(NetSocket& sock, const DartPreview& preview);
+bool dartParsePreview(const std::vector<uint8_t>& payload, DartPreview& preview);
 bool dartSendHeatmap     (NetSocket& sock, const DartHeatmapMsg& msg);
 bool dartSendSettings    (NetSocket& sock, const DartVisionSettings& msg);
 bool dartSendSimple      (NetSocket& sock, DartMsg type);   // Reset, Bye, SaveCapture
@@ -235,6 +246,7 @@ bool dartSendCaptureSaved(NetSocket& sock, const DartCaptureSaved& msg);
 bool dartParseHello       (const std::vector<uint8_t>& payload, DartHello& out);
 bool dartParseHelloAck    (const std::vector<uint8_t>& payload, DartHelloAck& out);
 bool dartParseInitProgress(const std::vector<uint8_t>& payload, DartInitProgress& out);
+bool dartParseMarkMissed(const std::vector<uint8_t>& payload, uint32_t& sequence);
 bool dartParseWantFrames  (const std::vector<uint8_t>& payload, uint32_t& credits);
 bool dartParseFrames      (const std::vector<uint8_t>& payload, DartFrames& out);
 bool dartParseDetection   (const std::vector<uint8_t>& payload, DartDetectionMsg& out);

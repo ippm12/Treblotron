@@ -232,9 +232,26 @@ adjust them where you are standing.
 
 ## When something is wrong
 
-**Darts are not registering.** Check the calibration first — the Vision Debug
-screen shows what the model sees. Then check the link indicator if you are on a
-Pi.
+**Darts are not registering.** Open **Vision Debug**. The cyan outline on
+the camera image shows which pixels the segmenter picked up. Red on the
+aligned board shows where the detector thinks the tip is, and a purple ring
+marks a confirmed tip. Both views show the same numbered frame. Check
+calibration if the outline follows the dart but the tip appears in the wrong
+segment. On a Pi, check the link indicator if the heatmap age keeps rising.
+
+The Pi client and inference server must both support protocol 5 for this
+version. The client requests previews while Vision Debug is open, and the
+server can suppress them with `--no-heatmap`. Press **C** or **right bumper**
+to cycle through calibrated cameras. Both overlays follow the selected view.
+Saving a capture still includes all contributing cameras.
+
+Enable **Save every dart** in vision settings to save the original camera PNGs
+and a calibration JSON sidecar for each confirmed detection in games and Vision
+Debug. Look in the inference machine's `captures/` directory (the Jetson for
+local play, the server for network play). In Vision Debug, press **M** or the
+controller's **north/Y button** when a visible dart was missed. This saves the
+displayed frame with `"missed_dart": true` and its frame sequence, even when
+automatic saving is off.
 
 **One throw scores twice.** Raise *Hold before counting*. A dart still in
 flight can briefly look like it landed.
