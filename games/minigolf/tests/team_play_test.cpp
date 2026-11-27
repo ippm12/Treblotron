@@ -22,10 +22,10 @@ void test_team_play()
         setupTeams(TeamMode::AlternateShot);
         assert(g.m_players.size()==2 && g.activeMember()==0);
         const auto shared=g.m_players[0].ballBody;
-        g.onTurnSkipped(); assert(g.m_currentPlayer==1 && g.activeMember()==3);
-        g.onTurnSkipped(); assert(g.m_currentPlayer==0 && g.activeMember()==1);
+        g.onDartsCollected(); assert(g.m_currentPlayer==1 && g.activeMember()==3);
+        g.onDartsCollected(); assert(g.m_currentPlayer==0 && g.activeMember()==1);
         assert(g.m_players[0].ballBody.index1==shared.index1);
-        g.onTurnSkipped(); g.onTurnSkipped();
+        g.onDartsCollected(); g.onDartsCollected();
         assert(g.m_currentPlayer==0 && g.activeMember()==2 && g.m_players[0].strokes[0]==6);
         g.advanceToNextHole(); g.beginNextTurn();
         assert(g.m_teams[0].cursor==1 && g.m_currentPlayer==1);
@@ -35,7 +35,7 @@ void test_team_play()
         // A pending position from the old attempt cannot follow a synchronous
         // turn skip into the next teammate's attempt.
         g.onDartPositionCalculated(0,0.2f);
-        g.onTurnSkipped();
+        g.onDartsCollected();
         assert(g.activeMember()==1);
         g.update(0);
         assert(g.m_players[0].strokes[0]==0);
@@ -44,21 +44,23 @@ void test_team_play()
             assert(g.activeMember()==attempt);
             assert(near(position(g).x,course.holes[0].startPos.x));
             place(g,{500.0f+100*attempt,700});
-            g.onTurnSkipped();
+            g.onDartsCollected();
         }
         assert(g.m_phase==Phase::ScrambleChoice && g.m_players[0].strokes[0]==0);
         assert(g.m_teams[0].attempts.size()==3);
         g.chooseScramble(1);
         assert(g.m_players[0].strokes[0]==3 && near(position(g).x,600));
         assert(g.m_currentPlayer==1 && g.activeMember()==3);
-        g.onTurnSkipped(); assert(g.m_phase==Phase::ScrambleChoice);
+        g.onDartsCollected(); assert(g.m_phase==Phase::ScrambleChoice);
         g.chooseScramble(0);
         assert(g.m_currentPlayer==0 && g.m_players[0].strokes[0]==3);
         assert(g.m_teams[0].baseStrokes==3);
         // Selecting a one-putt hole-out commits only that attempt's score.
         g.m_players[0].strokes[0]=4;
         g.holeOutPlayer(0); g.onBallSettled();
-        g.onTurnSkipped(); g.onTurnSkipped();
+        assert(g.m_waitingForCollect);
+        g.onDartsCollected();
+        g.onDartsCollected(); g.onDartsCollected();
         assert(g.m_phase==Phase::ScrambleChoice);
         assert(g.m_teams[0].attempts[0].holed);
         g.onMouseClick(COURSE_VIEW_W+50,195,1);
@@ -67,11 +69,12 @@ void test_team_play()
     }
     for(const auto mode:{TeamMode::AlternateShot,TeamMode::Scramble}) {
         setupTeams(mode);
-        if(mode==TeamMode::Scramble) {g.onTurnSkipped();g.onTurnSkipped();g.onTurnSkipped();
+        if(mode==TeamMode::Scramble) {g.onDartsCollected();g.onDartsCollected();g.onDartsCollected();
             assert(g.m_phase==Phase::ScrambleChoice);
         }
         assert(!g.getPauseActions().empty());
         g.onPauseAction(0);
+        if(g.m_waitingForCollect) g.onDartsCollected();
         assert(g.m_players[0].strokes[0]==STROKE_CAP && g.m_players[0].finishedHole[0]);
         assert(!b2Body_IsValid(g.m_players[0].ballBody));
         assert(g.m_teams[0].attempts.empty() && g.m_currentPlayer==1);

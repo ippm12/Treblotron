@@ -9,6 +9,7 @@ int main()
 {
     const float threshold = DART_PEAK_LOGIT_THRESHOLD;
     float values[] = {-10.0f, std::nextafter(threshold, -INFINITY), -4.0f};
+    assert(findDartHeatmapPeak(values, 3).valid());
     assert(!findDartHeatmapPeak(values, 3).present());
     values[1] = threshold;
     assert(findDartHeatmapPeak(values, 3).present());
@@ -16,7 +17,8 @@ int main()
     assert(findDartHeatmapPeak(values, 3).index == 2);
     values[1] = std::numeric_limits<float>::quiet_NaN();
     assert(!findDartHeatmapPeak(values, 3).present());
-    assert(!findDartHeatmapPeak(nullptr, 0).present());
+    assert(!findDartHeatmapPeak(values, 3).valid());
+    assert(!findDartHeatmapPeak(nullptr, 0).valid());
     // Check the removed head's decisions over positive/negative real logits.
     for(int i = -2000; i <= 2000; ++i)
     {

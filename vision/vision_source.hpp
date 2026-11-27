@@ -12,6 +12,7 @@
 #define VISION_SOURCE_HPP
 
 #include "common_inc.hpp"
+#include "detection_queue.hpp"
 #include "vision/vision.hpp"
 #include <mutex>
 #include <atomic>
@@ -88,22 +89,8 @@ class VisionSource
         /** Shut down the vision source and release resources. */
         virtual void shutdown() = 0;
 
-        /** Returns true if no darts are on the board. */
-        virtual bool isBoardClear() const = 0;
-
         /** Clear all tracked darts and reset the board state. */
         virtual void resetDarts() = 0;
-
-        /**
-         * Returns true once if the user has explicitly asked the board to
-         * be reset since the last call (e.g. clicked the sim's Collect
-         * Darts button). Distinct from isBoardClear() — fires even when
-         * the board was already clear. Default: never. Sources that don't
-         * have an explicit reset signal (real cameras) leave it as the
-         * default; the manager's isBoardClear() transition still catches
-         * the natural hand-clear case for them.
-         */
-        virtual bool consumeBoardResetRequest() { return false; }
 
         /**
          * Copy the latest inference heatmap (row-major, values in [0, 1]) out
@@ -200,16 +187,38 @@ class VisionSource
         virtual std::string consumeCaptureResult() { return {}; }
 
         /** Set callbacks for dart events. Pass nullptr to disconnect. */
-        void setCallbacks(std::function<void()> onDartLanded,
-                          std::function<void(float, float)> onDartPositionCalculated)
+        void setCallbacks(DartLandedCallback onDartLanded,
+                          DartPositionCallback onDartPositionCalculated,
+                          DartsCollectedCallback onDartsCollected)
         {
+            m_onDartsCollected = std::move(onDartsCollected);
             m_onDartLanded = std::move(onDartLanded);
             m_onDartPositionCalculated = std::move(onDartPositionCalculated);
         }
 
     protected:
-        std::function<void()>          m_onDartLanded;
-        std::function<void(float, float)> m_onDartPositionCalculated;
+        DartsCollectedCallback m_onDartsCollected;
+        DartLandedCallback m_onDartLanded;
+        DartPositionCallback m_onDartPositionCalculated;
+};
+
+// Local and network inference both deliver complete results on the game thread.
+class CameraVisionSource : public VisionSource
+{
+public:
+    void tick(float) final
+    {
+        const auto frame = m_detections.take();
+        for(const auto& dart : frame.darts)
+        {
+            if(m_onDartLanded) m_onDartLanded();
+            if(m_onDartPositionCalculated) m_onDartPositionCalculated(dart.angle, dart.normalizedRadius);
+        }
+        if(frame.collected && m_onDartsCollected) m_onDartsCollected();
+    }
+
+protected:
+    DetectionQueue m_detections;
 };
 
 typedef std::shared_ptr<VisionSource> VisionSourcePtr;

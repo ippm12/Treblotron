@@ -654,7 +654,6 @@ namespace
         DartDetectorResult result;
         std::chrono::steady_clock::time_point nextPreview{};
         uint64_t cycles = 0;
-        bool     lastBoardClear = true;   // matches the freshly-reset detector
 
         // Session-scoped rather than written back into f_config: a client's
         // preferences belong to that client. Leaving them behind would have the
@@ -688,7 +687,6 @@ namespace
                 // Applied here rather than on the reader thread so it can never
                 // land in the middle of a run().
                 f_detector.reset();
-                lastBoardClear = true;
             }
 
             if(st.settingsPending.exchange(false, std::memory_order_acq_rel))
@@ -707,32 +705,28 @@ namespace
             DartDetectionMsg reply;
             reply.sequence = msg.sequence;
 
-            const bool haveFrames = decodeFrames(msg, frames);
+            decodeFrames(msg, frames);
             const auto tDecoded   = std::chrono::steady_clock::now();
 
-            const bool detected = haveFrames && f_detector.run(frames, nullptr, result);
+            const bool detected = f_detector.run(frames, nullptr, result);
             if(detected)
             {
-                reply.boardClear = result.boardClear;
                 reply.status     = result.status;
-                for(const DartDetection& d : result.newDarts)
+                reply.darts = result.newDarts;
+                for(const DartDetection& d : reply.darts)
                 {
-                    reply.darts.push_back({d.angle, d.normalizedRadius});
                     LOG_INFO(SERVER_LOG_ID, "dart: angle={:.1f} r={:.3f}",
                              d.angle, d.normalizedRadius);
                 }
             }
             else
             {
-                // Nothing usable this cycle (no calibrated camera with a frame,
-                // or an inference hiccup). We must not invent a board state:
-                // the game ends a turn on the not-clear → clear transition, so
-                // reporting "clear" here would cut a turn short over a single
-                // dropped frame. Repeat the last real answer.
-                reply.boardClear = lastBoardClear;
+                // A dropped frame emits no collection. Keep the detector's
+                // latched level for older clients that infer the event.
                 reply.status     = "no usable frames";
             }
-            lastBoardClear = reply.boardClear;
+            reply.boardClear = f_detector.isBoardClear();
+            reply.collected = detected && result.collected;
 
             {
                 std::lock_guard<std::mutex> sendLock(st.sendMutex);

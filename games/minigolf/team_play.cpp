@@ -1,6 +1,5 @@
 #include "minigolf.hpp"
 #include "players/players.hpp"
-#include "vision/vision.hpp"
 #include "game_lib/components/render_shape.hpp"
 #include "game_lib/components/render_text.hpp"
 #include "frame/render_queue.hpp"
@@ -79,14 +78,13 @@ bool MiniGolfGame::finishTeamAttempt()
     team.attemptStarted=false;
     ++team.attemptsTaken;
     m_throwsRemainingInTurn=0;
-    m_waitingForCollect=!isBoardClear();
     if(team.attemptsTaken>=team.members.size()) {
         m_phase=Phase::ScrambleChoice;
         m_scrambleChoice=0;
     } else {
         team.cursor=(team.cursor+1)%team.members.size();
         m_phase=Phase::Aiming;
-        if(!m_waitingForCollect) beginNextTurn();
+        beginNextTurn();
     }
     return true;
 }
@@ -110,7 +108,6 @@ void MiniGolfGame::chooseScramble(size_t choice)
     team.cursor=(team.cursor+1)%team.members.size();
     m_committingScramble=true;
     endCurrentTurn();
-    m_committingScramble=false;
 }
 void MiniGolfGame::onMouseClick(float x,float y,uint8_t button)
 {

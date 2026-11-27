@@ -27,13 +27,12 @@
 #include <chrono>
 #include <cstdint>
 #include <mutex>
-#include <queue>
 #include <string>
 #include <thread>
 #include <vector>
 
 
-class NetworkVisionSource : public VisionSource
+class NetworkVisionSource : public CameraVisionSource
 {
     public:
         NetworkVisionSource();
@@ -41,9 +40,7 @@ class NetworkVisionSource : public VisionSource
 
         bool markMissed(const DartPreview& preview) override;
         Status init() override;
-        void   tick(float deltaTime) override;
         void   shutdown() override;
-        bool   isBoardClear() const override;
         void   resetDarts() override;
         bool   getLatestHeatmap(std::vector<float>& out,
                                 uint32_t& width, uint32_t& height) const override;
@@ -79,7 +76,6 @@ class NetworkVisionSource : public VisionSource
         std::string        m_captureResult;
         bool               m_pauseAwaitingReply = false;
         uint32_t           m_markAwaitingReply = 0; // guarded by m_captureMutex
-        std::atomic<bool> m_boardClear{true};
 
         // Mirrors the server's build state so the loading screen can show it.
         // Stays "initializing" while we're still trying to connect, so an
@@ -107,9 +103,6 @@ class NetworkVisionSource : public VisionSource
         /** Smoothed so one slow cycle doesn't flip the indicator to amber. */
         std::atomic<float> m_smoothedRttMs{-1.0f};
         std::atomic<int64_t> m_lastDetectionMs{0};   // steady_clock ms, 0 = none yet
-
-        std::mutex                          m_eventMutex;
-        std::queue<std::pair<float, float>> m_newDartEvents;
 
         mutable std::mutex m_heatmapMutex;
         std::vector<float> m_latestHeatmap;

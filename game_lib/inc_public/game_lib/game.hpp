@@ -123,13 +123,14 @@ class Game
         virtual void onMissedThrow() {}
 
         /**
-         * The active turn was abandoned mid-throw (e.g. the user reset the
-         * board with their hand before exhausting their throws). Treat any
-         * remaining throws as missed and end the turn. Default impl loops
-         * onMissedThrow() while the bar still says PlayerTurn with throws
-         * remaining — sufficient for most games.
+         * Main-thread message from vision after a completed pickup, including
+         * an empty-board gesture. The default forfeits the current throw budget.
+         * Turn-based games complete their handoff here.
          */
-        virtual void onTurnSkipped();
+        virtual void onDartsCollected();
+
+        /** A pickup during pause can release a finished turn when play resumes. */
+        virtual bool awaitingCollection() const { return false; }
 
     protected:
         /**

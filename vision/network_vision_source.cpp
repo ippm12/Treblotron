@@ -275,6 +275,8 @@ bool NetworkVisionSource::runSession()
     // socket, adding a camera period to every scoring event. Poll instead, and
     // send the moment we have both a credit and something new to send.
     bool creditHeld = false;
+    // v5 peers predating explicit collections only sent the latched board level.
+    bool previousBoardClear = true;
     auto lastHeard  = std::chrono::steady_clock::now();
 
     // Sends the newest captures, but only once at least one camera has produced
@@ -305,8 +307,7 @@ bool NetworkVisionSource::runSession()
         for(uint32_t cam = 0; cam < EXPECTED_CAMERA_COUNT; cam++)
         {
             if(cam >= camCount) continue;
-            lastSeq[cam] = getCameraFrameSequence(cam);
-            if(!getCameraCompressedFrame(cam, frames.jpegs[cam]))
+            if(!getCameraCompressedFrame(cam, frames.jpegs[cam], lastSeq[cam]))
             {
                 frames.jpegs[cam].clear();
             }
@@ -423,18 +424,12 @@ bool NetworkVisionSource::runSession()
                 }
 
                 recordPreviewUpdate(true, false);
-                m_boardClear.store(msg.boardClear, std::memory_order_release);
+                const bool collected = msg.collected.value_or(msg.boardClear && !previousBoardClear);
+                m_detections.publish(msg.darts, collected);
+                previousBoardClear = msg.boardClear;
                 {
                     std::lock_guard<std::mutex> lock(m_statusMutex);
                     m_detectionStatus = msg.status;
-                }
-                if(!msg.darts.empty())
-                {
-                    std::lock_guard<std::mutex> lock(m_eventMutex);
-                    for(const DartDetectionMsg::Dart& d : msg.darts)
-                    {
-                        m_newDartEvents.emplace(d.angle, d.normalizedRadius);
-                    }
                 }
                 break;
             }
@@ -512,32 +507,6 @@ void NetworkVisionSource::shutdown()
     shutdownWireCalibration();
     shutdownCameraSystem();
     LOG_INFO(VISION_LOG_ID, "NetworkVisionSource shut down");
-}
-
-
-void NetworkVisionSource::tick(float deltaTime)
-{
-    (void)deltaTime;
-
-    std::queue<std::pair<float, float>> drained;
-    {
-        std::lock_guard<std::mutex> lock(m_eventMutex);
-        std::swap(drained, m_newDartEvents);
-    }
-
-    while(!drained.empty())
-    {
-        const auto& [angle, normR] = drained.front();
-        if(m_onDartLanded)             m_onDartLanded();
-        if(m_onDartPositionCalculated) m_onDartPositionCalculated(angle, normR);
-        drained.pop();
-    }
-}
-
-
-bool NetworkVisionSource::isBoardClear() const
-{
-    return m_boardClear.load(std::memory_order_acquire);
 }
 
 

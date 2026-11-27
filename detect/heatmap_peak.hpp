@@ -12,7 +12,8 @@ struct DartHeatmapPeak
 {
     size_t index = 0;
     float logit = -std::numeric_limits<float>::infinity();
-    bool present() const { return std::isfinite(logit) && logit >= DART_PEAK_LOGIT_THRESHOLD; }
+    bool valid() const { return std::isfinite(logit); }
+    bool present() const { return valid() && logit >= DART_PEAK_LOGIT_THRESHOLD; }
 };
 
 inline DartHeatmapPeak findDartHeatmapPeak(const float* logits, size_t count)

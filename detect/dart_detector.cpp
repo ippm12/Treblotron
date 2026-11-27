@@ -28,6 +28,7 @@
 #include <fstream>
 #include <iterator>
 #include <mutex>
+#include <optional>
 
 
 #ifndef M_PI
@@ -456,6 +457,7 @@ struct DartDetector::Impl
     std::unique_ptr<InferenceBackend::Model> landmark;
 
     using Mode = DartCollectionState::Mode;
+    using Hand = DartCollectionState::Hand;
     DartCollectionState collection;
 
     struct PolarDart
@@ -554,8 +556,8 @@ struct DartDetector::Impl
     static const cv::Mat s_emptyMat;
 
     std::string formatStatus() const;
-    bool        runPalmStage(const std::array<cv::Mat, N_CAMS>& rawFrames);
-    void        decodeAndTrack(bool handPresent, DartDetectorResult& out);
+    std::optional<Hand> runPalmStage(const std::array<cv::Mat, N_CAMS>& rawFrames);
+    void        decodeAndTrack(Hand hand, DartHeatmapPeak peak, DartDetectorResult& out);
     void        captureInstanceMasks(ConfirmedDart& dart);
     void        clearConditioning();
 };
@@ -767,13 +769,15 @@ void DartDetector::reset()
 {
     m_impl->candidates.clear();
     m_impl->clearConditioning();
-    m_impl->collection.mode        = Impl::Mode::Detecting;
-    m_impl->collection.handWasPresent = false;
-    m_impl->collection.lastBusy       = Impl::Clock::now();
-    m_impl->collection.boardClear  = true;
+    m_impl->collection = {};
     for(uint32_t i = 0; i < N_CAMS; i++) m_impl->palmRecent[i] = false;
 }
 
+
+bool DartDetector::isBoardClear() const
+{
+    return m_impl->collection.boardClear;
+}
 
 bool DartDetector::latestHeatmap(std::vector<float>& out,
                                  uint32_t& width, uint32_t& height) const
@@ -849,10 +853,18 @@ bool DartDetector::run(const std::array<cv::Mat, EXPECTED_CAMERA_COUNT>& rawFram
                        DartDetectorResult& out)
 {
     out.newDarts.clear();
+    out.collected = false;
+    auto unavailable = [&]() {
+        m_impl->collection.interruptObservation();
+        m_impl->candidates.clear();
+        m_impl->lastCandidateStreak = 0;
+        out.boardClear = isBoardClear();
+        return false;
+    };
 
     if(!m_impl->dart || !m_impl->seg)
     {
-        return false;
+        return unavailable();
     }
 
     // ----- Which cameras are usable this cycle? -------------------------
@@ -866,7 +878,7 @@ bool DartDetector::run(const std::array<cv::Mat, EXPECTED_CAMERA_COUNT>& rawFram
     }
     if(contributing == 0)
     {
-        return false;
+        return unavailable();
     }
 
     // ----- Seg pre-stage: fill the batched NCHW input --------------------
@@ -907,7 +919,7 @@ bool DartDetector::run(const std::array<cv::Mat, EXPECTED_CAMERA_COUNT>& rawFram
     if(!m_impl->seg->run())
     {
         LOG_WARNING(DETECT_LOG_ID, "seg inference failed");
-        return false;
+        return unavailable();
     }
 
     // ----- Per-camera mask → masked RGB → warp ---------------------------
@@ -940,8 +952,10 @@ bool DartDetector::run(const std::array<cv::Mat, EXPECTED_CAMERA_COUNT>& rawFram
         || m_impl->warped[cam].empty())
         {
             m_impl->warped[cam] = cv::Mat();
+            --contributing;
         }
     }
+    if(contributing == 0) return unavailable();
 
     // ----- Build the 21-channel NCHW input tensor -------------------------
     // Channels 0..8:   camera[c]'s RGB plane (/255 normalization).
@@ -1008,19 +1022,21 @@ bool DartDetector::run(const std::array<cv::Mat, EXPECTED_CAMERA_COUNT>& rawFram
     if(!m_impl->dart->submit())
     {
         LOG_WARNING(DETECT_LOG_ID, "dart inference submit failed");
-        return false;
+        return unavailable();
     }
 
-    const bool handPresent = m_impl->runPalmStage(rawFrames);
+    const auto hand = m_impl->runPalmStage(rawFrames);
 
     if(!m_impl->dart->wait())
     {
         LOG_WARNING(DETECT_LOG_ID, "dart inference wait failed");
-        return false;
+        return unavailable();
     }
 
-    m_impl->decodeAndTrack(handPresent, out);
-    out.boardClear = m_impl->collection.boardClear;
+    const auto peak = findDartHeatmapPeak(m_impl->dart->output(0), HEATMAP_FLOATS);
+    if(!hand || !peak.valid()) return unavailable();
+    m_impl->decodeAndTrack(*hand, peak, out);
+    out.boardClear = isBoardClear();
     out.status     = m_impl->formatStatus();
     return true;
 }
@@ -1030,12 +1046,12 @@ bool DartDetector::run(const std::array<cv::Mat, EXPECTED_CAMERA_COUNT>& rawFram
 // Hand presence: BlazePalm round-robin + landmark false-positive filter
 // ----------------------------------------------------------------------------
 
-bool DartDetector::Impl::runPalmStage(const std::array<cv::Mat, N_CAMS>& rawFrames)
+std::optional<DartDetector::Impl::Hand> DartDetector::Impl::runPalmStage(const std::array<cv::Mat, N_CAMS>& rawFrames)
 {
     if(!config.enableHandFilter || !palm)
     {
         lastHandPresent = false;
-        return false;
+        return Hand::Absent;
     }
 
     // One camera per cycle. We use the *raw* (unwarped) frame — the
@@ -1072,6 +1088,7 @@ bool DartDetector::Impl::runPalmStage(const std::array<cv::Mat, N_CAMS>& rawFram
             for(uint32_t i = 0; i < PALM_SCORES_FLOATS; i++)
             {
                 const float v = scores[i];
+                if(!std::isfinite(v)) return std::nullopt;
                 if(v > t1)      { t3 = t2; t2 = t1; t1 = v; topIdx = i; }
                 else if(v > t2) { t3 = t2; t2 = v; }
                 else if(v > t3) { t3 = v; }
@@ -1169,11 +1186,13 @@ bool DartDetector::Impl::runPalmStage(const std::array<cv::Mat, N_CAMS>& rawFram
                         // The model applies sigmoid internally, so the output
                         // is already in [0, 1] — no transform.
                         landmarkPresence  = landmark->output(1)[0];
+                        if(!std::isfinite(landmarkPresence)) return std::nullopt;
                         landmarkStagePass = (landmarkPresence >= LANDMARK_PRESENCE_THRESHOLD);
                     }
                     else
                     {
                         LOG_WARNING(DETECT_LOG_ID, "landmark inference failed");
+                        return std::nullopt;
                     }
                 }
             }
@@ -1185,6 +1204,7 @@ bool DartDetector::Impl::runPalmStage(const std::array<cv::Mat, N_CAMS>& rawFram
         else
         {
             LOG_WARNING(DETECT_LOG_ID, "palm inference failed");
+            return std::nullopt;
         }
     }
 
@@ -1195,7 +1215,8 @@ bool DartDetector::Impl::runPalmStage(const std::array<cv::Mat, N_CAMS>& rawFram
         if(palmRecent[i]) { handPresent = true; break; }
     }
     lastHandPresent = handPresent;
-    return handPresent;
+    if(palmDetectedThisCycle) return Hand::Observed;
+    return handPresent ? Hand::Cached : Hand::Absent;
 }
 
 
@@ -1281,10 +1302,9 @@ void DartDetector::Impl::captureInstanceMasks(ConfirmedDart& dart)
 }
 
 
-void DartDetector::Impl::decodeAndTrack(bool handPresent, DartDetectorResult& out)
+void DartDetector::Impl::decodeAndTrack(Hand hand, DartHeatmapPeak peak, DartDetectorResult& out)
 {
     const float* heatmapLogits = dart->output(0);
-    const auto peak = findDartHeatmapPeak(heatmapLogits, HEATMAP_FLOATS);
     const size_t bestIdx = peak.index;
     const float bestLogit = peak.logit;
 
@@ -1308,7 +1328,7 @@ void DartDetector::Impl::decodeAndTrack(bool handPresent, DartDetectorResult& ou
     lastPeakLogit = bestLogit;
     const bool hasDetection = peak.present();
 
-    // The board-clear check used by Removing needs only the sigmoid threshold
+    // The board-clear check used by Removing needs only the peak threshold
     // — the catch-ring radius gate is skipped so a leftover
     // dart anywhere on the heatmap (even just outside the wire) blocks the
     // cleared signal.
@@ -1318,7 +1338,7 @@ void DartDetector::Impl::decodeAndTrack(bool handPresent, DartDetectorResult& ou
     // Always publish the heatmap above, but suppress dart tracking from the
     // first hand observation until the removal quiet period has completed.
     const auto now = Clock::now();
-    const auto action = collection.update(handPresent, anyPeakAboveThreshold, now,
+    const auto action = collection.update(hand, anyPeakAboveThreshold, now,
         handEnterMs.load(std::memory_order_relaxed), clearHoldMs.load(std::memory_order_relaxed));
     if(action != DartCollectionState::Action::TrackDarts)
     {
@@ -1338,8 +1358,9 @@ void DartDetector::Impl::decodeAndTrack(bool handPresent, DartDetectorResult& ou
         }
         else if(action == DartCollectionState::Action::FinishedRemoving)
         {
+            out.collected = true;
             const auto quietMs = std::chrono::duration_cast<std::chrono::milliseconds>(
-                now - collection.lastBusy).count();
+                now - *collection.quietSince).count();
             LOG_INFO(DETECT_LOG_ID, "Removing -> Detecting (quiet for {} ms)", quietMs);
         }
         return;
@@ -1518,8 +1539,9 @@ std::string DartDetector::Impl::formatStatus() const
         flags += " peak="; flags += (lastPeakAboveThresh ? "Y" : "N");
         // Countdown in seconds — a cycle count meant nothing once the rate
         // stopped being fixed, and this is the number a player is waiting on.
-        const auto quietMs = std::chrono::duration_cast<std::chrono::milliseconds>(
-            Clock::now() - collection.lastBusy).count();
+        const auto quietMs = collection.quietSince
+            ? std::chrono::duration_cast<std::chrono::milliseconds>(Clock::now() - *collection.quietSince).count()
+            : 0;
         const long remaining = clearHoldMs.load(std::memory_order_relaxed)
                              - static_cast<long>(quietMs);
         char buf[32];

@@ -40,19 +40,13 @@ void shutdownVisionModule();
 // Per-frame update
 // ============================================================================
 
-/** Called once per frame by the game manager with delta time in seconds. */
+/** Dispatch pending confirmed throws and completed collections in order. */
 void tickVision(float deltaTime);
 
 
 // ============================================================================
 // Board state
 // ============================================================================
-
-/**
- * Returns true if the vision source reports no darts on the board.
- * Returns true if no vision source is active.
- */
-bool isBoardClear();
 
 // Counts completed inference results, including cycles with no dart or heatmap.
 struct VisionPreviewStats
@@ -69,14 +63,6 @@ std::shared_ptr<const DartPreview> getVisionPreview(std::chrono::steady_clock::t
 
 /** Clear all tracked darts and reset the vision source's board state. */
 void resetVisionDarts();
-
-/**
- * Returns true once if the user explicitly asked for the board to be
- * reset (e.g. clicked the sim's Collect Darts button) since the last
- * call. Distinct from isBoardClear() — fires for an already-clear board
- * too, so a turn can be force-ended even when no darts ever landed.
- */
-bool consumeBoardResetRequest();
 
 /**
  * Copy the latest dart-detection heatmap out of the active vision source.
@@ -176,16 +162,21 @@ void presentVisionLoadingFrame(float deltaTime);
 // Game connection (via callbacks — vision module knows nothing about Game)
 // ============================================================================
 
+using DartsCollectedCallback = std::function<void()>;
 using DartLandedCallback   = std::function<void()>;
 using DartPositionCallback = std::function<void(float angle, float normalizedRadius)>;
 
 /**
- * Register callbacks that fire when darts are detected.
+ * Receive confirmed throws and collections on the game thread. Each completed
+ * pickup emits one collection once the hand is gone and no dart is detected
+ * for the configured clear interval. A gesture on an empty board also counts.
+ * Earlier confirmed throws are delivered before their collection.
  * Pass nullptr to disconnect. The game manager typically registers these
  * and forwards events to the current game.
  */
 void setVisionCallbacks(DartLandedCallback onDartLanded,
-                        DartPositionCallback onDartPositionCalculated);
+                        DartPositionCallback onDartPositionCalculated,
+                        DartsCollectedCallback onDartsCollected);
 
 
 // ============================================================================
@@ -247,13 +238,13 @@ bool getCameraWarpedFrame(uint32_t index, CameraFrame& outFrame);
  * MJPEG, it falls back to encoding from the decoded frame — same result, more
  * CPU. Only available in builds that stream frames to a remote server.
  */
-bool getCameraCompressedFrame(uint32_t index, std::vector<uint8_t>& out);
+bool getCameraCompressedFrame(uint32_t index, std::vector<uint8_t>& out, uint64_t& sequence);
 #endif
 
 #ifdef TREBLOTRON_HAVE_LOCAL_INFERENCE
-// Read-only, matched raw image and prepared segmenter input. The caller's
-// cv::Mat references keep both buffers alive across subsequent acquisitions.
-bool getInferenceCameraFrame(uint32_t index, cv::Mat& rgb, cv::Mat& segPlane);
+// Raw image, prepared segmenter input and sequence from the same exposure.
+// The caller's cv::Mat references keep both buffers alive across acquisitions.
+bool getInferenceCameraFrame(uint32_t index, cv::Mat& rgb, cv::Mat& segPlane, uint64_t& sequence);
 
 /**
  * Publish a warped frame produced *outside* the camera capture thread (the TRT

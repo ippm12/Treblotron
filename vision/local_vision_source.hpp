@@ -26,13 +26,12 @@
 #include <cstdint>
 #include <mutex>
 #include <future>
-#include <queue>
 #include <string>
 #include <thread>
 #include <vector>
 
 
-class LocalVisionSource : public VisionSource
+class LocalVisionSource : public CameraVisionSource
 {
     public:
         LocalVisionSource();
@@ -41,9 +40,7 @@ class LocalVisionSource : public VisionSource
         bool markMissed(const DartPreview& preview) override;
         std::string consumeCaptureResult() override;
         Status init() override;
-        void   tick(float deltaTime) override;
         void   shutdown() override;
-        bool   isBoardClear() const override;
         void   resetDarts() override;
         bool   getLatestHeatmap(std::vector<float>& out,
                                 uint32_t& width, uint32_t& height) const override;
@@ -73,7 +70,6 @@ class LocalVisionSource : public VisionSource
         std::thread       m_thread;
         std::atomic<bool> m_running{false};
         std::atomic<bool> m_resetRequested{false};
-        std::atomic<bool> m_boardClear{true};
 
         /**
          * Generation of the vision settings the detector is currently running.
@@ -100,11 +96,6 @@ class LocalVisionSource : public VisionSource
         // inference thread for the vision_debug overlay.
         mutable std::mutex m_statusMutex;
         std::string        m_detectionStatus;
-
-        // Events produced by the inference thread, drained by tick() on the
-        // main thread which forwards them through the VisionSource callbacks.
-        std::mutex                          m_eventMutex;
-        std::queue<std::pair<float, float>> m_newDartEvents;  // (angle, normRadius)
 };
 
 #endif // LOCAL_VISION_SOURCE_HPP

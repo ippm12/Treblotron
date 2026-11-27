@@ -201,17 +201,6 @@ void VisionDebugScreen::update(float deltaTime)
         m_rateWindowStart = now;
     }
 
-    // Mirror the vision source's "board cleared" transition so tracked darts
-    // clear when the user hits collect (sim) or the real system resets.
-    bool boardClear = isBoardClear();
-    if(boardClear && !m_lastBoardClear)
-    {
-        m_trackedDarts.clear();
-        m_hitPositions.clear();
-        m_board.unhighlightAll();
-    }
-    m_lastBoardClear = boardClear;
-
     // Consume any dart events from the vision system
     consumeDartLandedCount();
 
@@ -621,6 +610,11 @@ void VisionDebugScreen::onGamepadButton(uint8_t button, bool pressed)
 void VisionDebugScreen::resetDarts()
 {
     resetVisionDarts();
+    onDartsCollected();
+}
+
+void VisionDebugScreen::onDartsCollected()
+{
     m_trackedDarts.clear();
     m_hitPositions.clear();
     m_board.unhighlightAll();

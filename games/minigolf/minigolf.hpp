@@ -144,6 +144,8 @@ class MiniGolfGame : public Game
         void onKeyDown(uint32_t keycode) override;
         void onGamepadButton(uint8_t button, bool pressed) override;
         void onMissedThrow() override;
+        void onDartsCollected() override;
+        bool awaitingCollection() const override;
         void onMouseClick(float x,float y,uint8_t button) override;
 
     private:
@@ -163,6 +165,7 @@ class MiniGolfGame : public Game
         void discardPendingDarts();
         void onBallSettled();
         void endCurrentTurn();
+        void countRemainingMisses();
         void beginNextTurn();
         void advancePlayerWithinHole();
         void clearAllTrails();
@@ -236,8 +239,7 @@ class MiniGolfGame : public Game
         // ends when this hits 0 or the ball goes in the cup.
         uint8_t m_throwsRemainingInTurn = 0;
         bool    m_waitingForCollect = false;
-        // For edge-detecting dart-pull from the vision module.
-        bool    m_lastBoardClear    = true;
+        bool    m_collectedThisTurn = false;  // A pickup can precede the ball settling.
 
         // Settle detection: ball is "stopped" once speed has stayed
         // below the threshold for this long.

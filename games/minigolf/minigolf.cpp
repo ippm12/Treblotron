@@ -15,7 +15,6 @@
 #include "frame/render_queue.hpp"
 #include "frame/frame.hpp"
 #include "players/players.hpp"
-#include "vision/vision.hpp"
 
 #include <SDL3/SDL_keycode.h>
 #include <SDL3/SDL_gamepad.h>
@@ -267,7 +266,6 @@ Status MiniGolfGame::init(FrameID frameId)
     m_aimArrowTimer         = 0.0f;
     m_waitingForCollect     = false;
     m_throwsRemainingInTurn = 0;
-    m_lastBoardClear        = isBoardClear();
 
     buildCurrentHole();
     // First player of the first hole — give them their throws once the
@@ -680,32 +678,11 @@ void MiniGolfGame::update(float deltaTime)
     }
     if(!readyForDart) discardPendingDarts();
     stepCoursePhysics(deltaTime);
-    // 2) Drain landed counter (we don't use it; one DartPosition == one stroke).
+    // One confirmed position drives one stroke.
     (void)consumeDartLandedCount();
 
-    // 3) Detect dart-pull edge: board went from not-clear to clear. This
-    //    is the canonical "turn over, next player" signal — works for
-    //    both the simulator's Collect button and a real dart pull.
-    const bool boardClearNow = isBoardClear();
-    const bool collectEdge   = boardClearNow && !m_lastBoardClear;
-    m_lastBoardClear         = boardClearNow;
+    if(m_waitingForCollect) return;
 
-    if(m_waitingForCollect && collectEdge)
-    {
-        m_waitingForCollect = false;
-        // If we were between holes, advanceToNextHole takes us to the next
-        // hole's intro. Otherwise the next player's turn begins.
-        if(m_phase == Phase::HoleTransition)
-        {
-            advanceToNextHole();
-        }
-        else if(m_phase!=Phase::ScrambleChoice)
-        {
-            beginNextTurn();
-        }
-    }
-
-    // 4) Phase machine.
     switch(m_phase)
     {
         case Phase::HoleIntro:
@@ -724,16 +701,6 @@ void MiniGolfGame::update(float deltaTime)
 
         case Phase::Aiming:
         {
-            if(m_waitingForCollect)
-            {
-                // Turn ended; player needs to pull their darts before the
-                // next turn starts. Drain any stray darts to keep the queue
-                // clean.
-                DartPosition d;
-                while(popDartPosition(d)) {}
-                break;
-            }
-
             auto& active = m_players[m_currentPlayer];
             if(active.hazardTimer>0) break;
             if(active.finishedHole[m_currentHole]) { endCurrentTurn(); break; }
@@ -776,14 +743,8 @@ void MiniGolfGame::update(float deltaTime)
             DartPosition d;
             while(popDartPosition(d)) {}
             m_phaseTimer += deltaTime;
-            // Banner timer no longer auto-advances — we wait on the
-            // collect edge so the next hole begins after the player
-            // pulls their darts. If the board is already clear (e.g.
-            // ball never moved), advance once the banner expires as a
-            // safety net so the game can't get stuck.
-            if(m_phaseTimer >= HOLE_TRANSITION_SECS && boardClearNow)
+            if(m_phaseTimer >= HOLE_TRANSITION_SECS)
             {
-                m_waitingForCollect = false;
                 advanceToNextHole();
             }
             break;
@@ -1107,6 +1068,8 @@ void MiniGolfGame::onBallSettled()
         return;
     }
 
+    if(m_collectedThisTurn) countRemainingMisses();
+
     // Still throws remaining in this turn AND ball not holed/capped:
     // continue same turn. No collect needed between throws within a turn.
     if(m_throwsRemainingInTurn > 0)
@@ -1150,7 +1113,6 @@ void MiniGolfGame::onPauseAction(size_t index)
     // Giving up commits the whole shared hole, not another scramble attempt.
     m_committingScramble=true;
     endCurrentTurn();
-    m_committingScramble=false;
 }
 
 void MiniGolfGame::discardPendingDarts()
@@ -1160,12 +1122,50 @@ void MiniGolfGame::discardPendingDarts()
     while(popDartPosition(dart)) {}
 }
 
+bool MiniGolfGame::awaitingCollection() const
+{
+    return m_waitingForCollect ||
+        (m_phase == Phase::BallInMotion && (m_throwsRemainingInTurn == 0 || m_lastShotHoled));
+}
+
+void MiniGolfGame::onDartsCollected()
+{
+    if((m_phase != Phase::Aiming && m_phase != Phase::BallInMotion) || m_currentPlayer >= m_players.size()) return;
+    m_collectedThisTurn = true;
+    if(!m_waitingForCollect)
+    {
+        // Let a shot resolve first. A ball that drops into the cup needs no
+        // extra misses. onBallSettled() finishes this same turn.
+        const auto& player = m_players[m_currentPlayer];
+        if(m_phase == Phase::BallInMotion || player.pendingReturn || player.hazardTimer > 0 ||
+           (b2Body_IsValid(player.ballBody) && getBodySpeedPx(*m_world, player.ballBody) > SETTLE_SPEED_PXPS))
+        {
+            m_phase = Phase::BallInMotion;
+            return;
+        }
+        countRemainingMisses();
+    }
+    endCurrentTurn();
+}
+
+void MiniGolfGame::countRemainingMisses()
+{
+    auto& player = m_players[m_currentPlayer];
+    auto& strokes = player.strokes[m_currentHole];
+    strokes = std::min<int>(STROKE_CAP, strokes + m_throwsRemainingInTurn);
+    if(strokes == STROKE_CAP) player.finishedHole[m_currentHole] = true;
+    m_throwsRemainingInTurn = 0;
+}
+
 void MiniGolfGame::endCurrentTurn()
 {
     discardPendingDarts();
+    m_throwsRemainingInTurn = 0;
+    m_waitingForCollect = !m_collectedThisTurn;
+    if(m_waitingForCollect) return;
     if(!m_committingScramble && finishTeamAttempt()) return;
-    const bool holeDone = allPlayersFinishedHole();
-    if(holeDone)
+    m_committingScramble = false;
+    if(allPlayersFinishedHole())
     {
         m_phase      = Phase::HoleTransition;
         m_phaseTimer = 0.0f;
@@ -1173,25 +1173,7 @@ void MiniGolfGame::endCurrentTurn()
     else
     {
         advancePlayerWithinHole();
-        m_phase = Phase::Aiming;
-    }
-    m_throwsRemainingInTurn = 0;
-
-    // If the board is already clear (e.g. simulator with no darts on it,
-    // or onMissedThrow with bounce-out), don't make the player pull
-    // nothing — start the next turn immediately.
-    if(isBoardClear())
-    {
-        m_waitingForCollect = false;
-        // A finished hole is not handed straight to advanceToNextHole():
-        // that skipped the "Hole N complete" banner entirely whenever the
-        // board happened to be clear, which in the sim is always. Let the
-        // HoleTransition phase run its own timer instead.
-        if(!holeDone) beginNextTurn();
-    }
-    else
-    {
-        m_waitingForCollect = true;
+        beginNextTurn();
     }
 }
 
@@ -1212,6 +1194,7 @@ void MiniGolfGame::beginNextTurn()
         endCurrentTurn();
         return;
     }
+    m_collectedThisTurn = false;
     m_lastShotHoled=false; m_settleTimer=0;
     startTeamAttempt();
     auto& p=m_players[m_currentPlayer];

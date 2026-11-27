@@ -51,6 +51,8 @@ class CricketGame : public Game
         void onKeyDown(uint32_t keycode) override;
         void onGamepadButton(uint8_t button, bool pressed) override;
         void onMissedThrow() override;
+        void onDartsCollected() override;
+        bool awaitingCollection() const override { return m_waitingForCollect; }
 
     private:
         void renderMarksScoreboard();

@@ -83,10 +83,10 @@ bool Game::popDartPosition(DartPosition& out)
 }
 
 
-void Game::onTurnSkipped()
+void Game::onDartsCollected()
 {
     // Capture this turn's budget. A miss can synchronously start the next
-    // turn when the board is clear, so never follow replenished throws.
+    // turn, so stop when a game replenishes the available throws.
     const GameBarInfo original=getBarInfo();
     if(original.state!=GameState::PlayerTurn) return;
     const int remaining=std::min<int>(original.throwsRemaining,16);
@@ -442,9 +442,16 @@ Status GameManager::loadGame(GamePtr game, std::function<GamePtr()> restartFacto
 
         // Connect vision callbacks to the new game
         setVisionCallbacks(
-            [game]() { game->onDartLanded(); },
-            [game](float angle, float normalizedRadius) {
-                game->onDartPositionCalculated(angle, normalizedRadius);
+            [this,game]() { if(!m_paused) game->onDartLanded(); },
+            [this,game](float angle, float normalizedRadius) {
+                if(!m_paused) game->onDartPositionCalculated(angle, normalizedRadius);
+            },
+            [this,game]() {
+                if(!m_paused) game->onDartsCollected();
+                else {
+                    // Remember a completed pickup while paused, but never forfeit an active turn.
+                    m_resumeCollection = game->awaitingCollection();
+                }
             }
         );
 
@@ -478,7 +485,8 @@ Status GameManager::unloadGame()
         LOG_INFO(GAME_MANAGER_LOG_ID, "Unloading game: {}", m_currentGame->getName());
 
         // Disconnect vision callbacks
-        setVisionCallbacks(nullptr, nullptr);
+        setVisionCallbacks(nullptr, nullptr, nullptr);
+        m_resumeCollection = false;
 
         // Disconnect mouse click handler
         unregisterFrameClickHandler(m_frameId);
@@ -534,41 +542,17 @@ void GameManager::tick()
     }
 
     // Tick vision source (processes pending throw delays, renders sim window)
+    if(!m_paused && m_resumeCollection && m_currentGame)
+    {
+        m_resumeCollection = false;
+        m_currentGame->onDartsCollected();
+    }
     tickVision(deltaTime);
 
     // Update and render current game
     if(m_currentGame != nullptr)
     {
-        // Detect a turn-skip signal. Two events count:
-        //   1) Board went from not-clear to clear (user pulled darts mid-
-        //      turn, real or sim).
-        //   2) The vision source raised an explicit reset request (sim's
-        //      Collect button — fires even when the board was already
-        //      empty, so the player can still end an unstarted turn).
-        // If either fires while a turn has throws remaining, treat all
-        // remaining throws as misses via Game::onTurnSkipped(). Skip
-        // while paused so a dart-pull during the pause menu is harmless.
-        const bool boardClearNow  = isBoardClear();
-        const bool boardClearEdge = boardClearNow && !m_lastBoardClear;
-        const bool resetRequested = consumeBoardResetRequest();
-
-        if(!m_paused && (boardClearEdge || resetRequested))
-        {
-            const GameBarInfo info = m_currentGame->getBarInfo();
-            if(info.state == GameState::PlayerTurn && info.throwsRemaining > 0)
-            {
-                LOG_INFO(GAME_MANAGER_LOG_ID,
-                         "Board reset signalled with {} throws remaining — "
-                         "treating as turn skip", info.throwsRemaining);
-                m_currentGame->onTurnSkipped();
-            }
-        }
-        m_lastBoardClear = boardClearNow;
-
-        if(!m_paused)
-        {
-            m_currentGame->update(deltaTime);
-        }
+        if(!m_paused) m_currentGame->update(deltaTime);
 
         renderQueueClearFrame(m_frameId, 40, 40, 40);
         m_currentGame->render();

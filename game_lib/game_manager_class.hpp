@@ -129,15 +129,10 @@ class GameManager
         std::string     m_settingsStatus;            // transient feedback ("Saved")
         VirtualKeyboard m_settingsKeyboard;          // gamepad path only
 
+        bool m_resumeCollection = false;
+
         // Factory to recreate current game for restart (nullopt = no restart)
         std::function<GamePtr()> m_gameFactory;
-
-        // Tracks board-clear state across ticks. When the dart board goes
-        // from "not clear" to "clear" while the active game still has
-        // throws remaining in the current turn, we treat that as the user
-        // resetting the board mid-turn (with their hand) and tell the game
-        // to skip the rest of the throws via Game::onTurnSkipped().
-        bool m_lastBoardClear = true;
 
         // Input hints for pause instruction in the status bar
         InputHints m_inputHints;

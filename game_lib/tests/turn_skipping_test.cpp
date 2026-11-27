@@ -24,15 +24,15 @@ public:
     }
 };
 int main() {
-    TurnGame one; one.remaining=1; one.onTurnSkipped();
+    TurnGame one; one.remaining=1; one.onDartsCollected();
     assert(one.calls==1 && one.turn==1 && one.remaining==3);
-    TurnGame full; full.onTurnSkipped();
+    TurnGame full; full.onDartsCollected();
     assert(full.calls==3 && full.turn==1);
-    TurnGame solo; solo.changeName=false; solo.onTurnSkipped();
+    TurnGame solo; solo.changeName=false; solo.onDartsCollected();
     assert(solo.calls==3 && solo.turn==1);
-    TurnGame stalled; stalled.progress=false; stalled.onTurnSkipped();
+    TurnGame stalled; stalled.progress=false; stalled.onDartsCollected();
     assert(stalled.calls==1);
-    TurnGame blank; blank.playable=false; blank.onTurnSkipped(); assert(blank.calls==0);
-    TurnGame exhausted; exhausted.remaining=0; exhausted.onTurnSkipped(); assert(exhausted.calls==0);
+    TurnGame blank; blank.playable=false; blank.onDartsCollected(); assert(blank.calls==0);
+    TurnGame exhausted; exhausted.remaining=0; exhausted.onDartsCollected(); assert(exhausted.calls==0);
     std::cout << "PASS game_lib/turn_skipping" << std::endl;
 }

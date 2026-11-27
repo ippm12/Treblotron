@@ -28,6 +28,7 @@
 #define DETECT_DART_DETECTOR_HPP
 
 #include "common_inc.hpp"
+#include "dart/dart_detection.hpp"
 #include "detect/dart_preview.hpp"
 #include "detect/dart_tuning.hpp"
 #include "detect/inference_backend.hpp"
@@ -86,19 +87,13 @@ struct DartDetectorConfig
 };
 
 
-struct DartDetection
-{
-    float angle;            // degrees, OpenCV convention (0 = right, +CW)
-    float normalizedRadius; // 0..1 at the outer double wire
-};
-
-
 struct DartDetectorResult
 {
     /** Darts confirmed during this cycle. At most one per run(). */
     std::vector<DartDetection> newDarts;
 
     bool boardClear = true;
+    bool collected = false;  // Only on completion of a debounced hand gesture.
 
     /**
      * Human-readable state for the vision_debug overlay, e.g.
@@ -173,6 +168,9 @@ class DartDetector
 
         /** Drop all candidate/confirmed dart state and return to Detecting. */
         void reset();
+
+        /** Latched state on the inference thread, including across resumed sessions. */
+        bool isBoardClear() const;
 
         /**
          * Copy the latest sigmoid heatmap (360x360, row-major, [0, 1]).

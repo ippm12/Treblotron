@@ -10,7 +10,6 @@
 #include "game_lib/game_manager.hpp"
 #include "game_lib/palette.hpp"
 #include "game_lib/game_helpers.hpp"
-#include "vision/vision.hpp"
 #include "game_lib/components/render_shape.hpp"
 #include "game_lib/components/render_text.hpp"
 #include "games/main_menu.hpp"
@@ -382,39 +381,41 @@ void CricketGame::update(float deltaTime)
 
         hasPosition = popDartPosition(pos);
     }
+}
 
-    // Board clear — check for win or advance turn
-    if(m_waitingForCollect && isBoardClear())
+
+void CricketGame::onDartsCollected()
+{
+    if(m_gameOver) return;
+
+    m_hitSegments.clear();
+    m_hitPositions.clear();
+    m_blinkTimer = 0.0f;
+    m_blinkOn = true;
+    m_waitingForCollect = false;
+
+    // Check if current player won
+    if(checkWinCondition(m_currentPlayerIndex))
     {
-        m_hitSegments.clear();
-        m_hitPositions.clear();
-        m_blinkTimer = 0.0f;
-        m_blinkOn = true;
-        m_waitingForCollect = false;
-
-        // Check if current player won
-        if(checkWinCondition(m_currentPlayerIndex))
-        {
-            m_gameOver = true;
-            m_winnerIndex = m_currentPlayerIndex;
-            m_gameOverCursor = 0;
-            return;
-        }
-
-        if(m_teamsMode)
-        {
-            m_turnTracker.advance();
-            m_currentPlayerIndex = m_turnTracker.currentTeam();
-        }
-        else
-        {
-            m_currentPlayerIndex = (m_currentPlayerIndex + 1) % getPlayerCount();
-        }
-        m_throwsRemaining = 3;
-        m_statusText = "Waiting for Throw";
-
-        updateBoardColors();
+        m_gameOver = true;
+        m_winnerIndex = m_currentPlayerIndex;
+        m_gameOverCursor = 0;
+        return;
     }
+
+    if(m_teamsMode)
+    {
+        m_turnTracker.advance();
+        m_currentPlayerIndex = m_turnTracker.currentTeam();
+    }
+    else
+    {
+        m_currentPlayerIndex = (m_currentPlayerIndex + 1) % getPlayerCount();
+    }
+    m_throwsRemaining = 3;
+    m_statusText = "Waiting for Throw";
+
+    updateBoardColors();
 }
 
 
@@ -711,7 +712,7 @@ void CricketGame::onGamepadButton(uint8_t button, bool pressed)
 void CricketGame::onMissedThrow()
 {
     // Consume one throw without scoring. Same end-of-turn handling as a
-    // detected non-scoring dart: the board-clear path in update() handles
+    // detected non-scoring dart: the collection handler handles
     // the player rotation once darts are off the board.
     if(m_gameOver || m_waitingForCollect || m_throwsRemaining == 0) return;
 

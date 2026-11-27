@@ -28,6 +28,7 @@ class VisionDebugScreen : public Game
 
         Status init(FrameID frameId) override;
         void update(float deltaTime) override;
+        void onDartsCollected() override;
         void render() override;
         void shutdown() override;
         bool isPauseable() const override;
@@ -60,7 +61,6 @@ class VisionDebugScreen : public Game
         std::vector<DartPosition>  m_hitPositions;
 
         SDL_Texture*          m_compositeTexture = nullptr;
-        bool                  m_lastBoardClear = true;
         std::shared_ptr<const DartPreview> m_displayedPreview;
         std::chrono::steady_clock::time_point m_displayedHeatmapTime{};
         double                m_rateWindowStart = 0;

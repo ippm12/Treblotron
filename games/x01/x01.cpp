@@ -9,7 +9,6 @@
 #include "frame/render_queue.hpp"
 #include "game_lib/game_manager.hpp"
 #include "game_lib/game_helpers.hpp"
-#include "vision/vision.hpp"
 #include "game_lib/components/render_shape.hpp"
 #include "game_lib/components/render_text.hpp"
 #include "games/main_menu.hpp"
@@ -111,7 +110,7 @@ void X01Game::update(float deltaTime)
         return;
     }
 
-    // Bust display is cleared when darts are collected (in the board-clear block below)
+    // Keep the bust visible until the collection message.
 
     uint16_t& score = m_playerScores[m_currentPlayerIndex];
 
@@ -137,13 +136,12 @@ void X01Game::update(float deltaTime)
         m_statusText = "Hold";
     }
 
-    // Process first position (already popped above) and any remaining
-    while(hasPosition)
+    // Consume the whole batch for this visit, including inputs after a bust
+    // or checkout. The next event can hand play straight to another player.
+    for(; hasPosition; hasPosition = popDartPosition(pos))
     {
         if(m_throwsRemaining == 0)
         {
-            // Extra throws beyond 3 are ignored
-            hasPosition = popDartPosition(pos);
             continue;
         }
 
@@ -158,7 +156,6 @@ void X01Game::update(float deltaTime)
             m_hitPositions.push_back(pos);
             m_turnScoreProgression.push_back(score);
             if(m_throwsRemaining == 0) m_waitingForCollect = true;
-            hasPosition = popDartPosition(pos);
             continue;
         }
 
@@ -185,7 +182,6 @@ void X01Game::update(float deltaTime)
                 m_board.highlightSegment(segment.value());
                 m_turnScoreProgression.push_back(score); // score unchanged
                 if(m_throwsRemaining == 0) m_waitingForCollect = true;
-                hasPosition = popDartPosition(pos);
                 continue;
             }
         }
@@ -229,7 +225,7 @@ void X01Game::update(float deltaTime)
             m_hitSegments.push_back(segment.value());
             m_hitPositions.push_back(pos);
             m_board.highlightSegment(segment.value());
-            break;
+            continue;
         }
 
         // Apply score
@@ -250,7 +246,7 @@ void X01Game::update(float deltaTime)
             // Pre-increment leg count so render can check match vs leg win
             m_playerLegs[m_currentPlayerIndex]++;
             m_legWinnerIndex = m_currentPlayerIndex;
-            break;
+            continue;
         }
 
         // Track turn progression
@@ -267,84 +263,85 @@ void X01Game::update(float deltaTime)
             m_waitingForCollect = true;
         }
 
-        hasPosition = popDartPosition(pos);
     }
+}
 
-    // When waiting for darts to be collected, poll the vision source
-    if(m_waitingForCollect && isBoardClear())
+
+void X01Game::onDartsCollected()
+{
+    if(m_gameOver) return;
+
+    LOG_INFO(GAME_MANAGER_LOG_ID, "X01: Board cleared");
+
+    m_board.unhighlightAll();
+    m_hitSegments.clear();
+    m_hitPositions.clear();
+    m_blinkTimer = 0.0f;
+    m_blinkOn = true;
+    m_waitingForCollect = false;
+    m_showBust = false;
+
+    // Check if current player checked out (score == 0)
+    // Leg count was already incremented at checkout time
+    if(m_playerScores[m_currentPlayerIndex] == 0)
     {
-        LOG_INFO(GAME_MANAGER_LOG_ID, "X01: Board cleared");
+        if(m_playerLegs[m_currentPlayerIndex] >= m_legsToWin)
+        {
+            // Match or single-leg game over
+            m_gameOver = true;
+            m_winnerIndex = m_currentPlayerIndex;
+            m_gameOverCursor = 0;
+            LOG_INFO(GAME_MANAGER_LOG_ID, "X01: Player {} wins!", m_currentPlayerIndex);
+            return;
+        }
 
-        m_board.unhighlightAll();
-        m_hitSegments.clear();
-        m_hitPositions.clear();
-        m_blinkTimer = 0.0f;
-        m_blinkOn = true;
-        m_waitingForCollect = false;
+        // Start a new leg
+        m_currentLeg++;
+
+        // Determine who starts the next leg
+        uint8_t nextStarter = 0;
+        switch(m_startingPlayer)
+        {
+            case X01StartingPlayer::Rotate:
+                nextStarter = (m_legStartPlayer + 1) % getPlayerCount();
+                break;
+            case X01StartingPlayer::Winner:
+                nextStarter = m_currentPlayerIndex;
+                break;
+            case X01StartingPlayer::Loser:
+                nextStarter = (m_currentPlayerIndex + 1) % getPlayerCount();
+                break;
+        }
+        m_legStartPlayer = nextStarter;
+        m_currentPlayerIndex = nextStarter;
+
+        // Reset scores and in-rule tracking
+        uint16_t startScore = static_cast<uint16_t>(m_variant);
+        m_playerScores.assign(getPlayerCount(), startScore);
+        bool startedByDefault = (m_inRule == X01InOutRule::Any);
+        m_playerStarted.assign(getPlayerCount(), startedByDefault);
+
+        // Reset turn state
+        m_throwsRemaining = 3;
+        m_turnScoreProgression.clear();
+        m_turnStartScore = startScore;
         m_showBust = false;
+        m_statusText = "Waiting for Throw";
+    }
+    else
+    {
+        // PPR: normal visit end — always 3 darts, points = what was actually scored
+        // (0 on bust since score reverted to m_turnStartScore)
+        uint16_t pointsThisVisit = m_turnStartScore - m_playerScores[m_currentPlayerIndex];
+        m_playerTotalPoints[m_currentPlayerIndex] += pointsThisVisit;
+        m_playerTotalDarts[m_currentPlayerIndex] += 3;
 
-        // Check if current player checked out (score == 0)
-        // Leg count was already incremented at checkout time
-        if(m_playerScores[m_currentPlayerIndex] == 0)
-        {
-            if(m_playerLegs[m_currentPlayerIndex] >= m_legsToWin)
-            {
-                // Match or single-leg game over
-                m_gameOver = true;
-                m_winnerIndex = m_currentPlayerIndex;
-                m_gameOverCursor = 0;
-                LOG_INFO(GAME_MANAGER_LOG_ID, "X01: Player {} wins!", m_currentPlayerIndex);
-                return;
-            }
-
-            // Start a new leg
-            m_currentLeg++;
-
-            // Determine who starts the next leg
-            uint8_t nextStarter = 0;
-            switch(m_startingPlayer)
-            {
-                case X01StartingPlayer::Rotate:
-                    nextStarter = (m_legStartPlayer + 1) % getPlayerCount();
-                    break;
-                case X01StartingPlayer::Winner:
-                    nextStarter = m_currentPlayerIndex;
-                    break;
-                case X01StartingPlayer::Loser:
-                    nextStarter = (m_currentPlayerIndex + 1) % getPlayerCount();
-                    break;
-            }
-            m_legStartPlayer = nextStarter;
-            m_currentPlayerIndex = nextStarter;
-
-            // Reset scores and in-rule tracking
-            uint16_t startScore = static_cast<uint16_t>(m_variant);
-            m_playerScores.assign(getPlayerCount(), startScore);
-            bool startedByDefault = (m_inRule == X01InOutRule::Any);
-            m_playerStarted.assign(getPlayerCount(), startedByDefault);
-
-            // Reset turn state
-            m_throwsRemaining = 3;
-            m_turnScoreProgression.clear();
-            m_turnStartScore = startScore;
-            m_showBust = false;
-            m_statusText = "Waiting for Throw";
-        }
-        else
-        {
-            // PPR: normal visit end — always 3 darts, points = what was actually scored
-            // (0 on bust since score reverted to m_turnStartScore)
-            uint16_t pointsThisVisit = m_turnStartScore - m_playerScores[m_currentPlayerIndex];
-            m_playerTotalPoints[m_currentPlayerIndex] += pointsThisVisit;
-            m_playerTotalDarts[m_currentPlayerIndex] += 3;
-
-            // Advance to next player
-            m_currentPlayerIndex = (m_currentPlayerIndex + 1) % getPlayerCount();
-            m_throwsRemaining = 3;
-            m_turnScoreProgression.clear();
-            m_turnStartScore = m_playerScores[m_currentPlayerIndex];
-            m_statusText = "Waiting for Throw";
-        }
+        // Advance to next player
+        m_currentPlayerIndex = (m_currentPlayerIndex + 1) % getPlayerCount();
+        m_throwsRemaining = 3;
+        m_turnScoreProgression.clear();
+        m_turnStartScore = m_playerScores[m_currentPlayerIndex];
+        m_statusText = "Waiting for Throw";
     }
 }
 

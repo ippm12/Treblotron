@@ -146,6 +146,7 @@ void LocalVisionSource::inferenceLoop()
 {
     CameraImages segStorage;
     std::array<cv::Mat,     EXPECTED_CAMERA_COUNT> rawMats;
+    std::array<uint64_t, EXPECTED_CAMERA_COUNT> lastSequences{};
     DartDetectorResult result;
     uint32_t sequence = 0;
     std::future<void> lastAutoSave;
@@ -169,30 +170,33 @@ void LocalVisionSource::inferenceLoop()
         if(m_resetRequested.exchange(false, std::memory_order_acq_rel))
         {
             m_detector.reset();
-            m_boardClear.store(true, std::memory_order_release);
-            std::lock_guard<std::mutex> lock(m_eventMutex);
-            std::queue<std::pair<float, float>> empty;
-            std::swap(m_newDartEvents, empty);
+            m_detections.reset();
         }
 
         // Pull raw (unwarped) native-resolution frames from the capture
         // threads. The detector runs segmentation on the raw image and warps
         // the masked output itself.
         const uint32_t camCount = getCameraCount();
-        uint32_t contributing = 0;
+        bool haveCalibratedFrame = false;
+        bool fresh = false;
         for(uint32_t i = 0; i < EXPECTED_CAMERA_COUNT; i++)
         {
             rawMats[i] = cv::Mat();
+            segPlanes[i] = nullptr;
             if(i >= camCount)              continue;
-            if(!getInferenceCameraFrame(i,rawMats[i],segStorage[i])) continue;
+            uint64_t frameSequence = 0;
+            if(!getInferenceCameraFrame(i, rawMats[i], segStorage[i], frameSequence)) continue;
             segPlanes[i] = segStorage[i].empty() ? nullptr : segStorage[i].ptr<float>();
-            if(isCameraCalibrated(i)) contributing++;
+            if(!isCameraCalibrated(i)) continue;
+            haveCalibratedFrame = true;
+            if(frameSequence != lastSequences[i]) fresh = true;
+            lastSequences[i] = frameSequence;
         }
 
-        if(contributing == 0)
+        if(!fresh)
         {
-            // Cameras not ready yet (or none calibrated) — idle briefly.
-            std::this_thread::sleep_for(std::chrono::milliseconds(IDLE_SLEEP_MS));
+            // Feeding the same exposures back into debounce would count them twice.
+            std::this_thread::sleep_for(std::chrono::milliseconds(haveCalibratedFrame ? 2 : IDLE_SLEEP_MS));
             continue;
         }
 
@@ -228,7 +232,7 @@ void LocalVisionSource::inferenceLoop()
             if(m_detector.makePreview(rawMats, sequence, previewCamera(), preview)) publishPreview(std::move(preview));
         }
 
-        m_boardClear.store(result.boardClear, std::memory_order_release);
+        m_detections.publish(result.newDarts, result.collected);
 
         {
             std::lock_guard<std::mutex> lock(m_statusMutex);
@@ -247,15 +251,6 @@ void LocalVisionSource::inferenceLoop()
         }
 
         recordPreviewUpdate(true, true);
-
-        if(!result.newDarts.empty())
-        {
-            std::lock_guard<std::mutex> lock(m_eventMutex);
-            for(const DartDetection& d : result.newDarts)
-            {
-                m_newDartEvents.emplace(d.angle, d.normalizedRadius);
-            }
-        }
     }
 }
 
@@ -299,36 +294,6 @@ void LocalVisionSource::shutdown()
         m_buildState.store(BuildState::Idle, std::memory_order_release);
         LOG_INFO(VISION_LOG_ID, "LocalVisionSource shut down");
     }
-}
-
-
-// ============================================================================
-// Per-frame hook — drains events queued by the inference thread
-// ============================================================================
-
-void LocalVisionSource::tick(float deltaTime)
-{
-    (void)deltaTime;
-
-    std::queue<std::pair<float, float>> drained;
-    {
-        std::lock_guard<std::mutex> lock(m_eventMutex);
-        std::swap(drained, m_newDartEvents);
-    }
-
-    while(!drained.empty())
-    {
-        const auto& [angle, normR] = drained.front();
-        if(m_onDartLanded)             m_onDartLanded();
-        if(m_onDartPositionCalculated) m_onDartPositionCalculated(angle, normR);
-        drained.pop();
-    }
-}
-
-
-bool LocalVisionSource::isBoardClear() const
-{
-    return m_boardClear.load(std::memory_order_acquire);
 }
 
 

@@ -24,6 +24,8 @@ void test_give_up()
     assert(p.strokes[0]==STROKE_CAP && p.finishedHole[0] && p.holedOut[0]);
     assert(!b2Body_IsValid(oldBody) && !b2Body_IsValid(p.ballBody));
     assert(!p.pendingReturn && p.hazardTimer==0 && p.destructionTimer==0 && p.trail.empty());
+    assert(g.m_waitingForCollect && g.m_currentPlayer==0);
+    g.onDartsCollected();
     assert(g.m_currentPlayer==1 && g.m_players[1].strokes[0]==0);
     g.update(0.01f);
     assert(g.m_players[1].strokes[0]==0); // No queued dart leaks into the new turn.
@@ -32,6 +34,8 @@ void test_give_up()
     manager.handlePauseClick(960,540,1); // Four rows: second row is Give up.
     assert(!manager.m_paused);
     manager.m_currentGame.reset();
+    assert(g.m_waitingForCollect);
+    g.onDartsCollected();
     assert(g.m_phase==Phase::HoleTransition && g.m_throwsRemainingInTurn==0);
     assert(g.getPauseActions().empty());
     g.onPauseAction(0); // No repeated retirement during transition.

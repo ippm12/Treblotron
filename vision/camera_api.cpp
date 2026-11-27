@@ -348,13 +348,15 @@ static void captureLoop(CameraSlot* slot)
             // decoded BGR, and misreading that as JPEG would ship garbage.
             if(looksLikeJpeg(frame))
             {
+                bool wasActive;
                 {
                     std::lock_guard<std::mutex> lock(slot->frameMutex);
                     slot->latestCompressed.assign(frame.data,
                                                   frame.data + frame.total() * frame.elemSize());
+                    wasActive = slot->passthroughActive.exchange(true, std::memory_order_acq_rel);
+                    slot->frameSeq.fetch_add(1, std::memory_order_release);
                 }
-                slot->frameSeq.fetch_add(1, std::memory_order_release);
-                if(!slot->passthroughActive.exchange(true, std::memory_order_acq_rel))
+                if(!wasActive)
                 {
                     LOG_INFO(VISION_LOG_ID,
                              "Camera {} passthrough active — forwarding the sensor's own "
@@ -419,6 +421,9 @@ static void captureLoop(CameraSlot* slot)
             {
                 std::lock_guard<std::mutex> lock(slot->frameMutex);
                 slot->latestRaw = rgb.clone();
+#ifdef TREBLOTRON_PASSTHROUGH_CAPTURE
+                slot->passthroughActive.store(false, std::memory_order_release);
+#endif
 #ifndef TREBLOTRON_HAVE_LOCAL_INFERENCE
                 if(haveWarp)
                 {
@@ -432,8 +437,8 @@ static void captureLoop(CameraSlot* slot)
                 // race a reader that's still mid-memcpy.
                 slot->latestSegPlane = segPlane.clone();
 #endif
+                slot->frameSeq.fetch_add(1, std::memory_order_release);
             }
-            slot->frameSeq.fetch_add(1, std::memory_order_release);
         }
 
         slot->timings.nextFrame();
@@ -753,27 +758,24 @@ static bool copyFrameOut(const cv::Mat& src, CameraFrame& outFrame)
 
 
 #ifdef TREBLOTRON_PASSTHROUGH_CAPTURE
-bool getCameraCompressedFrame(uint32_t index, std::vector<uint8_t>& out)
+bool getCameraCompressedFrame(uint32_t index, std::vector<uint8_t>& out, uint64_t& sequence)
 {
     if(index >= f_cameraCount.load(std::memory_order_acquire)) return false;
 
     CameraSlot& slot = *f_cameras[index];
 
-    if(slot.passthroughActive.load(std::memory_order_acquire))
-    {
-        std::lock_guard<std::mutex> lock(slot.frameMutex);
-        if(slot.latestCompressed.empty()) return false;
-        out = slot.latestCompressed;   // already JPEG — nothing to do
-        return true;
-    }
-
-    // Fallback for a driver that wouldn't hand over raw MJPEG: encode from the
-    // decoded frame, which is exactly what the client used to do unconditionally.
     cv::Mat rgb;
     {
         std::lock_guard<std::mutex> lock(slot.frameMutex);
+        sequence = slot.frameSeq.load(std::memory_order_relaxed);
+        if(slot.passthroughActive.load(std::memory_order_relaxed))
+        {
+            out = slot.latestCompressed;
+            return !out.empty();
+        }
         rgb = slot.latestRaw;
     }
+    // Encode outside the lock for drivers that deliver decoded frames.
     if(rgb.empty()) return false;
 
     cv::Mat bgr;
@@ -860,7 +862,7 @@ bool getCameraWarpedFrame(uint32_t index, CameraFrame& outFrame)
 
 
 #ifdef TREBLOTRON_HAVE_LOCAL_INFERENCE
-bool getInferenceCameraFrame(uint32_t index, cv::Mat& rgb, cv::Mat& segPlane)
+bool getInferenceCameraFrame(uint32_t index, cv::Mat& rgb, cv::Mat& segPlane, uint64_t& sequence)
 {
     if(index >= f_cameraCount.load(std::memory_order_acquire)) return false;
     CameraSlot& slot = *f_cameras[index];
@@ -868,6 +870,7 @@ bool getInferenceCameraFrame(uint32_t index, cv::Mat& rgb, cv::Mat& segPlane)
     // Both buffers are immutable, reference-counted snapshots of one exposure.
     rgb = slot.latestRaw;
     segPlane = slot.latestSegPlane;
+    sequence = slot.frameSeq.load(std::memory_order_relaxed);
     return !rgb.empty();
 }
 

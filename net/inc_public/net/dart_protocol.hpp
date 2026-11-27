@@ -38,6 +38,7 @@
 #define NET_DART_PROTOCOL_HPP
 
 #include "common_inc.hpp"
+#include "dart/dart_detection.hpp"
 #include "detect/dart_preview.hpp"
 #include "detect/dart_tuning.hpp"
 #include "net/net_socket.hpp"
@@ -185,10 +186,11 @@ struct DartDetectionMsg
     uint32_t sequence   = 0;   // echoes the DartFrames it was computed from
     bool     boardClear = true;
 
-    struct Dart { float angle; float normalizedRadius; };
-    std::vector<Dart> darts;
+    std::vector<DartDetection> darts;
 
     std::string status;
+    // Older v5 servers omit this trailing field.
+    std::optional<bool> collected;
 };
 
 

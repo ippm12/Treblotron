@@ -14,7 +14,6 @@
 #include "game_lib/components/render_image.hpp"
 #include "games/main_menu.hpp"
 #include "players/players.hpp"
-#include "vision/vision.hpp"
 
 #include <SDL3/SDL_keycode.h>
 #include <SDL3/SDL_keyboard.h>
@@ -407,13 +406,6 @@ void DartfleetGame::update(float deltaTime)
                 hasPos = popDartPosition(pos);
             }
 
-            // Volley ended cleanly (no game-over) — wait for darts to be
-            // collected, then hand off to the other team.
-            if(m_phase == DartfleetPhase::PlayerTurn
-            && m_waitingForCollect && isBoardClear())
-            {
-                advanceTurn();
-            }
             break;
         }
 
@@ -893,6 +885,12 @@ void DartfleetGame::processDart(const DartPosition& pos)
     // the next team takes over.
     m_waitingForCollect = true;
     m_statusText        = "Waiting for Throw";
+}
+
+
+void DartfleetGame::onDartsCollected()
+{
+    if(m_phase == DartfleetPhase::PlayerTurn) advanceTurn();
 }
 
 

@@ -94,27 +94,37 @@ Status SimVisionSource::init()
 
 void SimVisionSource::tick(float deltaTime)
 {
-    // Process pending throws
-    for(auto it = m_pendingThrows.begin(); it != m_pendingThrows.end(); )
+    if(!m_pendingInputs.empty() && !m_pendingInputs.front())
     {
-        it->delayRemaining -= deltaTime;
-        if(it->delayRemaining <= 0.0f)
-        {
-            // Fire position callback
-            if(m_onDartPositionCalculated)
-            {
-                m_onDartPositionCalculated(it->angle, it->normalizedRadius);
-            }
+        m_pendingInputs.pop_front();
+        m_board.unhighlightAll();
+        m_markers.clear();
+        render();
+        if(m_onDartsCollected) m_onDartsCollected();
+        return;
+    }
 
-            // Move to visual markers
-            m_markers.push_back({ it->clickX, it->clickY });
-
-            it = m_pendingThrows.erase(it);
-        }
-        else
+    // Only release inputs for the current turn. A click on Collect while the
+    // last position is still resolving must leave that throw with its player.
+    for(auto& pending : m_pendingInputs)
+    {
+        if(!pending) break;
+        if(!pending->landed)
         {
-            ++it;
+            pending->landed = true;
+            if(m_onDartLanded) m_onDartLanded();
+            const auto segment = polarToSegment(pending->angle, pending->normalizedRadius);
+            if(segment) m_board.highlightSegment(*segment);
         }
+        pending->delayRemaining -= deltaTime;
+    }
+    while(!m_pendingInputs.empty() && m_pendingInputs.front())
+    {
+        const auto& dart = *m_pendingInputs.front();
+        if(dart.delayRemaining > 0.0f) break;
+        if(m_onDartPositionCalculated) m_onDartPositionCalculated(dart.angle, dart.normalizedRadius);
+        m_markers.push_back({ dart.clickX, dart.clickY });
+        m_pendingInputs.pop_front();
     }
 
     // Render the sim window
@@ -167,24 +177,6 @@ void SimVisionSource::onBoardClicked(FrameID /* frameId */, float mouseX, float 
         return;
     }
 
-    // Board is no longer clear
-    m_boardClear = false;
-
-    // Fire immediate dart-landed callback
-    if(m_onDartLanded)
-    {
-        m_onDartLanded();
-    }
-
-    // Determine segment for visual highlighting
-    auto segment = polarToSegment(angle, normRadius);
-    DartSegment seg = segment.value_or(DartSegment::OUTER_BULL); // Shouldn't happen since we checked bounds
-
-    if(segment.has_value())
-    {
-        m_board.highlightSegment(seg);
-    }
-
     // Queue the pending throw
     PendingThrow pending;
     pending.angle            = angle;
@@ -192,8 +184,7 @@ void SimVisionSource::onBoardClicked(FrameID /* frameId */, float mouseX, float 
     pending.delayRemaining   = m_positionDelay;
     pending.clickX           = mouseX;
     pending.clickY           = mouseY;
-    pending.segment          = seg;
-    m_pendingThrows.push_back(pending);
+    m_pendingInputs.push_back(pending);
 
     LOG_INFO(VISION_LOG_ID, "Dart clicked at ({}, {}), angle={:.1f}, radius={:.3f}",
              mouseX, mouseY, angle, normRadius);
@@ -221,11 +212,9 @@ bool SimVisionSource::mapClickToPolar(float mouseX, float mouseY, float& outAngl
 
 void SimVisionSource::onCollectDartsClicked()
 {
-    // Always raise the reset request, even when the board is already
-    // clear. That lets the player end a turn from the sim with no darts
-    // on the board (e.g. they want to skip remaining throws as misses).
-    m_resetRequested = true;
-    resetDarts();
+    // Also enqueue a gesture on an empty board after bounce-outs.
+    if(m_pendingInputs.empty() || m_pendingInputs.back())
+        m_pendingInputs.push_back(std::nullopt);
 }
 
 
@@ -233,24 +222,9 @@ void SimVisionSource::resetDarts()
 {
     m_board.unhighlightAll();
     m_markers.clear();
-    m_pendingThrows.clear();
-    m_boardClear = true;
+    m_pendingInputs.clear();
 
     LOG_INFO(VISION_LOG_ID, "Darts collected");
-}
-
-
-bool SimVisionSource::isBoardClear() const
-{
-    return m_boardClear;
-}
-
-
-bool SimVisionSource::consumeBoardResetRequest()
-{
-    bool was = m_resetRequested;
-    m_resetRequested = false;
-    return was;
 }
 
 

@@ -228,12 +228,13 @@ bool dartSendDetection(NetSocket& sock, const DartDetectionMsg& msg)
     w.u32(msg.sequence);
     w.u8(msg.boardClear ? 1 : 0);
     w.u32(static_cast<uint32_t>(msg.darts.size()));
-    for(const DartDetectionMsg::Dart& d : msg.darts)
+    for(const DartDetection& d : msg.darts)
     {
         w.f32(d.angle);
         w.f32(d.normalizedRadius);
     }
     w.str(msg.status);
+    if(msg.collected.has_value()) w.u8(*msg.collected ? 1 : 0);
     return sendFramed(sock, DartMsg::Detection, w);
 }
 
@@ -443,12 +444,13 @@ bool dartParseDetection(const std::vector<uint8_t>& payload, DartDetectionMsg& o
     out.darts.reserve(count);
     for(uint32_t i = 0; i < count; i++)
     {
-        DartDetectionMsg::Dart d{};
+        DartDetection d{};
         d.angle            = r.f32();
         d.normalizedRadius = r.f32();
         out.darts.push_back(d);
     }
     out.status = r.str();
+    out.collected = r.pos < r.n ? std::optional<bool>(r.u8() != 0) : std::nullopt;
     return r.ok;
 }
 
